@@ -1,0 +1,8 @@
+[gd_resource type="PlaneMesh" format=3 uid="uid://enn723a8bp5i"]
+
+[resource]
+lightmap_size_hint = Vector2i(252, 252)
+add_uv2 = true
+size = Vector2(50, 50)
+subdivide_width = 150
+subdivide_depth = 150

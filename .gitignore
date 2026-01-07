@@ -1,0 +1,48 @@
+# Godot 4+ specific ignores
+.godot/
+.import/
+export.cfg
+export_presets.cfg
+
+# Imported translations (automatically generated from CSV files)
+*.translation
+
+# Mono/C# builds
+.mono/
+.vscode/
+*.csproj
+*.sln
+*.solution
+
+# Godot debug and cache
+logs/
+*.log
+
+# Export builds
+*_export/
+*.pck
+*.exe
+*.zip
+*.apk
+*.aab
+*.app
+*.dmg
+*.x86_64
+*.x86
+*.wasm
+
+# Large binary source files (optional, uncomment if you want to exclude source assets)
+# *.psd
+# *.kra
+# *.clip
+# *.blend1
+# *.bak
+
+# OS specific
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Temporary files
+*.tmp
+*~
