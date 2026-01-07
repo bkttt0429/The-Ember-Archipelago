@@ -100,16 +100,10 @@ func _get_displacement_noise(p: Vector3) -> Vector3:
 		var theta = polar.y
 		
 		# Match Shader UV logic:
-		# float u = r * (1.0 / 20.0); 
-		# float v = (theta / (2.0 * PI)) * 4.0 + (sync_time * waterspout_spiral_strength * 0.01); 
-		var u = r * (1.0 / 20.0) * 100.0 # Scale up for FastNoiseLite (arbitrary visual matching)
-		# Note: FastNoiseLite frequency is 0.0194 (~1/50). 
-		
+		var u = r * (1.0 / 20.0) * 100.0 
 		var v_scroll = _time * waterspout_spiral_strength * 2.0
 		var v = (theta / (2.0 * PI)) * 400.0 + v_scroll
 		
-		# Sample Noise at (u, v)
-		# We map radial coords to noise space
 		var n1_vortex = (noise1.get_noise_2d(u, v) + 1.0) * 0.5
 		var n2_vortex = (noise2.get_noise_2d(u + 50.0, v * 0.9 + 30.0) + 1.0) * 0.5
 		
@@ -124,14 +118,8 @@ func _get_displacement_noise(p: Vector3) -> Vector3:
 	h_final *= height_scale
 	
 	var disp = Vector3(0.0, h_final, 0.0)
-
-func _cartesian_to_polar(cartesian: Vector2, center: Vector2) -> Vector2:
-	var rel = cartesian - center
-	var r = rel.length()
-	var theta = atan2(rel.y, rel.x)
-	return Vector2(r, theta)
 	
-	# APPLY WATERSPOUT
+	# APPLY WATERSPOUT (Depth)
 	var dist_to_spout = Vector2(p.x, p.z).distance_to(Vector2(waterspout_pos.x, waterspout_pos.z))
 	if dist_to_spout < waterspout_radius:
 		var spout_m = 1.0 
@@ -139,3 +127,9 @@ func _cartesian_to_polar(cartesian: Vector2, center: Vector2) -> Vector2:
 		disp.y -= depth
 		
 	return disp
+
+func _cartesian_to_polar(cartesian: Vector2, center: Vector2) -> Vector2:
+	var rel = cartesian - center
+	var r = rel.length()
+	var theta = atan2(rel.y, rel.x)
+	return Vector2(r, theta)

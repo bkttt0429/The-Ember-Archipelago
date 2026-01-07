@@ -70,7 +70,7 @@ light_energy = 2.0
 shadow_enabled = true
 
 [node name="FloatingBox" parent="." instance=ExtResource("5_box")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 5, 2.9679165)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.23555183, 4.999999, 12.801153)
 
 [node name="StylizedShip" parent="." instance=ExtResource("10_ship")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -18.43615, 2.85338, 51.72168)
@@ -98,4 +98,4 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, -2.6)
 script = ExtResource("6_detector")
 
 [node name="Camera3D" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0.8239777, 0.5666222, 0, -0.5666222, 0.8239777, -1.4164143, 28.536655, 71.32292)
+transform = Transform3D(1, 0, 0, 0, 0.8239777, 0.5666222, 0, -0.5666222, 0.8239777, -1.6862583, 18.445538, 22.7705)

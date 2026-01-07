@@ -83,6 +83,7 @@ uniform sampler2D foam : repeat_enable;
 
 // for proper use, set this to a SubViewport that only draws where it 
 uniform sampler2D foam_mask : filter_nearest_mipmap; 
+uniform sampler2D vortex_texture : repeat_enable; 
 
 uniform float foam_mask_size; // MUST be set to the size of the orthographic foam mask camera's size
 uniform vec2 foam_mask_offset = vec2(0, 0); // used to adjust for errors in the foam lineup
