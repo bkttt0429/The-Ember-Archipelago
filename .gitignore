@@ -3,11 +3,11 @@
 .import/
 export.cfg
 export_presets.cfg
-export_presets.cfg
 
 # Heavy assets to ignore
 Reference/
 addons/
+Assets/
 
 # Imported translations (automatically generated from CSV files)
 *.translation
@@ -36,12 +36,12 @@ logs/
 *.x86
 *.wasm
 
-# Large binary source files (optional, uncomment if you want to exclude source assets)
-# *.psd
-# *.kra
-# *.clip
-# *.blend1
-# *.bak
+# Large binary source files (source assets)
+*.psd
+*.kra
+*.clip
+*.blend1
+*.bak
 
 # OS specific
 .DS_Store

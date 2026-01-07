@@ -16,11 +16,11 @@ uniform float sync_time;
 group_uniforms Visual_Overhaul;
 // Low-Poly 海水风格：硬边、Flat Shading、清晰的色彩分层
 // 修复：调整颜色和深度阈值，避免过浅
-uniform vec3 shallow_color : source_color = vec3(0.15, 0.55, 0.75); // 海蓝偏绿（修复：从 0.4,0.8,1.0 降低）
-uniform vec3 mid_color : source_color = vec3(0.05, 0.35, 0.55); // 深海蓝（修复：从 0.1,0.5,0.8 降低）
-uniform vec3 deep_color : source_color = vec3(0.0, 0.15, 0.35); // 深海深蓝（修复：从 0.0,0.2,0.4 降低）
-uniform float depth_band_1 : hint_range(0.0, 20.0) = 5.0; // 浅水区域（修复：从 2.0 → 5.0）
-uniform float depth_band_2 : hint_range(0.0, 50.0) = 15.0; // 深水区域（修复：从 6.0 → 15.0）
+uniform vec3 shallow_color : source_color = vec3(0.25, 0.7, 0.85); // 提亮浅水，更通透
+uniform vec3 mid_color : source_color = vec3(0.1, 0.45, 0.65); // 提亮中水，避免过黑
+uniform vec3 deep_color : source_color = vec3(0.05, 0.25, 0.45); // 提亮深水，呈现高级深蓝而非黑
+uniform float depth_band_1 : hint_range(0.0, 20.0) = 5.0; 
+uniform float depth_band_2 : hint_range(0.0, 50.0) = 15.0;
 
 uniform vec3 foam_outer_color : source_color = vec3(0.9, 0.95, 1.0); // 白色泡沫（Low-Poly 风格）
 uniform float foam_outer_extent : hint_range(0.0, 1.0) = 0.2;
@@ -274,8 +274,8 @@ void fragment() {
 		vec4 world_pos = INV_VIEW_MATRIX * view_pos;
 		depth_diff = abs(world_pos.y - v_world_pos.y);
 	} else {
-		// 如果没有有效深度（天空或无限远），使用默认浅水
-		depth_diff = depth_band_1 * 0.5;
+		// 如果没有有效深度（天空或无限远），视为深海
+		depth_diff = depth_band_2 * 2.0;
 	}
 	
 	// 确保深度值有效
@@ -372,14 +372,13 @@ void fragment() {
 	}
 	
 	// 确保海水颜色不为黑色（最小亮度保护）
-	float min_brightness = 0.15; // 海水应该有一定亮度
-	float brightness = dot(final_albedo, vec3(0.299, 0.587, 0.114));
-	if (brightness < min_brightness) {
-		final_albedo = mix(vec3(0.1, 0.3, 0.5), final_albedo, brightness / min_brightness); // 混合到海水蓝
-	}
+	// 移除强制提亮逻辑，允许深海呈现暗色
+	// float min_brightness = 0.15;
+	// float brightness = dot(final_albedo, vec3(0.299, 0.587, 0.114));
+	// if (brightness < min_brightness) ...
 	
 	ALBEDO = final_albedo;
-	ROUGHNESS = 0.8; // Flat Shading：高粗糙度（低反射，符合 Low-Poly 风格）
+	ROUGHNESS = 1.0; // 消光质感：完全粗糙，无湿润反光
 	
 	// The Last Night 风格：硬边 Fresnel（可选）
 	// float fresnel = step(0.7, 1.0 - dot(NORMAL, VIEW)); // 硬边反射
@@ -396,16 +395,16 @@ void light() {
 	float diff = floor(diff_raw * toon_levels) / toon_levels;
 	diff = step(0.05, diff); // Low-Poly：更低的阈值，确保有光照
 	
-	// 基础环境光（海水应该有一定亮度）
-	float ambient = 0.4; // 海水环境光（比之前更亮）
+	// 基础环境光（提升环境亮度，营造柔和感）
+	float ambient = 0.35; 
 	diff = max(diff, ambient);
 	
-	// Flat Shading：统一的光照强度
-	DIFFUSE_LIGHT += ALBEDO * LIGHT_COLOR * diff * 1.3;
+	// Flat Shading：柔和光照
+	DIFFUSE_LIGHT += ALBEDO * LIGHT_COLOR * diff * 1.0;
 	
-	// 硬边高光（Low-Poly 风格：清晰的高光）
+	// 消光高光（Matte）：非常微弱且柔和的高光，仅用于提示体积
 	vec3 H = normalize(VIEW + LIGHT);
 	float NdotH = dot(NORMAL, H);
-	float spec = step(0.85, pow(NdotH, 24.0)); // 硬边高光
-	SPECULAR_LIGHT += LIGHT_COLOR * spec * ATTENUATION * 1.2; // 适中的高光强度
+	float spec = step(0.9, NdotH); // 缩小高光范围
+	SPECULAR_LIGHT += LIGHT_COLOR * spec * ATTENUATION * 0.1; // 极低强度，避免由于反光造成的"油腻感"
 }
