@@ -77,6 +77,9 @@ func _apply_waterspout_forces(body: RigidBody3D, _delta: float):
 		
 	var dir_to_center = to_center.normalized()
 	
+	if not dir_to_center.is_finite():
+		return
+	
 	# 1. Attraction Force (Pull towards center)
 	body.apply_central_force(dir_to_center * attraction_strength)
 	

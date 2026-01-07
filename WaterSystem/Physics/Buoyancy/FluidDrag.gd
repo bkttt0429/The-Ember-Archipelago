@@ -31,6 +31,13 @@ func _physics_process(delta: float):
 	if not enabled or not parent_body:
 		return
 	
+	# Global Safety Check: If parent velocity is insane, reset it or skip
+	if not parent_body.linear_velocity.is_finite() or not parent_body.angular_velocity.is_finite():
+		push_warning("FluidDrag: Parent body velocity invalid (NaN/Inf). Resetting.")
+		parent_body.linear_velocity = Vector3.ZERO
+		parent_body.angular_velocity = Vector3.ZERO
+		return
+
 	apply_linear_drag()
 	apply_angular_drag()
 
@@ -109,14 +116,24 @@ func apply_roll_drag():
 
 func calculate_drag(area: float, velocity: float, drag_coef: float) -> float:
 	# 阻力公式：F = 0.5 * ρ * v² * A * Cd
+	if not is_finite(velocity):
+		return 0.0
+	
 	var drag_magnitude = 0.5 * WATER_MASS_DENSITY * velocity * abs(velocity) * area * drag_coef
-	return drag_magnitude
+	
+	# Clamp to reasonable maximum (e.g. 100,000 N) to prevent explosions
+	return clamp(drag_magnitude, -100000.0, 100000.0)
 
 func calculate_drag_torque(area: float, length: float, angular_velocity: float, drag_coef: float) -> float:
 	# 角阻力：T = 0.5 * ρ * ω² * A * L * 0.25 * Cd
 	# 0.25 是平均力臂系数
+	if not is_finite(angular_velocity):
+		return 0.0
+		
 	var torque_magnitude = 0.5 * WATER_MASS_DENSITY * angular_velocity * abs(angular_velocity) * area * drag_coef * length * 0.25
-	return torque_magnitude
+	
+	# Clamp torque
+	return clamp(torque_magnitude, -50000.0, 50000.0)
 
 func estimate_cross_section(body: RigidBody3D, direction: Vector3) -> float:
 	# 估算物体在给定方向上的横截面积

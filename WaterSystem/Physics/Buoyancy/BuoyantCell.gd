@@ -71,6 +71,8 @@ func apply_force_on_cell(_delta: float) -> void:
 	else:
 		# 不使用 LOD：根据速度调整迭代次数
 		var speed = parent_body.linear_velocity.length()
+		if not is_finite(speed): speed = 0.0
+		
 		var iterations = 1
 		if speed > 10.0:
 			iterations = 5
@@ -78,6 +80,11 @@ func apply_force_on_cell(_delta: float) -> void:
 			iterations = 3
 		wave_height = water_manager.get_wave_height(global_position, iterations)
 	
+	if not is_finite(wave_height):
+		wave_height = global_position.y # Pretend water is at obj level? Or just 0.
+		# Safer to assume no water interaction if calc failed
+		return
+
 	var depth: float = wave_height - global_position.y
 	
 	var gravity_vec = ProjectSettings.get_setting("physics/3d/default_gravity_vector") 
@@ -90,9 +97,14 @@ func apply_force_on_cell(_delta: float) -> void:
 		var displaced_mass = fluid_density_kg_per_m3 * volume * submerged_fraction
 		var f_buoyancy: Vector3 = displaced_mass * -gravity
 		
+		# Validation
+		if not f_buoyancy.is_finite():
+			return
+
 		# Apply Buoyancy
 		var force_location = parent_body.global_transform.basis * position
-		parent_body.apply_force(f_buoyancy, force_location)
+		if force_location.is_finite():
+			parent_body.apply_force(f_buoyancy, force_location)
 		
 	# Apply Gravity (if enabled per cell)
 	if calc_f_gravity:
