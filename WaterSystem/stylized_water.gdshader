@@ -451,7 +451,7 @@ void fragment() {
 	float rip_val = texture(ripple_map, r_uv).r;
 	// If ripple is high/steep, lighten the color (fake crest)
 	float rip_highlight = smoothstep(0.1, 0.3, abs(rip_val));
-	ALBEDO = mix(ALBEDO, foam_color, rip_highlight * 0.5);
+	ALBEDO = mix(ALBEDO, foam_color, rip_highlight * 0.2); // Reduced from 0.5 to prevent blowout
 
 	ALBEDO = mix(ALBEDO, foam_color_final, foam_mix * 0.9);
 
