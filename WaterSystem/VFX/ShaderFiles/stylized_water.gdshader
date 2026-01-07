@@ -1,37 +1,52 @@
 /*
-	Pixel Water Shader by: Taillight Games - contact@taillight.games
-	Optimized and Modified for The Ember Archipelago
-	MIT License
+	Stylized Water Shader - Refactored for "The Last Night" Aesthetic
+	Optimized with Domain Warping & FBM for Natural Layering
+	Technical Artist Revision 2.0
 */
 
 shader_type spatial;
-// 优化：符合 DesignRules - Low-Poly Flat Shading (平面着色)
-// Flat Shading：每个面统一颜色，硬边光照
 render_mode cull_disabled, depth_draw_always, diffuse_toon, specular_toon;
 
-// --- Physical Context ---
-uniform float sync_time; 
+// --- Uniforms ---
+uniform float sync_time;
 
-// --- Visual Overhaul (符合 DesignRules: Low-Poly Flat Shading 海水风格) ---
 group_uniforms Visual_Overhaul;
-// Low-Poly 海水风格：硬边、Flat Shading、清晰的色彩分层
-// 修复：调整颜色和深度阈值，避免过浅
-uniform vec3 shallow_color : source_color = vec3(0.25, 0.7, 0.85); // 提亮浅水，更通透
-uniform vec3 mid_color : source_color = vec3(0.1, 0.45, 0.65); // 提亮中水，避免过黑
-uniform vec3 deep_color : source_color = vec3(0.05, 0.25, 0.45); // 提亮深水，呈现高级深蓝而非黑
-uniform float depth_band_1 : hint_range(0.0, 20.0) = 5.0; 
+uniform vec3 shallow_color : source_color = vec3(0.25, 0.7, 0.85);
+uniform vec3 mid_color : source_color = vec3(0.1, 0.45, 0.65);
+uniform vec3 deep_color : source_color = vec3(0.05, 0.25, 0.45);
+uniform float depth_band_1 : hint_range(0.0, 20.0) = 5.0;
 uniform float depth_band_2 : hint_range(0.0, 50.0) = 15.0;
 
-uniform vec3 foam_outer_color : source_color = vec3(0.9, 0.95, 1.0); // 白色泡沫（Low-Poly 风格）
+uniform vec3 foam_outer_color : source_color = vec3(0.9, 0.95, 1.0);
 uniform float foam_outer_extent : hint_range(0.0, 1.0) = 0.2;
-uniform float color_saturation : hint_range(0.0, 2.0) = 1.2; // 适中的饱和度（海水风格）
+uniform float color_saturation : hint_range(0.0, 2.0) = 1.0;
+uniform float contrast : hint_range(0.5, 2.0) = 1.0;
+uniform float color_bands : hint_range(1.0, 8.0) = 1.0;
+uniform float shimmer_intensity : hint_range(0.0, 5.0) = 1.2;
 
-// Low-Poly Flat Shading 风格参数
-uniform float contrast : hint_range(0.5, 2.0) = 1.0; // 对比度（默认 1.0 = 无效果）
-uniform float color_bands : hint_range(1.0, 8.0) = 1.0; // 色彩阶数（默认 1.0 = 无量化）
-uniform float shimmer_intensity : hint_range(0.0, 2.0) = 0.8; // 闪烁强度（海水风格：适中）
+group_uniforms Wave_System_FBM;
+uniform float wave_speed = 0.1;
+uniform float height_scale = 1.0;
+uniform float roughness : hint_range(0.0, 1.0) = 0.4;
+uniform vec2 flow_direction = vec2(1.0, 0.0);
 
-// --- Waterspout (Prompt B + Realism Enhancement) ---
+// Domain Warping (打破规律性)
+uniform float warp_strength : hint_range(0.0, 5.0) = 1.0;
+uniform float warp_scale : hint_range(0.0, 0.2) = 0.05;
+
+// Layered Noise (自然层次)
+uniform sampler2D vertex_noise_big : repeat_enable; // Reverted name to match Material
+uniform float noise_scale_base : hint_range(0.0, 0.2) = 0.04;
+uniform float noise_amp_base : hint_range(0.0, 5.0) = 1.5;
+uniform float noise_scale_detail : hint_range(0.0, 0.5) = 0.15;
+uniform float noise_amp_detail : hint_range(0.0, 2.0) = 0.5;
+uniform float noise_scale_micro : hint_range(0.0, 1.0) = 0.4;
+uniform float noise_amp_micro : hint_range(0.0, 1.0) = 0.2;
+
+// Shaping (波形塑形)
+uniform float wave_peak_power : hint_range(1.0, 4.0) = 1.5; // 波峰尖锐度
+uniform float wave_trough_flatten : hint_range(0.0, 1.0) = 0.3; // 波谷平坦度
+
 group_uniforms Waterspout;
 uniform vec3 waterspout_pos = vec3(0.0);
 uniform float waterspout_radius = 5.0;
@@ -42,369 +57,238 @@ uniform float waterspout_foam_ring_inner : hint_range(0.0, 10.0) = 2.0;
 uniform float waterspout_foam_ring_outer : hint_range(0.0, 15.0) = 5.0;
 uniform float waterspout_darkness_factor : hint_range(0.0, 1.0) = 0.8;
 
-// --- Existing Uniforms Retained ---
-group_uniforms Basic;
-uniform float wave_speed = 0.18;  // 优化：从 0.05 增加到 0.18
-uniform float height_scale = 1.0;
-uniform float roughness : hint_range(0.0, 1.0) = 0.2;
-uniform vec2 flow_direction = vec2(1.0, 0.0);
-uniform float flow_speed = 0.5;
-uniform sampler2D vertex_noise_big : repeat_enable;
-uniform float ripple_height_scale = 0.1;
-
-group_uniforms Gerstner_Waves;
-uniform vec4 wave_a = vec4(1.0, 0.0, 0.15, 10.0);
-uniform vec4 wave_b = vec4(0.0, 1.0, 0.15, 20.0);
-uniform vec4 wave_c = vec4(0.7, 0.7, 0.1, 5.0);
-uniform vec4 wave_d = vec4(-0.5, 0.5, 0.08, 3.0);
-uniform vec4 wave_e = vec4(0.2, -0.8, 0.05, 1.5);
-
-group_uniforms foam;
+group_uniforms Foam_System;
 uniform vec3 foam_color : source_color = vec3(1.0);
 uniform float foam_opacity : hint_range(0.0, 1.0) = 0.6;
 uniform sampler2D foam_tex : repeat_enable;
-uniform float foam_crest_threshold : hint_range(0.0, 5.0) = 2.8;
+uniform float foam_crest_threshold : hint_range(0.0, 5.0) = 0.8; // 重新调整阈值以适应 FBM
 uniform float foam_crest_extent : hint_range(0.0, 1.0) = 0.2;
 uniform float foam_shore_threshold : hint_range(0.0, 2.0) = 0.25;
 uniform float foam_shore_extent : hint_range(0.0, 2.0) = 0.2;
 uniform sampler2D foam_mask : filter_nearest;
 uniform float foam_mask_size = 10.0;
+// Legacy uniforms kept to avoid script errors
+uniform float ripple_height_scale = 0.3;
+uniform vec4 wave_a; uniform vec4 wave_b; uniform vec4 wave_c; uniform vec4 wave_d; uniform vec4 wave_e;
 
 uniform vec3 sky_color : source_color;
-uniform sampler2D screen_texture : hint_screen_texture;
 uniform sampler2D depth_texture : hint_depth_texture;
+uniform sampler2D screen_texture : hint_screen_texture;
 
 varying float v_height;
 varying vec3 v_world_pos;
 varying vec3 v_normal;
+varying float v_noise_debug;
 
-// --- Helper Functions ---
-float remap(float in_low, float in_high, float out_low, float out_high, float value) {
-	return out_low + (value - in_low) * (out_high - out_low) / (in_high - in_low);
+// --- Math Helpers ---
+vec2 rotate_uv(vec2 uv, float angle) {
+	float s = sin(angle);
+	float c = cos(angle);
+	return vec2(uv.x * c - uv.y * s, uv.x * s + uv.y * c);
 }
 
-vec3 gerstner_wave(vec4 wave_params, vec3 p, float phase_offset) {
-	float steepness = wave_params.z;
-	float wavelength = wave_params.w;
-	float k = 2.0 * 3.14159 / wavelength;
-	float c = sqrt(9.8 / k);
-	vec2 d = normalize(wave_params.xy);
-	
-	// Perturb sampling position with noise to break perfect lines
-	float noise_p = texture(vertex_noise_big, p.xz * 0.02 + sync_time * 0.05).r * 2.0;
-	float f = k * (dot(d, p.xz + noise_p) - c * (sync_time + phase_offset) * wave_speed);
-	
-	float a = steepness / k;
-	return vec3(d.x * (a * cos(f)), a * sin(f), d.y * (a * cos(f)));
+// 获取噪声值 (0.0 to 1.0)
+float get_noise(vec2 uv) {
+	return texture(vertex_noise_big, uv).r;
 }
 
-// 优化：Gerstner 波的解析法线计算（单个波）
-// 返回法线的贡献（未归一化，height_scale 在最后统一应用）
-vec3 gerstner_wave_normal(vec4 wave_params, vec3 p, float phase_offset) {
-	float steepness = wave_params.z;
-	float wavelength = wave_params.w;
+// 核心：基于 FBM 和 Domain Warping 的位移函数
+float get_wave_height_fbm(vec3 p) {
+	vec2 base_uv = p.xz;
+	float time = sync_time * wave_speed;
 	
-	// 安全检查：避免除以零或无效波长
-	if (wavelength < 0.001) {
-		return vec3(0.0);
-	}
-	
-	float k = 2.0 * 3.14159 / wavelength;
-	float c = sqrt(9.8 / k);
-	
-	// 安全检查：避免归一化零向量
-	vec2 wave_dir = wave_params.xy;
-	float dir_len_sq = dot(wave_dir, wave_dir);
-	if (dir_len_sq < 0.000001) {
-		return vec3(0.0);
-	}
-	vec2 d = normalize(wave_dir);
-	
-	// 使用相同的 noise 扰动以保持一致性
-	float noise_p = texture(vertex_noise_big, p.xz * 0.02 + sync_time * 0.05).r * 2.0;
-	float f = k * (dot(d, p.xz + noise_p) - c * (sync_time + phase_offset) * wave_speed);
-	
-	// 安全检查：避免无效的 steepness
-	if (abs(k) < 0.0001) {
-		return vec3(0.0);
-	}
-	
-	float a = steepness / k;
-	
-	// 解析法线计算：对位移函数求偏导数
-	// 对于 Gerstner 波，法线的 xz 分量来自波的倾斜
-	// 法线 ≈ (-d.x * k * A * sin(f), 1 - k * A * cos(f), -d.y * k * A * sin(f))
-	// 注意：这里返回的是相对于垂直方向的偏移
-	vec3 normal_contrib = vec3(
-		-d.x * k * a * sin(f),
-		-k * a * cos(f),  // y 分量的变化（相对于 1.0）
-		-d.y * k * a * sin(f)
+	// 1. Domain Warping (坐标扭曲)
+	// 使用低频噪声来偏移采样坐标，打破网格感
+	vec2 warp_offset = vec2(
+		get_noise(base_uv * warp_scale + vec2(time * 0.5, time * 0.2)),
+		get_noise(base_uv * warp_scale - vec2(time * 0.3, time * 0.6))
 	);
+	vec2 warped_uv = base_uv + (warp_offset - 0.5) * warp_strength;
 	
-	// 安全检查：防止 NaN 或 Inf
-	if (any(isnan(normal_contrib)) || any(isinf(normal_contrib))) {
-		return vec3(0.0);
-	}
+	// 2. Layered Noise (三层 FBM)
+	float h = 0.0;
 	
-	return normal_contrib;
+	// Layer A: Base Swell (大浪)
+	// 调整：降低 noise_scale_base 以获得更大的波浪
+	float n1 = get_noise(warped_uv * 0.015 + vec2(time, time * 0.8));
+	// Shaping: Smoothstep 让波峰更圆润，pow 让波峰更尖
+	n1 = smoothstep(wave_trough_flatten, 1.0, n1); 
+	n1 = pow(n1, wave_peak_power);
+	h += (n1 - 0.5) * noise_amp_base;
+	
+	// Layer B: Detail (中层细节, 旋转角度以增加混乱感)
+	vec2 uv2 = rotate_uv(warped_uv, 1.0); // 旋转 1 弧度
+	float n2 = get_noise(uv2 * 0.05 - vec2(time * 1.5, 0.0));
+	n2 = smoothstep(0.2, 1.0, n2);
+	h += (n2 - 0.5) * noise_amp_detail;
+	
+	// Layer C: Micro (细碎波纹)
+	float n3 = get_noise(base_uv * 0.15 + vec2(0.0, time * 2.0)); // 不 Warp 保持细碎感
+	h += (n3 - 0.5) * noise_amp_micro;
+	
+	return h * height_scale;
 }
 
-vec3 get_displacement(vec3 p) {
-	vec3 disp = vec3(0.0);
-	disp += gerstner_wave(wave_a, p, 0.0);
-	disp += gerstner_wave(wave_b, p, 1.4);
-	disp += gerstner_wave(wave_c, p, 2.7);
-	disp += gerstner_wave(wave_d, p, 4.1);
-	disp += gerstner_wave(wave_e, p, 6.3);
+// 获取总位移，包含 Waterspout
+vec3 get_total_displacement(vec3 p) {
+	float h = get_wave_height_fbm(p);
 	
-	// APPLY GLOBAL SCALE
-	disp *= height_scale;
+	// Ripple Overlay (Simple noise add)
+	float ripples = texture(vertex_noise_big, p.xz * 0.2 + sync_time * 0.2).r * ripple_height_scale;
+	h += ripples;
 	
-	// Waterspout Displacement (Prompt B)
+	vec3 disp = vec3(0.0, h, 0.0);
+	
+	// Waterspout Displacement
 	float dist_to_spout = distance(p.xz, waterspout_pos.xz);
 	if (dist_to_spout < waterspout_radius * 2.0) {
 		float spout_m = 1.0 - step(waterspout_radius, dist_to_spout);
-		// Funnel downward
 		disp.y -= spout_m * waterspout_strength * (1.0 - dist_to_spout / waterspout_radius);
-		// Spin effect in vertex? Usually better in Frag but we can tilt normals here
 	}
 	
 	return disp;
 }
 
-// 优化：使用解析法线计算（替代有限差分）
-// 性能提升：减少 2 次 get_displacement() 调用
-vec3 get_normal_analytical(vec3 p) {
-	// 1. 计算所有 Gerstner 波的法线贡献
-	vec3 normal_sum = vec3(0.0, 1.0, 0.0); // 从垂直向上开始（y = 1.0）
+// 有限差分法计算法线 (Finite Difference)
+// 适用于无法解析求导的复杂 FBM 波形
+vec3 get_normal_finite(vec3 p) {
+	float e = 0.1; // 采样间距
+	vec3 p_c = get_total_displacement(p);
+	vec3 p_x = get_total_displacement(p + vec3(e, 0.0, 0.0));
+	vec3 p_z = get_total_displacement(p + vec3(0.0, 0.0, e));
 	
-	// 累加所有波的法线贡献
-	vec3 wave_normal = gerstner_wave_normal(wave_a, p, 0.0);
-	wave_normal += gerstner_wave_normal(wave_b, p, 1.4);
-	wave_normal += gerstner_wave_normal(wave_c, p, 2.7);
-	wave_normal += gerstner_wave_normal(wave_d, p, 4.1);
-	wave_normal += gerstner_wave_normal(wave_e, p, 6.3);
+	// 计算切线向量
+	vec3 tangent_x = vec3(e, p_x.y - p_c.y, 0.0);
+	vec3 tangent_z = vec3(0.0, p_z.y - p_c.y, e);
 	
-	// 应用 height_scale（统一应用）
-	wave_normal *= height_scale;
-	
-	// 组合到法线（y 分量是 1.0 + 变化）
-	normal_sum.x += wave_normal.x;
-	normal_sum.y += wave_normal.y; // y 从 1.0 开始，加上变化
-	normal_sum.z += wave_normal.z;
-	
-	// 2. 考虑 Ripples 对法线的影响（使用梯度采样）
-	// 因为 ripples 是 noise texture，我们需要采样梯度
-	float e = 0.1;
-	vec2 ripple_uv = p.xz * 0.05 + sync_time * 0.01;
-	float ripple_c = texture(vertex_noise_big, ripple_uv).r;
-	float ripple_r = texture(vertex_noise_big, ripple_uv + vec2(e, 0.0)).r;
-	float ripple_f = texture(vertex_noise_big, ripple_uv + vec2(0.0, e)).r;
-	
-	vec2 ripple_gradient = vec2(
-		(ripple_r - ripple_c) / e,
-		(ripple_f - ripple_c) / e
-	) * ripple_height_scale * 0.05; // 0.05 是 UV scale
-	
-	// 将 ripple 梯度添加到法线（ripple 增加高度，法线向下倾斜）
-	normal_sum.x -= ripple_gradient.x;
-	normal_sum.z -= ripple_gradient.y;
-	
-	// 3. 考虑 Waterspout 对法线的影响（简化处理）
-	float dist_to_spout = distance(p.xz, waterspout_pos.xz);
-	if (dist_to_spout < waterspout_radius * 2.0 && waterspout_strength > 0.01 && dist_to_spout > 0.001) {
-		// 安全检查：避免除以零（当距离太小时）
-		vec2 to_spout_dir = p.xz - waterspout_pos.xz;
-		float dist_sq = dot(to_spout_dir, to_spout_dir);
-		if (dist_sq > 0.000001) { // 避免归一化零向量
-			vec2 to_spout = normalize(to_spout_dir);
-			float spout_influence = smoothstep(waterspout_radius * 2.0, 0.0, dist_to_spout);
-			// Waterspout 会产生向内的法线倾斜
-			normal_sum.xz += to_spout * spout_influence * waterspout_strength * 0.1;
-		}
-	}
-	
-	// 安全检查：确保法线有效（防止 NaN）
-	float normal_len = length(normal_sum);
-	if (normal_len < 0.0001 || isnan(normal_len) || isinf(normal_len)) {
-		// 如果法线无效，返回默认向上法线
+	// 叉积得法线
+	vec3 normal_dir = cross(tangent_z, tangent_x);
+	float len = length(normal_dir);
+	if (len < 0.0001) {
 		return vec3(0.0, 1.0, 0.0);
 	}
-	
-	return normalize(normal_sum);
+	return normalize(normal_dir);
 }
 
 void vertex() {
 	v_world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-	vec3 disp = get_displacement(v_world_pos);
 	
-	// Add Noise Ripples
-	float ripples = texture(vertex_noise_big, v_world_pos.xz * 0.05 + sync_time * 0.01).r * ripple_height_scale;
-	disp.y += ripples;
-	
+	// 计算位移
+	vec3 disp = get_total_displacement(v_world_pos);
 	VERTEX += disp;
 	v_height = disp.y;
 	
-	// 优化：使用解析法线计算（减少 2 次 get_displacement() 调用）
-	vec3 computed_normal = get_normal_analytical(v_world_pos);
-	
-	// 最终安全检查：确保法线有效
-	if (any(isnan(computed_normal)) || any(isinf(computed_normal)) || length(computed_normal) < 0.1) {
-		// 回退到默认向上法线
-		computed_normal = vec3(0.0, 1.0, 0.0);
-	}
-	
-	NORMAL = computed_normal;
-	v_normal = NORMAL;
+	// 计算法线
+	v_normal = get_normal_finite(v_world_pos);
+	NORMAL = v_normal;
 }
 
 void fragment() {
-	// --- Depth Color Banding (The Last Night 风格：硬边、高对比) ---
-	// 修复：简化深度计算，避免复杂转换导致的问题
+	// --- Depth Color Logic (3-Band Hard Edge) ---
 	float depth_raw = texture(depth_texture, SCREEN_UV).r;
+	float depth_diff = depth_band_2 * 2.0; // 默认深海
 	
-	// 计算深度差（水面到海底的距离）
-	float depth_diff = 0.0;
-	if (depth_raw < 1.0) { // 有效深度值
+	if (depth_raw < 1.0) {
 		vec3 ndc = vec3(SCREEN_UV * 2.0 - 1.0, depth_raw);
 		vec4 view_pos = INV_PROJECTION_MATRIX * vec4(ndc, 1.0);
 		view_pos.xyz /= view_pos.w;
-		
-		// 计算水面到海底的距离
 		vec4 world_pos = INV_VIEW_MATRIX * view_pos;
 		depth_diff = abs(world_pos.y - v_world_pos.y);
-	} else {
-		// 如果没有有效深度（天空或无限远），视为深海
-		depth_diff = depth_band_2 * 2.0;
 	}
-	
-	// 确保深度值有效
 	depth_diff = clamp(depth_diff, 0.0, depth_band_2 * 2.0);
 	
-	// --- Low-Poly Flat Shading 风格：硬边色彩分离（海水） ---
-	// 1. 硬边色彩分层（符合 Flat Shading：每个区域统一颜色）
-	vec3 water_color = deep_color;
-	
-	// Low-Poly 风格：使用硬边 step，无平滑过渡
-	// 浅水：depth_diff < depth_band_1
-	// 中水：depth_band_1 <= depth_diff < depth_band_2  
-	// 深水：depth_diff >= depth_band_2
-	float is_shallow = step(depth_diff, depth_band_1); // 浅水 = 1
-	float is_mid = step(depth_band_1, depth_diff) * step(depth_diff, depth_band_2); // 中水 = 1
-	
-	// 硬边混合（Flat Shading：无渐变）
-	water_color = mix(water_color, mid_color * color_saturation, is_mid);
-	water_color = mix(water_color, shallow_color * color_saturation, is_shallow);
-	
-	// 2. 色彩量化（可选，Low-Poly 风格）
-	if (color_bands > 1.0) {
-		water_color = floor(water_color * color_bands) / color_bands;
+	// 3-Band Color Quantization
+	vec3 water_color;
+	if (depth_diff < depth_band_1) {
+		water_color = shallow_color; // 浅水带
+	} else if (depth_diff < depth_band_2) {
+		water_color = mid_color; // 中深带
+	} else {
+		water_color = deep_color; // 深水带
 	}
 	
-	// 3. 对比度（可选，保持海水自然感）
-	if (contrast > 1.0) {
-		water_color = (water_color - 0.5) * contrast + 0.5;
-		water_color = clamp(water_color, 0.0, 1.0);
-	}
+	// Apply saturation
+	vec3 grayscale = vec3(dot(water_color, vec3(0.299, 0.587, 0.114)));
+	water_color = mix(grayscale, water_color, color_saturation);
 	
-	// 2. Crest Foam Logic (Low-Poly 风格：硬边泡沫)
-	vec2 flow_offset = flow_direction * sync_time * flow_speed;
-	float crest_noise = texture(foam_tex, v_world_pos.xz * 0.05 + flow_offset).r;
+	// --- Flat Shading Geometry (Key Technique) ---
+	// 重算法线以获得"折纸"般的硬边几何感
+	// 注意：这会忽略 vertex shader 中的法线平滑，强制面法线
+	vec3 flat_normal = normalize(cross(dFdy(v_world_pos), dFdx(v_world_pos)));
+	NORMAL = flat_normal;
+
+	// --- Foam Logic (Dual-Layer Hard Edge) ---
+	// 动态调整泡沫阈值：基于波高和噪声
+	// 使用 Flat Normal 的向上分量检测陡峭度
+	float steepness_factor = clamp(1.0 - flat_normal.y, 0.0, 1.0); 
+	float height_factor = smoothstep(0.0, 1.0, v_height * 0.5 + 0.5);
 	
-	// 动态阈值
-	float peak_threshold = height_scale * 1.5; 
-	if (foam_crest_threshold > 0.1) peak_threshold = foam_crest_threshold;
+	// Foam Noise
+	vec2 flow_offset = flow_direction * sync_time * wave_speed;
+	float foam_noise = texture(foam_tex, v_world_pos.xz * 0.1 + flow_offset).r;
 	
-	// 适中的闪烁效果（海水风格：自然动态）
-	float pulse = 0.5 + 0.5 * sin(sync_time * 2.0 + v_world_pos.x * 0.5);
-	float shimmer = sin(sync_time * 3.0 + v_world_pos.x * 0.2 + v_world_pos.z * 0.3) * shimmer_intensity;
+	// Crest Foam Calculation
+	float crest_trigger = steepness_factor * 1.2 + height_factor * 0.6 + foam_noise * 0.4;
 	
-	// 硬边泡沫遮罩（Flat Shading：使用 step 创建硬边）
-	float crest_foam_mask = step(peak_threshold, v_height + crest_noise * 0.5 + pulse * 0.2 + shimmer * 0.1);
-	float crest_outer_mask = step(peak_threshold - foam_crest_extent, v_height + crest_noise * 0.5 + pulse * 0.2 + shimmer * 0.1) * (1.0 - crest_foam_mask);
+	// Dual-Layer Steps
+	// Layer 1 (Outer): 较宽，稍暗或半透明
+	float is_crest_outer = step(foam_crest_threshold - 0.3, crest_trigger); // 阈值较低
+	// Layer 2 (Inner): 核心，纯白
+	float is_crest_core = step(foam_crest_threshold, crest_trigger); // 阈值较高
 	
+	// Exclude inner from outer for layering logic if needed, or just overlay
+	float is_crest_only_outer = is_crest_outer * (1.0 - is_crest_core);
+	
+	// Shore Foam
+	float is_shore = 1.0 - step(foam_shore_threshold, depth_diff + foam_noise * foam_shore_extent);
+
+	// --- Visuals ---
 	vec3 final_albedo = water_color;
 	
+	// Apply Shore Foam
+	final_albedo = mix(final_albedo, foam_color, is_shore * foam_opacity);
+	
+	// Apply Dual-Layer Crest Foam
+	// Outer layer (Darker/Translucent)
+	final_albedo = mix(final_albedo, foam_outer_color, is_crest_only_outer * foam_opacity * 0.8);
+	// Core layer (Bright White)
+	final_albedo = mix(final_albedo, foam_color, is_crest_core * foam_opacity);
+
 	// --- Waterspout Visuals ---
 	float dist_to_spout = distance(v_world_pos.xz, waterspout_pos.xz);
-	
-	// A. Spiral Foam Texture
-	vec2 rel_pos = v_world_pos.xz - waterspout_pos.xz;
-	float r = length(rel_pos);
-	float theta = atan(rel_pos.y, rel_pos.x);
-	
-	// Spiral distortion
-	float spiral_theta = theta + r * 0.1 * waterspout_spiral_strength + sync_time * 2.0;
-	vec2 spiral_uv = vec2(r * 0.1, spiral_theta * float(waterspout_spiral_arms) / 6.28);
-	float spout_foam_noise = texture(foam_tex, spiral_uv).r;
-	
-	// B. Foam Ring Mask (Swapped arguments to fix global white-out)
-	float spout_ring_mask = smoothstep(waterspout_foam_ring_inner, (waterspout_foam_ring_inner + waterspout_foam_ring_outer) * 0.5, r) * 
-						   (1.0 - smoothstep((waterspout_foam_ring_inner + waterspout_foam_ring_outer) * 0.5, waterspout_foam_ring_outer, r));
-	
-	float spout_spiral_mask = smoothstep(waterspout_radius * 1.5, waterspout_radius * 0.5, r);
-	float spout_final_mask = step(0.4, spout_foam_noise * (spout_ring_mask + spout_spiral_mask * 0.5));
-	
-	// --- RESTORING FINAL ALBEDO ---
-	// Apply Spout Foam
-	final_albedo = mix(final_albedo, foam_color, spout_final_mask * foam_opacity);
-	
-	// Merge Wave Foam
-	final_albedo = mix(final_albedo, foam_outer_color, crest_outer_mask * foam_opacity * (1.0 - spout_final_mask));
-	final_albedo = mix(final_albedo, foam_color, crest_foam_mask * foam_opacity * (1.0 - spout_final_mask));
-	
-	// C. Center Darkness (Abyss)
-	float abyss_mask = smoothstep(waterspout_radius, 0.0, r);
-	final_albedo = mix(final_albedo, vec3(0.005, 0.015, 0.04), abyss_mask * waterspout_darkness_factor);
-	
-	// D. Shore/Contact Foam (Subtle)
-	float shore_foam_mask = 1.0 - step(foam_shore_threshold, depth_diff);
-	final_albedo = mix(final_albedo, foam_color, shore_foam_mask * foam_opacity * 0.6);
+	if (dist_to_spout < waterspout_radius * 2.0) {
+		vec2 rel = v_world_pos.xz - waterspout_pos.xz;
+		float r = length(rel);
+		float theta = atan(rel.y, rel.x) + r * 0.2 + sync_time * 2.0;
+		float ring_mask = smoothstep(waterspout_foam_ring_inner, waterspout_foam_ring_outer, r) * 
+						  (1.0 - smoothstep(waterspout_foam_ring_outer - 1.0, waterspout_foam_ring_outer + 2.0, r));
+		float spiral_noise = texture(foam_tex, vec2(r * 0.1, theta)).r;
+		float spout_foam = step(0.4, spiral_noise * ring_mask);
+		
+		final_albedo = mix(final_albedo, foam_color, spout_foam * foam_opacity);
+		
+		float abyss = smoothstep(waterspout_radius, 0.0, r);
+		final_albedo = mix(final_albedo, vec3(0.01), abyss * waterspout_darkness_factor);
+	}
 
-	// Low-Poly Flat Shading：最终色彩处理
-	// 只在参数有效时应用效果
-	if (color_bands > 1.0) {
-		final_albedo = floor(final_albedo * color_bands) / color_bands;
-	}
-	if (contrast > 1.0) {
-		final_albedo = (final_albedo - 0.5) * contrast + 0.5;
-		final_albedo = clamp(final_albedo, 0.0, 1.0);
-	}
-	
-	// 确保海水颜色不为黑色（最小亮度保护）
-	// 移除强制提亮逻辑，允许深海呈现暗色
-	// float min_brightness = 0.15;
-	// float brightness = dot(final_albedo, vec3(0.299, 0.587, 0.114));
-	// if (brightness < min_brightness) ...
-	
 	ALBEDO = final_albedo;
-	ROUGHNESS = 1.0; // 消光质感：完全粗糙，无湿润反光
-	
-	// The Last Night 风格：硬边 Fresnel（可选）
-	// float fresnel = step(0.7, 1.0 - dot(NORMAL, VIEW)); // 硬边反射
-	// ALBEDO = mix(ALBEDO, sky_color * 1.2, fresnel * 0.2);
+	ROUGHNESS = roughness;
 }
 
 void light() {
-	// Low-Poly Flat Shading：硬边 Toon Lighting
-	float NdotL = dot(NORMAL, LIGHT);
+	float NdotL = max(0.0, dot(NORMAL, LIGHT));
 	
-	// Flat Shading：硬边光照（2-3 阶，符合 Low-Poly 风格）
-	float toon_levels = 3.0;
-	float diff_raw = NdotL * ATTENUATION;
-	float diff = floor(diff_raw * toon_levels) / toon_levels;
-	diff = step(0.05, diff); // Low-Poly：更低的阈值，确保有光照
+	// Cel Shading Ramp
+	float diff = smoothstep(0.0, 0.1, NdotL) * 0.5 + 0.5; // Softer toon
+	diff = floor(diff * 3.0) / 3.0; // 3 Bands
 	
-	// 基础环境光（提升环境亮度，营造柔和感）
-	float ambient = 0.35; 
-	diff = max(diff, ambient);
+	// Ambient
+	DIFFUSE_LIGHT += ALBEDO * LIGHT_COLOR * diff * 0.8 + (ALBEDO * 0.2);
 	
-	// Flat Shading：柔和光照
-	DIFFUSE_LIGHT += ALBEDO * LIGHT_COLOR * diff * 1.0;
-	
-	// 消光高光（Matte）：非常微弱且柔和的高光，仅用于提示体积
+	// Specular
 	vec3 H = normalize(VIEW + LIGHT);
-	float NdotH = dot(NORMAL, H);
-	float spec = step(0.9, NdotH); // 缩小高光范围
-	SPECULAR_LIGHT += LIGHT_COLOR * spec * ATTENUATION * 0.1; // 极低强度，避免由于反光造成的"油腻感"
+	float NdotH = max(0.0, dot(NORMAL, H));
+	float spec_thresh = 0.95 - roughness * 0.2;
+	float spec = step(spec_thresh, NdotH);
+	SPECULAR_LIGHT += LIGHT_COLOR * spec * ATTENUATION * (1.0 - roughness) * 0.2;
 }

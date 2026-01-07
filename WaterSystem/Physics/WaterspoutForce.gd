@@ -24,40 +24,30 @@ func _ready():
 		vfx_instance = vfx_scene.instantiate()
 		add_child(vfx_instance)
 		vfx_instance.position = Vector3.ZERO
-		# Scale VFX based on radius (assuming original was designed for 5m)
 		vfx_instance.scale = Vector3.ONE * (attract_radius / 5.0) 
-	
-	if shader_update_node:
-		water_mesh = get_node(shader_update_node) as MeshInstance3D
 	
 	body_entered.connect(_on_body_entered)
 	body_exited.connect(_on_body_exited)
 
 func _process(_delta):
-	var time = Time.get_ticks_msec() / 1000.0
-	if WaterManager:
-		time = WaterManager._time
+	# Push configuration to WaterManager (The Authority)
+	# This allows the visual system (Shader) and Buoyancy System to be in sync with this physical object
+	if WaterManager.instance:
+		WaterManager.instance.waterspout_pos = global_position
+		WaterManager.instance.waterspout_radius = attract_radius
+		WaterManager.instance.waterspout_strength = spout_strength # Controls depth
+		WaterManager.instance.waterspout_spiral_strength = spiral_strength
+		WaterManager.instance.waterspout_darkness_factor = darkness_factor
 		
-	# Update Funnel Shader
+	# Update VFX Funnel Time
 	if vfx_instance:
 		var funnel = vfx_instance.get_node_or_null("Funnel")
 		if funnel and funnel is MeshInstance3D:
 			var mat = funnel.mesh.surface_get_material(0)
 			if mat is ShaderMaterial:
-				mat.set_shader_parameter("sync_time", time)
-	
-	# Update Water Shader with current position
-	if water_mesh:
-		var mat = water_mesh.get_surface_override_material(0)
-		if mat is ShaderMaterial:
-			mat.set_shader_parameter("waterspout_pos", global_position)
-			mat.set_shader_parameter("waterspout_strength", spout_strength)
-			mat.set_shader_parameter("waterspout_radius", attract_radius)
-			mat.set_shader_parameter("waterspout_spiral_strength", spiral_strength)
-			mat.set_shader_parameter("waterspout_spiral_arms", spiral_arms)
-			mat.set_shader_parameter("waterspout_foam_ring_inner", foam_ring_inner)
-			mat.set_shader_parameter("waterspout_foam_ring_outer", foam_ring_outer)
-			mat.set_shader_parameter("waterspout_darkness_factor", darkness_factor)
+				# Use WaterManager time if available
+				var t = WaterManager.instance._time if WaterManager.instance else Time.get_ticks_msec() / 1000.0
+				mat.set_shader_parameter("sync_time", t)
 
 func _physics_process(delta):
 	var bodies = get_overlapping_bodies()
