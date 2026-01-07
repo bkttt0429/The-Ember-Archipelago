@@ -15,11 +15,12 @@ uniform float sync_time;
 // --- Visual Overhaul (符合 DesignRules: Low-Poly Flat Shading 海水风格) ---
 group_uniforms Visual_Overhaul;
 // Low-Poly 海水风格：硬边、Flat Shading、清晰的色彩分层
-uniform vec3 shallow_color : source_color = vec3(0.4, 0.8, 1.0); // 浅海水蓝（明亮）
-uniform vec3 mid_color : source_color = vec3(0.1, 0.5, 0.8); // 中海蓝色
-uniform vec3 deep_color : source_color = vec3(0.0, 0.2, 0.4); // 深海水蓝（不是黑色）
-uniform float depth_band_1 : hint_range(0.0, 20.0) = 2.0; // 浅水区域
-uniform float depth_band_2 : hint_range(0.0, 50.0) = 6.0; // 深水区域
+// 修复：调整颜色和深度阈值，避免过浅
+uniform vec3 shallow_color : source_color = vec3(0.15, 0.55, 0.75); // 海蓝偏绿（修复：从 0.4,0.8,1.0 降低）
+uniform vec3 mid_color : source_color = vec3(0.05, 0.35, 0.55); // 深海蓝（修复：从 0.1,0.5,0.8 降低）
+uniform vec3 deep_color : source_color = vec3(0.0, 0.15, 0.35); // 深海深蓝（修复：从 0.0,0.2,0.4 降低）
+uniform float depth_band_1 : hint_range(0.0, 20.0) = 5.0; // 浅水区域（修复：从 2.0 → 5.0）
+uniform float depth_band_2 : hint_range(0.0, 50.0) = 15.0; // 深水区域（修复：从 6.0 → 15.0）
 
 uniform vec3 foam_outer_color : source_color = vec3(0.9, 0.95, 1.0); // 白色泡沫（Low-Poly 风格）
 uniform float foam_outer_extent : hint_range(0.0, 1.0) = 0.2;

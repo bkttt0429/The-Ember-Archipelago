@@ -1,14 +1,14 @@
 [gd_scene load_steps=12 format=3 uid="uid://c43djo2nun36i"]
 
-[ext_resource type="PlaneMesh" uid="uid://enn723a8bp5i" path="res://WaterSystem/WaterMesh.tres" id="2_mesh"]
-[ext_resource type="Script" uid="uid://camtt77s1axug" path="res://WaterSystem/WaterController.gd" id="3_controller"]
-[ext_resource type="Material" uid="uid://cf5yq4x0wcvie" path="res://WaterSystem/WaterMaterial.tres" id="4_material"]
-[ext_resource type="PackedScene" path="res://WaterSystem/Buoyancy/FloatingBox.tscn" id="5_box"]
+[ext_resource type="PlaneMesh" uid="uid://enn723a8bp5i" path="res://WaterSystem/VFX/Materials/WaterMesh.tres" id="2_mesh"]
+[ext_resource type="Script" uid="uid://camtt77s1axug" path="res://WaterSystem/Core/WaterController.gd" id="3_controller"]
+[ext_resource type="Material" uid="uid://cf5yq4x0wcvie" path="res://WaterSystem/VFX/Materials/WaterMaterial.tres" id="4_material"]
+[ext_resource type="PackedScene" path="res://WaterSystem/Scenes/Prefabs/FloatingBox.tscn" id="5_box"]
 [ext_resource type="Script" uid="uid://b24rq7ym2oo6m" path="res://WaterSystem/VFX/WaveSplashDetector.gd" id="6_detector"]
-[ext_resource type="PackedScene" uid="uid://d3yq8j2num46l" path="res://WaterSystem/RippleSystem/RippleViewport.tscn" id="7_ripple_vp"]
-[ext_resource type="Script" uid="uid://cj6v3ixmkq8p6" path="res://WaterSystem/RippleSystem/RippleManager.gd" id="8_ripple_man"]
-[ext_resource type="PackedScene" uid="uid://ck6m7v2n0p3w" path="res://WaterSystem/Waterspout.tscn" id="9_spout"]
-[ext_resource type="PackedScene" path="res://WaterSystem/Buoyancy/StylizedShip.tscn" id="10_ship"]
+[ext_resource type="PackedScene" uid="uid://d3yq8j2num46l" path="res://WaterSystem/VFX/RippleSystem/RippleViewport.tscn" id="7_ripple_vp"]
+[ext_resource type="Script" uid="uid://cj6v3ixmkq8p6" path="res://WaterSystem/VFX/RippleSystem/RippleManager.gd" id="8_ripple_man"]
+[ext_resource type="PackedScene" uid="uid://ck6m7v2n0p3w" path="res://WaterSystem/Scenes/Prefabs/Waterspout.tscn" id="9_spout"]
+[ext_resource type="PackedScene" path="res://WaterSystem/Scenes/Prefabs/StylizedShip.tscn" id="10_ship"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_main"]
 sky_top_color = Color(0.2, 0.5, 0.9, 1)

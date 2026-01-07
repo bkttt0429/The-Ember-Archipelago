@@ -1,7 +1,7 @@
 [gd_scene load_steps=5 format=3 uid="uid://d3yq8j2num46l"]
 
-[ext_resource type="Shader" path="res://WaterSystem/RippleSystem/ripple_sim.gdshader" id="1_sim"]
-[ext_resource type="Script" path="res://WaterSystem/RippleSystem/SimulationPass.gd" id="2_pass"]
+[ext_resource type="Shader" path="res://WaterSystem/VFX/RippleSystem/ripple_sim.gdshader" id="1_sim"]
+[ext_resource type="Script" path="res://WaterSystem/VFX/RippleSystem/SimulationPass.gd" id="2_pass"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_sim"]
 resource_local_to_scene = true

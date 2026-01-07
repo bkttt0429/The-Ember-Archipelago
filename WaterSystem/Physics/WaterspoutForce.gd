@@ -14,7 +14,7 @@ extends Area3D
 @export var foam_ring_outer: float = 8.0
 @export var darkness_factor: float = 0.9
 @export var shader_update_node: NodePath
-@export var vfx_scene: PackedScene = preload("res://WaterSystem/VFX/WaterspoutVFX.tscn")
+@export var vfx_scene: PackedScene = preload("res://WaterSystem/VFX/Particles/WaterspoutVFX.tscn")
 
 var water_mesh: MeshInstance3D
 var vfx_instance: Node3D

@@ -1,6 +1,6 @@
 [gd_resource type="ShaderMaterial" load_steps=6 format=3 uid="uid://cf5yq4x0wcvie"]
 
-[ext_resource type="Shader" uid="uid://5cu1poa1084l" path="res://WaterSystem/stylized_water.gdshader" id="1_mpvtw"]
+[ext_resource type="Shader" uid="uid://5cu1poa1084l" path="res://WaterSystem/VFX/ShaderFiles/stylized_water.gdshader" id="1_mpvtw"]
 
 [sub_resource type="ViewportTexture" id="ViewportTexture_f5ikj"]
 viewport_path = NodePath("FoamViewport")
@@ -32,15 +32,18 @@ seamless_blend_skirt = 0.564
 resource_local_to_scene = true
 render_priority = 0
 shader = ExtResource("1_mpvtw")
-shader_parameter/sync_time = 1246.805
-shader_parameter/shallow_color = Color(0.2, 0.8, 1, 1)
-shader_parameter/mid_color = Color(0, 0.4, 0.7, 1)
-shader_parameter/deep_color = Color(0, 0.05, 0.15, 1)
-shader_parameter/depth_band_1 = 3.0
+shader_parameter/sync_time = 937.686
+shader_parameter/shallow_color = Color(0.15, 0.55, 0.75, 1)
+shader_parameter/mid_color = Color(0.05, 0.35, 0.55, 1)
+shader_parameter/deep_color = Color(0, 0.15, 0.35, 1)
+shader_parameter/depth_band_1 = 5.0
 shader_parameter/depth_band_2 = 15.0
 shader_parameter/foam_outer_color = Color(0, 0.5, 0.8, 1)
 shader_parameter/foam_outer_extent = 0.2
 shader_parameter/color_saturation = 1.0
+shader_parameter/contrast = 1.0
+shader_parameter/color_bands = 1.0
+shader_parameter/shimmer_intensity = 0.8
 shader_parameter/waterspout_pos = Vector3(0, 0, 0)
 shader_parameter/waterspout_radius = 10.0
 shader_parameter/waterspout_strength = 12.0
@@ -50,17 +53,17 @@ shader_parameter/waterspout_foam_ring_inner = 3.0
 shader_parameter/waterspout_foam_ring_outer = 8.0
 shader_parameter/waterspout_darkness_factor = 0.9
 shader_parameter/wave_speed = 0.05
-shader_parameter/height_scale = 2.1229999999999993
+shader_parameter/height_scale = 3.1844999998216426
 shader_parameter/roughness = 0.15
 shader_parameter/flow_direction = Vector2(1, 0)
 shader_parameter/flow_speed = 0.5
 shader_parameter/vertex_noise_big = SubResource("NoiseTexture2D_nka1t")
 shader_parameter/ripple_height_scale = 0.1
-shader_parameter/wave_a = Vector4(1, 0, 0.15, 20)
-shader_parameter/wave_b = Vector4(0.81915206, 0.57357645, 0.15, 30)
-shader_parameter/wave_c = Vector4(0.7, 0.7, 0.1, 5)
-shader_parameter/wave_d = Vector4(-0.5, 0.5, 0.08, 3)
-shader_parameter/wave_e = Vector4(0.2, -0.8, 0.05, 1.5)
+shader_parameter/wave_a = Vector4(0.9999656, 0.008295251, 0.15, 15)
+shader_parameter/wave_b = Vector4(0.8551511, 0.51837873, 0.15, 22.5)
+shader_parameter/wave_c = Vector4(0.90945685, -0.41579828, 0.1, 12)
+shader_parameter/wave_d = Vector4(0.071674965, 0.99742806, 0.08, 7.5)
+shader_parameter/wave_e = Vector4(0.49274036, -0.8701764, 0.05, 18)
 shader_parameter/foam_color = Color(1, 1, 1, 1)
 shader_parameter/foam_opacity = 0.4
 shader_parameter/foam_crest_threshold = 3.8

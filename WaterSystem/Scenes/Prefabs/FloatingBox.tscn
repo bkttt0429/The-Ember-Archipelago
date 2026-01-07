@@ -1,8 +1,8 @@
 [gd_scene load_steps=7 format=3 uid="uid://floatingbox_demo"]
 
-[ext_resource type="Script" path="res://WaterSystem/Buoyancy/MassCalculation.gd" id="1_masscalc"]
-[ext_resource type="Script" path="res://WaterSystem/Buoyancy/BuoyantCell.gd" id="2_buoyantcell"]
-[ext_resource type="Script" path="res://WaterSystem/Buoyancy/FluidDrag.gd" id="3_fluiddrag"]
+[ext_resource type="Script" path="res://WaterSystem/Physics/Buoyancy/MassCalculation.gd" id="1_masscalc"]
+[ext_resource type="Script" path="res://WaterSystem/Physics/Buoyancy/BuoyantCell.gd" id="2_buoyantcell"]
+[ext_resource type="Script" path="res://WaterSystem/Physics/Buoyancy/FluidDrag.gd" id="3_fluiddrag"]
 
 [sub_resource type="BoxMesh" id="BoxMesh_wood"]
 size = Vector3(1, 1, 1)

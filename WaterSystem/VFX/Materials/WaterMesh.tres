@@ -1,4 +1,4 @@
-[gd_resource type="PlaneMesh" format=3 uid="uid://enn723a8bp5i"]
+[gd_resource type="PlaneMesh" load_steps=0 format=3 uid="uid://enn723a8bp5i"]
 
 [resource]
 lightmap_size_hint = Vector2i(2502, 2502)

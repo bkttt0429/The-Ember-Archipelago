@@ -21,7 +21,7 @@ func _ready():
 	
 	# Load default splash if not set (convenience)
 	if not splash_prefab:
-		splash_prefab = load("res://WaterSystem/VFX/SplashParticles.tscn")
+		splash_prefab = load("res://WaterSystem/VFX/Particles/SplashParticles.tscn")
 
 func _process(delta):
 	if _timer > 0:

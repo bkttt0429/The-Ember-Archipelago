@@ -11,10 +11,10 @@ config_version=5
 [application]
 
 config/name="星海餘燼：漂浮群島"
-run/main_scene="res://WaterSystem/WaterTest.tscn"
+run/main_scene="res://WaterSystem/Scenes/Tests/WaterTest.tscn"
 config/features=PackedStringArray("4.5", "Forward Plus")
 config/icon="res://icon.svg"
 
 [autoload]
 
-WaterManager="*res://WaterSystem/WaterManager.gd"
+WaterManager="*res://WaterSystem/Core/WaterManager.gd"
