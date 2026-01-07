@@ -3,6 +3,11 @@
 .import/
 export.cfg
 export_presets.cfg
+export_presets.cfg
+
+# Heavy assets to ignore
+Reference/
+addons/
 
 # Imported translations (automatically generated from CSV files)
 *.translation

@@ -4,6 +4,7 @@ extends Node3D
 @export var detection_offset: float = 0.0
 @export var splash_cooldown: float = 0.5
 @export var splash_threshold: float = 0.2 # How much water must cover this point to splash
+@export var trigger_ripples: bool = true # Option to disable ripples for some objects
 
 var _timer: float = 0.0
 var _was_underwater: bool = false
@@ -43,11 +44,13 @@ func _process(delta):
 	
 	# Also trigger if we are "just at the surface" and wave is hitting us hard?
 	# For continuous waves hitting a rock:
-	if is_underwater and _timer <= 0:
-		# Random chance to splash again if wave is still high?
-		if randf() < 0.1: 
-			_spawn_splash()
-			_timer = splash_cooldown
+	# Continuous splashing while underwater often looks like "pulsing" for static objects.
+	# Disabled to prevent "Object didn't move, why ripple?" confusion.
+	# To simulate wake for moving objects, we'd need velocity checks.
+	# if is_underwater and _timer <= 0:
+	# 	if randf() < 0.1: 
+	# 		_spawn_splash()
+	# 		_timer = splash_cooldown
 			
 	_was_underwater = is_underwater
 
@@ -63,5 +66,6 @@ func _spawn_splash():
 		splash.queue_free()
 		
 	# Trigger Dynamic Ripple
-	if ripple_manager:
-		ripple_manager.apply_ripple(global_position, -0.5) # Negative for initial impact depression, or positive for peak
+	# Trigger Dynamic Ripple
+	if ripple_manager and trigger_ripples:
+		ripple_manager.apply_ripple(global_position, 1.0) # Positive for test

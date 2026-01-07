@@ -109,6 +109,8 @@ uniform sampler2D foam_wobble_noise : filter_linear_mipmap;
 uniform float foam_wobble_size = 10.0;
 varying float foam_power;
 
+uniform float foam_crest_threshold : hint_range(0.0, 5.0) = 1.35; // Moved to uniform for control
+
 group_uniforms v_color;
 
 // to fake tramsittence, waves can have a different color as they get higher
@@ -392,7 +394,7 @@ void fragment() {
 	// Max potential height is approx (Amp1 + Amp2 - HeightScale*0.5) * HeightScale
 	// With defaults: (2.0 + 0.2 - 0.5) * 1.0 = 1.7.
 	// We want foam only at the very top (e.g., > 1.45).
-	float crest_trigger = 1.35; 
+	float crest_trigger = foam_crest_threshold; 
 	
 	// Noise lookup for foam breakup
 	float crest_noise = texture(foam, g_uv(rounded_uv * 1.2, normal_noise_speed * 1.5, true, NODE_POSITION_WORLD)).r;

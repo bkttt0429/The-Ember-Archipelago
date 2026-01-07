@@ -22,7 +22,6 @@ render_target_update_mode = 3
 [node name="BackBufferCopy" type="BackBufferCopy" parent="."]
 copy_mode = 2
 
-[node name="BrushContainer" type="Node2D" parent="BackBufferCopy"]
 
 [node name="SimulationPass" type="ColorRect" parent="."]
 material = SubResource("ShaderMaterial_sim")
@@ -32,3 +31,5 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 texture = SubResource("ImageTexture_empty")
+
+[node name="BrushContainer" type="Node2D" parent="."]

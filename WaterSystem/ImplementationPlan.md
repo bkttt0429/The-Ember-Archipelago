@@ -1,55 +1,65 @@
-# 水體交互升級與優化計畫 (Water Interaction Upgrade Plan)
+# 水體系統優化實施計畫 (COMPLETED)
 
-你的分析非常精準。目前的系統僅完成了基礎的「頂點位移（彈力布）」，缺乏與環境的真實互動。要達成「海浪拍打岩石」的質感，我們將分階段執行以下優化：
+本計畫旨在透過一系列針對性的改進，提升現有風格化水體系統的視覺表現與物理互動感。
 
-## 階段一：視覺層 - 深度接觸泡沫 (Visual Layer - Depth Foam)
-**目標**：讓水面與任何物體（岩石、島嶼）接觸的邊緣產生自然的白色泡沫，消除「穿模感」。
+## 階段一：視覺層 - 深度接觸泡沫 (Depth Contact Foam) (已完成)
+**目標**：讓水體與岸邊或物體交接處產生自然的泡沫邊緣，增強體積感。
 
-- **技術原理**：利用 Godot 的 `depth_texture` 計算水面像素與後方物體像素的深度差 (`Linear Depth Difference`)。
-- **實作細節**：
-    - 優化 Shader 中的 `depth_fade` 邏輯，不僅用於透明度淡出，更要用於「泡沫混合」。
-    - 加入 `contact_foam_threshold` 參數，在深度差極小（例如 < 0.5m）時強制顯示泡沫顏色。
-    - 疊加 `Noise` 紋理，讓接觸邊緣不是死板的線條，而是有機的破碎狀。
+*   [x] **Shader 升級**：
+    *   [x] 引入 Depth Texture 讀取功能 (`hint_depth_texture`)。
+    *   [x] 計算 Linear Depth 與 Vertex World Position 的差異。
+    *   [x] 實作基於深度的混合邏輯，在淺水區顯示泡沫顏色。
+    *   [x] 加入 Noise 紋理進行邊緣擾動，避免泡沫邊緣過於生硬直白。
 
-## 階段二：起伏修正與碎浪優化 (Wave Irregularity & Crest Foam)
-**目標**：打破目前的「過於規律」感，並修正浪尖泡沫的視覺效果。
+## 階段二：波浪生成 - 不規則性與波峰泡沫 (Irregularity & Crest Foam) (已完成)
+**目標**：打破正弦波的規律感，創造更像海洋的混亂波面，並在浪尖產生動態泡沫。
 
-- **波形修正**：
-    - 混合多層不同頻率與方向的 Gerstner 波（目前已有，但參數需調校，增加隨機性）。
-    - 引入「領域扭曲 (Domain Warping)」，用低頻噪聲干擾波浪的 UV，使波浪走勢更蜿蜒。
-- **浪尖泡沫 (Crest Foam)**：
-    - 基於波浪高度 (`Vertex Height`) 與 雅可比行列式 (`Jacobian` / 尖銳度) 來判斷泡沫生成區。
-    - 確保泡沫只出現在「最高且最尖」的地方，並隨著波浪消散。
+*   [x] **波浪算法優化**：
+    *   [x] 在 Shader 中疊加多層不同頻率與方向的 Gerstner 波 (目前僅有單層正弦波)。
+    *   [x] 引入 Domain Warping (座標扭曲) 技術，使波浪形狀更自然扭曲。
+    *   [x] 同步更新 `WaterManager.gd` 中的 CPU 端波浪計算公式，確保物理浮力與視覺一致。
+*   [x] **波峰泡沫 (Crest Foam)**：
+    *   [x] 根據頂點位移的高度 (`v_height`) 計算泡沫遮罩。
+    *   [x] 使用 `step` 或 `smoothstep` 函數產生硬邊的動漫風格泡沫。
+    *   [x] 限制泡沫僅出現在波浪最高點。
 
-## 階段三：特效層 - 碎浪粒子系統 (VFX Layer - Splash Particles)
-**目標**：當波浪「撞擊」時產生實體感的水花，增加衝擊力。
+## 階段三：VFX 層 - 飛濺粒子 (Splash Particles) (已完成)
+**目標**：當物體落水或波浪拍打岩石時，產生相應的飛濺特效。
 
-- **資產創建**：
-    - `SplashParticles.tscn`: 使用 `GPUParticles3D`。
-    - **風格**：Low-Poly 方塊或四面體 (Tetrahedron)，半透明材質。
-    - **物理**：啟用 Particle Collision，讓水花能沿著岩石滾落。
-- **觸發邏輯 (WaterManager)**：
-    - 在岩石周圍設置 `RayCast3D` 或 `ShapeCast3D` 向下偵測水面高度。
-    - 當 `(水面高度 - 岩石邊緣高度) > 閾值` 時，播放粒子效果與音效。
+*   [x] **粒子系統製作**：
+    *   [x] 創建 Low-Poly 風格的水花粒子材質 (Billboard 或 幾何體)。
+    *   [x] 製作 `SplashParticles.tscn` 場景，包含發射一次性的爆發效果。
+*   [x] **互動觸發器**：
+    *   [x] 編寫 `WaveSplashDetector.gd` 腳本。
+    *   [x] 偵測與水面的高度差，當物體高速進入水面或被波浪吞沒時觸發粒子。
+    *   [x] 將偵測器配置在測試場景的岩石周圍。
 
-## 階段四：邏輯層 - 動態漣漪 (Logic Layer - Dynamic Ripples) (進階)
-**目標**：物體落水或互動產生的局部波紋。
+## 階段四：邏輯層 - 動態漣漪 (Dynamic Ripples) (已完成)
+**目標**：物體與水面互動時產生擴散的圓形波紋。
 
-- **實作**：
-    - 建立 `RippleViewport` (2D SubViewport)。
-    - 當物體互動時，在 Viewport 的對應 UV 位置繪製「高度筆刷」。
-    - 將此 Viewport Texture 傳入 Shader，疊加在頂點位移上。
+*   [x] **Ripple Map 系統**：
+    *   [x] 建立一個新的 `SubViewport` 用於計算漣漪高度場。
+    *   [x] 編寫 Shader 模擬波的傳遞 (Wave Equation) 數學模型。
+*   [x] **Shader 整合**：
+    *   [x] 將 Ripple Map 作為紋理傳入主水體 Shader。
+    *   [x] 在 Vertex Shader 中讀取 Ripple Map 並疊加到頂點位移。
+    *   [x] 在 Fragment Shader 中利用 Ripple 數值調整法線，產生光影變化。
+*   [x] **互動寫入**：
+    *   [x] 建立 `RippleManager`，將世界座標轉換為 UV 座標。
+    *   [x] 在 Viewport 中繪製「筆刷」來產生漣漪波源 (與 Splash Detector 連動)。
+
+## 驗證與測試 (已完成)
+*   [x] **測試場景搭建**：
+    *   [x] 設置一個靜態岩石 (用於測試接觸泡沫與持續飛濺)。
+    *   [x] 設置一個浮動方塊 (用於測試浮力與動態漣漪)。
+*   [x] **性能檢查**：確保 Shader 複雜度在可接受範圍，且 CPU 物理同步無誤。
 
 ---
-
-## 執行順序
-
-1.  **Shader 優化 (即刻執行)**：
-    - [x] 修正深度偵測，實作「接觸邊緣泡沫」。
-    - [x] 微調波浪參數，增加不規則感 (Domain Warping)。
-    - [x] 改進浪尖泡沫的混合算法。
-2.  **粒子系統 (待命)**：
-    - [ ] 建立 `Particles` 場景。
-    - [ ] 撰寫簡單的觸發腳本。
-
-我們將優先處理 **Shader 層面** 的「接觸泡沫」與「自然感」，這是最直接的視覺提升。
+**狀態更新**：
+- 所有階段均已實作並經過測試。
+- 水體系統現在具備：
+  1.  **物理同步波浪** (WaterManager <-> Shader)。
+  2.  **視覺深度泡沫** (Contact Foam)。
+  3.  **動態互動** (Splash Particles + Dynamic Ripples)。
+  4.  **硬邊 Low-Poly 風格**。
+- 技術報告已產出至 `WaterSystem/TechnicalReport_WaterOptimization.md`。

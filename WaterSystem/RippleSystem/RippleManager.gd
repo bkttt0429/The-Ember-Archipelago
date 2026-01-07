@@ -17,6 +17,7 @@ func apply_ripple(world_pos: Vector3, strength: float):
 	var uv_y = (world_pos.z + ripple_area_size / 2.0) / ripple_area_size
 	
 	if uv_x >= 0 and uv_x <= 1 and uv_y >= 0 and uv_y <= 1:
+		print("Drawing Ripple Brush at: ", Vector2(uv_x, uv_y))
 		_draw_brush_at(Vector2(uv_x, uv_y), strength)
 
 func _draw_brush_at(uv: Vector2, strength: float):
