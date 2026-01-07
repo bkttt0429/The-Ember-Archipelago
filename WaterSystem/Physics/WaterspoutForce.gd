@@ -13,6 +13,9 @@ extends Area3D
 @export var foam_ring_inner: float = 3.0
 @export var foam_ring_outer: float = 8.0
 @export var darkness_factor: float = 0.9
+@export var radius_multiplier: float = 1.0
+@export var strength_multiplier: float = 1.0
+@export var active: bool = true
 @export var shader_update_node: NodePath
 @export var vfx_scene: PackedScene = preload("res://WaterSystem/VFX/Particles/WaterspoutVFX.tscn")
 
@@ -30,14 +33,23 @@ func _ready():
 	body_exited.connect(_on_body_exited)
 
 func _process(_delta):
+	if not active:
+		return
+		
+	var effective_radius = attract_radius * radius_multiplier
+	var effective_spout_strength = spout_strength * strength_multiplier
+	
 	# Push configuration to WaterManager (The Authority)
 	# This allows the visual system (Shader) and Buoyancy System to be in sync with this physical object
 	if WaterManager.instance:
 		WaterManager.instance.waterspout_pos = global_position
-		WaterManager.instance.waterspout_radius = attract_radius
-		WaterManager.instance.waterspout_strength = spout_strength # Controls depth
-		WaterManager.instance.waterspout_spiral_strength = spiral_strength
+		WaterManager.instance.waterspout_radius = effective_radius
+		WaterManager.instance.waterspout_strength = effective_spout_strength # Controls depth
+		WaterManager.instance.waterspout_spiral_strength = spiral_strength * strength_multiplier
 		WaterManager.instance.waterspout_darkness_factor = darkness_factor
+	
+	if vfx_instance:
+		vfx_instance.scale = Vector3.ONE * (effective_radius / 5.0)
 		
 	# Update VFX Funnel Time
 	if vfx_instance:
@@ -50,6 +62,9 @@ func _process(_delta):
 				mat.set_shader_parameter("sync_time", t)
 
 func _physics_process(delta):
+	if not active:
+		return
+		
 	var bodies = get_overlapping_bodies()
 	for body in bodies:
 		if body is RigidBody3D:
@@ -60,6 +75,8 @@ func _apply_waterspout_forces(body: RigidBody3D, _delta: float):
 	to_center.y = 0 # Horizontal only for direction
 	
 	var dist = to_center.length()
+	var effective_radius = attract_radius * radius_multiplier
+	var strength = strength_multiplier
 	
 	# Safety check: avoid division by zero or normalizing zero vector
 	if dist < 0.001:
@@ -71,17 +88,17 @@ func _apply_waterspout_forces(body: RigidBody3D, _delta: float):
 		return
 	
 	# 1. Attraction Force (Pull towards center)
-	body.apply_central_force(dir_to_center * attraction_strength)
+	body.apply_central_force(dir_to_center * attraction_strength * strength)
 	
 	# 2. Tangential Force (Rotation)
 	# Perpendicular to dir_to_center: (x, z) -> (-z, x)
 	var tangential_dir = Vector3(-dir_to_center.z, 0, dir_to_center.x)
-	body.apply_central_force(tangential_dir * tangential_strength)
+	body.apply_central_force(tangential_dir * tangential_strength * strength)
 	
 	# 3. Lift Force (Upwards)
 	# Stronger at center
-	var lift_mult = clamp(1.0 - (dist / attract_radius), 0.0, 1.0)
-	body.apply_central_force(Vector3.UP * lift_strength * lift_mult)
+	var lift_mult = clamp(1.0 - (dist / max(effective_radius, 0.001)), 0.0, 1.0)
+	body.apply_central_force(Vector3.UP * lift_strength * strength * lift_mult)
 	
 	# Reduce gravity effect manually if needed, or just let lift force handle it
 	# body.gravity_scale = 0.5 * (1.0 - lift_mult)
