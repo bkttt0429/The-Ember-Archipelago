@@ -90,4 +90,4 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, -2.6)
 script = ExtResource("6_detector")
 
 [node name="Camera3D" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0.8660253, 0.50000024, 0, -0.50000024, 0.8660253, 2.1769447, 5.2803802, 7.5681524)
+transform = Transform3D(1, 0, 0, 0, 0.6363743, 0.7713805, 0, -0.7713805, 0.6363743, -0.15685415, 13.703755, 7.245266)

@@ -32,7 +32,7 @@ func mass() -> float:
 	var volume: float = size.x * size.y * size.z
 	return cell_density_kg_per_m3 * volume
 
-func apply_force_on_cell(delta: float) -> void:
+func apply_force_on_cell(_delta: float) -> void:
 	if mesh == null: return
 	
 	var parent_body = get_parent()

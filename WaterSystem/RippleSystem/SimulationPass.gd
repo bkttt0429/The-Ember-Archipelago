@@ -5,7 +5,7 @@ func _ready():
 	if not material:
 		return
 		
-func _process(delta):
+func _process(_delta):
 	# Ping-pong or feedback loop
 	# Grab the texture from the parent viewport
 	var viewport = get_parent() as SubViewport
