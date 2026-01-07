@@ -1,7 +1,8 @@
-[gd_scene load_steps=6 format=3 uid="uid://floatingbox_demo"]
+[gd_scene load_steps=7 format=3 uid="uid://floatingbox_demo"]
 
 [ext_resource type="Script" path="res://WaterSystem/Buoyancy/MassCalculation.gd" id="1_masscalc"]
 [ext_resource type="Script" path="res://WaterSystem/Buoyancy/BuoyantCell.gd" id="2_buoyantcell"]
+[ext_resource type="Script" path="res://WaterSystem/Buoyancy/FluidDrag.gd" id="3_fluiddrag"]
 
 [sub_resource type="BoxMesh" id="BoxMesh_wood"]
 size = Vector3(1, 1, 1)
@@ -14,13 +15,25 @@ size = Vector3(1, 1, 1)
 
 [node name="FloatingBox" type="RigidBody3D"]
 mass = 500.0
-script = ExtResource("1_masscalc")
 
 [node name="BuoyantCell" type="MeshInstance3D" parent="."]
 mesh = SubResource("BoxMesh_wood")
 surface_material_override/0 = SubResource("StandardMaterial3D_wood")
 script = ExtResource("2_buoyantcell")
 cell_density_kg_per_m3 = 500.0
+use_distance_lod = true
+lod_distance = 30.0
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 shape = SubResource("BoxShape3D_collision")
+
+[node name="FluidDrag" type="Node" parent="."]
+script = ExtResource("3_fluiddrag")
+drag_coef_axial = 1.0
+drag_coef_lateral = 1.0
+drag_coef_vertical = 1.0
+
+[node name="MassCalculation" type="Node" parent="."]
+script = ExtResource("1_masscalc")
+auto_calculate_on_ready = true
+debug = true

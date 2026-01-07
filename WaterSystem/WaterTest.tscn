@@ -8,6 +8,7 @@
 [ext_resource type="PackedScene" uid="uid://d3yq8j2num46l" path="res://WaterSystem/RippleSystem/RippleViewport.tscn" id="7_ripple_vp"]
 [ext_resource type="Script" uid="uid://cj6v3ixmkq8p6" path="res://WaterSystem/RippleSystem/RippleManager.gd" id="8_ripple_man"]
 [ext_resource type="PackedScene" uid="uid://ck6m7v2n0p3w" path="res://WaterSystem/Waterspout.tscn" id="9_spout"]
+[ext_resource type="PackedScene" path="res://WaterSystem/Buoyancy/StylizedShip.tscn" id="10_ship"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_main"]
 sky_top_color = Color(0.2, 0.5, 0.9, 1)
@@ -69,6 +70,9 @@ shadow_enabled = true
 
 [node name="FloatingBox" parent="." instance=ExtResource("5_box")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 5, 2.9679165)
+
+[node name="StylizedShip" parent="." instance=ExtResource("10_ship")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5.73359, 2.85338, 7.82869)
 
 [node name="Waterspout" parent="." instance=ExtResource("9_spout")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)

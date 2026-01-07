@@ -3,7 +3,7 @@
 ## 美術風格 (Art Style)
 
 ### 水面特效 (Water Visuals)
-**卡通水面 Shader (Toon Water Shader)**
+**Low-Poly Flat Shading**
 *   **風格類型**: 硬邊幾何 (Hard-Edged Geometry)
 *   **幾何細節 (Geometry Detail)**: 低 (Low) / 極低 (Very Low) - 追求簡約感。
 *   **視覺動態 (Visual Dynamics)**: 極高 (Very High) - 強烈的閃爍感與動態變化。

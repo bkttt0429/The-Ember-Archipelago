@@ -165,8 +165,10 @@
     - 降低 `foam_opacity` 至 **0.4** 以增加視覺通透感。
     - 收緊岸邊泡沫範圍 (`foam_shore_extent` = 0.15)。
 
-#### 2. 海龍捲真實感提升 (Waterspout Enhancement)
-- **螺旋動畫**: 實作了基於極座標的螺旋 UV 扭曲，讓泡沫呈現旋轉捲入中心的視覺效果。
-- **泡沫環與深淵**: 新增了動態泡沫環 (Foam Ring) 遮罩，以及中心區域的深度變暗效果（Abyss Center），極大增強了視覺壓迫感。
-- **物理強化**: 全面提升了海龍捲的吸引力 (`attraction_strength` = 30)、旋轉力 (`tangential_strength` = 60) 與上升力 (`lift_strength` = 30)，使物理互動更具戲劇性。
-- **VFX 整合**: 新增了 `WaterspoutVFX.tscn`，包含螺旋水柱、水霧與衝擊波粒子，與 Shader 效果協同運作。
+#### 3. 海龍捲 3D 漏斗實作 (3D Funnel Column)
+- **結構化建模**: 新增了基於 Cylinder Mesh 的漏斗模型，補足了原本僅有粒子系統導致的「虛無感」。
+- **頂點扭動 (Vertex Wobble)**: 在 Shader 中實作了隨時間變化的正弦波位移，讓水柱呈現有機的擺動感。
+- **螺旋紋理與近景淡出**: 
+    - 實作了向上攀升的螺旋雜訊紋理（Vortex Panning）。
+    - 引入 `proximity_fade` 確保水柱與海面接合處自然過度，避免生硬的交錯線。
+- **物理與視覺同步**: 透過 `WaterspoutForce.gd` 自動同步全域時間，確保水柱擺動與海浪波動頻率一致。

@@ -1,8 +1,9 @@
-[gd_scene load_steps=10 format=3 uid="uid://d1x6j8n4y2m3u"]
+[gd_scene load_steps=18 format=3 uid="uid://d1x6j8n4y2m3u"]
+
+[ext_resource type="Shader" uid="uid://bj8u8o8j8u8o8" path="res://WaterSystem/VFX/waterspout_funnel.gdshader" id="1_funnel_shader"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_spiral"]
 transparency = 1
-albedo_color = Color(0.8, 0.9, 1, 0.6)
 shading_mode = 0
 albedo_color = Color(0.9, 0.95, 1, 0.8)
 roughness = 0.2
@@ -84,7 +85,41 @@ outer_radius = 5.5
 rings = 64
 ring_segments = 6
 
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_funnel"]
+noise_type = 2
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_funnel"]
+seamless = true
+noise = SubResource("FastNoiseLite_funnel")
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_funnel"]
+render_priority = 0
+shader = ExtResource("1_funnel_shader")
+shader_parameter/albedo = Color(0.6, 0.8, 1, 1)
+shader_parameter/speed = 3.0
+shader_parameter/swirl_strength = 2.5
+shader_parameter/taper = 0.6
+shader_parameter/wobble = 0.4
+shader_parameter/sync_time = 0.0
+shader_parameter/proximity_fade_distance = 3.0
+shader_parameter/noise_tex = SubResource("NoiseTexture2D_funnel")
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_funnel"]
+material = SubResource("ShaderMaterial_funnel")
+top_radius = 3.0
+bottom_radius = 1.0
+height = 25.0
+radial_segments = 32
+rings = 16
+cap_top = false
+cap_bottom = false
+
 [node name="WaterspoutVFX" type="Node3D"]
+
+[node name="Funnel" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 12.5, 0)
+mesh = SubResource("CylinderMesh_funnel")
 
 [node name="SpiralColumn" type="GPUParticles3D" parent="."]
 amount = 1000

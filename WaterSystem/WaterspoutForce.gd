@@ -34,7 +34,19 @@ func _ready():
 	body_exited.connect(_on_body_exited)
 
 func _process(_delta):
-	# Update Shader with current position
+	var time = Time.get_ticks_msec() / 1000.0
+	if WaterManager:
+		time = WaterManager._time
+		
+	# Update Funnel Shader
+	if vfx_instance:
+		var funnel = vfx_instance.get_node_or_null("Funnel")
+		if funnel and funnel is MeshInstance3D:
+			var mat = funnel.mesh.surface_get_material(0)
+			if mat is ShaderMaterial:
+				mat.set_shader_parameter("sync_time", time)
+	
+	# Update Water Shader with current position
 	if water_mesh:
 		var mat = water_mesh.get_surface_override_material(0)
 		if mat is ShaderMaterial:
@@ -58,6 +70,11 @@ func _apply_waterspout_forces(body: RigidBody3D, _delta: float):
 	to_center.y = 0 # Horizontal only for direction
 	
 	var dist = to_center.length()
+	
+	# Safety check: avoid division by zero or normalizing zero vector
+	if dist < 0.001:
+		return
+		
 	var dir_to_center = to_center.normalized()
 	
 	# 1. Attraction Force (Pull towards center)

@@ -4,6 +4,11 @@ extends MeshInstance3D
 @export var calc_f_gravity: bool = false # True if this should simulate gravity on this cell
 @export var active: bool = true
 
+# 优化：距离 LOD 设置
+@export_group("Performance LOD")
+@export var lod_distance: float = 30.0  # 30米外使用快速模式
+@export var use_distance_lod: bool = true  # 是否启用距离 LOD
+
 var fluid_density_kg_per_m3: float = 1000
 
 # Access global WaterManager
@@ -42,15 +47,37 @@ func apply_force_on_cell(_delta: float) -> void:
 	var size = mesh.size
 	var volume: float = size.x * size.y * size.z
 	
-	# Get height from WaterManager
-	var speed = parent_body.linear_velocity.length()
-	var iterations = 1
-	if speed > 10.0:
-		iterations = 5
-	elif speed > 1.0:
-		iterations = 3
-		
-	var wave_height = water_manager.get_wave_height(global_position, iterations)
+	# 优化：根据距离选择计算模式（LOD）
+	var wave_height: float
+	if use_distance_lod:
+		var cam = get_viewport().get_camera_3d()
+		if cam:
+			var distance = global_position.distance_to(cam.global_position)
+			if distance > lod_distance:
+				# 远距离：使用快速模式
+				wave_height = water_manager.fast_water_height(global_position)
+			else:
+				# 近距离：使用高精度模式（根据速度调整迭代次数）
+				var speed = parent_body.linear_velocity.length()
+				var iterations = 1
+				if speed > 10.0:
+					iterations = 5
+				elif speed > 1.0:
+					iterations = 3
+				wave_height = water_manager.get_wave_height(global_position, iterations)
+		else:
+			# 没有相机时使用快速模式
+			wave_height = water_manager.fast_water_height(global_position)
+	else:
+		# 不使用 LOD：根据速度调整迭代次数
+		var speed = parent_body.linear_velocity.length()
+		var iterations = 1
+		if speed > 10.0:
+			iterations = 5
+		elif speed > 1.0:
+			iterations = 3
+		wave_height = water_manager.get_wave_height(global_position, iterations)
+	
 	var depth: float = wave_height - global_position.y
 	
 	var gravity_vec = ProjectSettings.get_setting("physics/3d/default_gravity_vector") 

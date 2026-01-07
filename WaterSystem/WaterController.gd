@@ -19,7 +19,7 @@ extends MeshInstance3D
 
 @export_group("Smooth Sync")
 ## How fast parameters interpolate towards the target physics values.
-@export var lerp_speed: float = 2.0
+@export var lerp_speed: float = 4.0  # 优化：从 2.0 增加到 4.0，更快响应
 
 # Internal target values calculated from physics formulas
 var _target_amplitude: float = 0.5
@@ -42,10 +42,13 @@ func _update_wave_params():
 	# Hs = 0.02123 * V_wind^2
 	_target_amplitude = 0.02123 * pow(wind_speed, 2.0)
 	
-	# 2. Wavelength approximation based on wind speed (Dominant wavelength)
-	# L = g * T^2 / (2 * PI), where T ~ V_wind * 0.5 (very rough heuristic)
-	# Let's use a simpler heuristic for a styled game:
-	_target_wavelength = clamp(wind_speed * 2.0, 2.0, 50.0)
+	# 2. 视觉增强系数（优化：增加 50% 的视觉高度）
+	var visual_boost: float = 1.5
+	_target_amplitude *= visual_boost
+	
+	# 3. Wavelength approximation - 减少波长以增加视觉变化
+	# 优化：从 wind_speed * 2.0 改为 wind_speed * 1.5，上限从 50 改为 30
+	_target_wavelength = clamp(wind_speed * 1.5, 2.0, 30.0)
 
 func _setup_foam_texture(mat: ShaderMaterial):
 	var foam_viewport = get_node_or_null("../FoamViewport")
@@ -72,23 +75,26 @@ func _process(delta):
 	
 	mat.set_shader_parameter("height_scale", new_amp)
 	
-	# Update wave directions (Multi-wave setup)
-	var dir_a = wind_direction
-	var dir_b = rotate_vector2(wind_direction, 35.0) 
+	var time = mat.get_shader_parameter("sync_time")
+	if time == null: time = 0.0
 	
-	var wave_a = mat.get_shader_parameter("wave_a")
-	if wave_a:
-		wave_a.x = dir_a.x
-		wave_a.y = dir_a.y
-		wave_a.w = _target_wavelength
-		mat.set_shader_parameter("wave_a", wave_a)
-
-	var wave_b = mat.get_shader_parameter("wave_b")
-	if wave_b:
-		wave_b.x = dir_b.x
-		wave_b.y = dir_b.y
-		wave_b.w = _target_wavelength * 1.5
-		mat.set_shader_parameter("wave_b", wave_b)
+	# Update wave directions (Multi-wave interference setup with drift)
+	var waves = [
+		{"param": "wave_a", "angle": 0.0 + sin(time * 0.05) * 2.0, "l_scale": 1.0},
+		{"param": "wave_b", "angle": 35.0 + cos(time * 0.07) * 4.0, "l_scale": 1.5},
+		{"param": "wave_c", "angle": -25.0 + sin(time * 0.03) * 3.0, "l_scale": 0.8},
+		{"param": "wave_d", "angle": 80.0 + cos(time * 0.04) * 6.0, "l_scale": 0.5},
+		{"param": "wave_e", "angle": -60.0 + sin(time * 0.02) * 5.0, "l_scale": 1.2}
+	]
+	
+	for w_info in waves:
+		var w_param = mat.get_shader_parameter(w_info.param)
+		if w_param:
+			var dir = rotate_vector2(wind_direction, w_info.angle)
+			w_param.x = dir.x
+			w_param.y = dir.y
+			w_param.w = _target_wavelength * w_info.l_scale
+			mat.set_shader_parameter(w_info.param, w_param)
 
 	# --- AUTOMATED SYNC TO WaterManager via Reflection ---
 	if WaterManager:
@@ -106,12 +112,18 @@ func _process(delta):
 			if val != null:
 				WaterManager.set(p_name, val)
 
-	# DRIVE TIME in Shader
-	if not Engine.is_editor_hint() and WaterManager:
-		mat.set_shader_parameter("sync_time", WaterManager._time)
+	# DRIVE TIME in Shader (优化：确保时间始终更新)
+	var current_time: float
+	if not Engine.is_editor_hint() and WaterManager and WaterManager._time != null:
+		current_time = WaterManager._time
 	else:
-		var t = Time.get_ticks_msec() / 1000.0
-		mat.set_shader_parameter("sync_time", t)
+		current_time = Time.get_ticks_msec() / 1000.0
+	
+	mat.set_shader_parameter("sync_time", current_time)
+	
+	# 确保 wave_speed 被正确设置（优化：同步 wave_speed）
+	if WaterManager:
+		mat.set_shader_parameter("wave_speed", WaterManager.wave_speed)
 
 func rotate_vector2(v: Vector2, angle_deg: float) -> Vector2:
 	var rad = deg_to_rad(angle_deg)
