@@ -23,7 +23,7 @@ func _draw_brush_at(uv: Vector2, strength: float):
 	if !ripple_viewport: return
 	
 	# Instantiate a brush sprite in the viewport
-	var brush_container = ripple_viewport.get_node("BackBufferCopy/BrushContainer")
+	var brush_container = ripple_viewport.get_node("BrushContainer")
 	var brush = Sprite2D.new()
 	# Use a simple radial gradient texture for the brush
 	brush.texture = load("res://WaterSystem/textures/ripple_brush.tres") 

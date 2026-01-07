@@ -28,5 +28,6 @@ void fragment() {
 	h *= damping;
 	
 	// Output: R = New Height, G = Current Height (becomes prev next frame)
+	h = clamp(h, -10.0, 10.0); // Safety clamp
 	COLOR = vec4(h, state.r, 0.0, 1.0);
 }
