@@ -23,6 +23,11 @@ static var instance: Node
 # Ripple Settings (Secondary Noise)
 @export_group("Ripples")
 @export var ripple_height_scale: float = 0.1
+
+@export_group("Flow Field")
+@export var global_flow_direction: Vector2 = Vector2(1.0, 0.0)
+@export var global_flow_speed: float = 0.5
+
 var noise1: FastNoiseLite
 var _time: float = 0.0
 
@@ -39,10 +44,10 @@ func _init_default_noise():
 func _process(delta):
 	_time += delta 
 
-func get_wave_height(world_pos: Vector3) -> float:
+func get_wave_height(world_pos: Vector3, iterations: int = 3) -> float:
 	# 1. Iterative Solver (XZ displacement)
 	var p = world_pos
-	for i in range(3):
+	for i in range(iterations):
 		var displacement = _get_displacement(p)
 		var current_p_xz = p + Vector3(displacement.x, 0.0, displacement.z)
 		var diff = current_p_xz - Vector3(world_pos.x, 0.0, world_pos.z)
@@ -56,6 +61,23 @@ func get_wave_height(world_pos: Vector3) -> float:
 	var ripples = _sample_ripple_noise(world_pos.x, world_pos.z)
 	
 	return final_disp.y + ripples
+
+func get_water_velocity(world_pos: Vector3) -> Vector3:
+	var flow = Vector3(global_flow_direction.x, 0, global_flow_direction.y) * global_flow_speed
+	
+	# Waterspout Vortex Logic
+	var dist_to_spout = Vector2(world_pos.x, world_pos.z).distance_to(Vector2(waterspout_pos.x, waterspout_pos.z))
+	if dist_to_spout < waterspout_radius * 2.0:
+		var influence = clampf(1.0 - dist_to_spout / (waterspout_radius * 2.0), 0.0, 1.0)
+		# Tangent direction for vortex (clockwise)
+		var dir_to_center = (waterspout_pos - world_pos).normalized()
+		var tangent = Vector3(-dir_to_center.z, 0, dir_to_center.x)
+		var vortex_vel = tangent * waterspout_strength * 2.0 * influence
+		# Downward suction
+		var suction_vel = Vector3.DOWN * waterspout_strength * influence
+		flow += vortex_vel + suction_vel
+		
+	return flow
 
 func _get_displacement(p: Vector3) -> Vector3:
 	var disp = Vector3.ZERO

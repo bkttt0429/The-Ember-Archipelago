@@ -10,6 +10,18 @@ func _ready():
 		water_material.set_shader_parameter("ripple_map", ripple_viewport.get_texture())
 		water_material.set_shader_parameter("ripple_map_size", ripple_area_size)
 
+@export var lod_distance: float = 30.0
+
+func _process(_delta):
+	# Distance-based LOD: Only update simulation if close to camera
+	var cam = get_viewport().get_camera_3d()
+	if cam and ripple_viewport:
+		var center_pos = Vector3(0, 0, 0) # Assumed center
+		if cam.global_position.distance_to(center_pos) > lod_distance:
+			ripple_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+		else:
+			ripple_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+
 func apply_ripple(world_pos: Vector3, strength: float):
 	# Convert World Pos to UV (Viewport Coordinates)
 	# Assuming Water is centered at (0,0,0) for now, or use relative calculation via WaterManager

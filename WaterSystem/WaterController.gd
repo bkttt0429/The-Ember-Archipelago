@@ -82,7 +82,7 @@ func _process(delta):
 		wave_a.y = dir_a.y
 		wave_a.w = _target_wavelength
 		mat.set_shader_parameter("wave_a", wave_a)
-		
+
 	var wave_b = mat.get_shader_parameter("wave_b")
 	if wave_b:
 		wave_b.x = dir_b.x
@@ -90,27 +90,18 @@ func _process(delta):
 		wave_b.w = _target_wavelength * 1.5
 		mat.set_shader_parameter("wave_b", wave_b)
 
-	# --- FULL SYNC TO WaterManager ---
+	# --- AUTOMATED SYNC TO WaterManager via Reflection ---
 	if WaterManager:
-		WaterManager.height_scale = new_amp
-		WaterManager.wave_a = wave_a if wave_a != null else WaterManager.wave_a
-		WaterManager.wave_b = wave_b if wave_b != null else WaterManager.wave_b
-		
-		# Sync other waves to ensure physics matches visuals exactly
-		WaterManager.wave_c = mat.get_shader_parameter("wave_c") if mat.get_shader_parameter("wave_c") != null else WaterManager.wave_c
-		WaterManager.wave_d = mat.get_shader_parameter("wave_d") if mat.get_shader_parameter("wave_d") != null else WaterManager.wave_d
-		WaterManager.wave_e = mat.get_shader_parameter("wave_e") if mat.get_shader_parameter("wave_e") != null else WaterManager.wave_e
-		
-		# Sync Waterspout (Prompt B logic)
-		WaterManager.waterspout_pos = mat.get_shader_parameter("waterspout_pos") if mat.get_shader_parameter("waterspout_pos") != null else Vector3(0, -100, 0)
-		WaterManager.waterspout_radius = mat.get_shader_parameter("waterspout_radius") if mat.get_shader_parameter("waterspout_radius") != null else 5.0
-		WaterManager.waterspout_strength = mat.get_shader_parameter("waterspout_strength") if mat.get_shader_parameter("waterspout_strength") != null else 0.0
-		
-		# Sync Ripples
-		WaterManager.ripple_height_scale = mat.get_shader_parameter("ripple_height_scale") if mat.get_shader_parameter("ripple_height_scale") != null else 0.1
-		
-		# Sync Global Speed
-		WaterManager.wave_speed = mat.get_shader_parameter("wave_speed") if mat.get_shader_parameter("wave_speed") != null else 0.05
+		var params_to_sync = [
+			"height_scale", "wave_a", "wave_b", "wave_c", "wave_d", "wave_e",
+			"wave_speed", "ripple_height_scale",
+			"waterspout_pos", "waterspout_radius", "waterspout_strength",
+			"global_flow_direction", "global_flow_speed"
+		]
+		for p_name in params_to_sync:
+			var val = mat.get_shader_parameter(p_name)
+			if val != null:
+				WaterManager.set(p_name, val)
 
 	# DRIVE TIME in Shader
 	if not Engine.is_editor_hint() and WaterManager:

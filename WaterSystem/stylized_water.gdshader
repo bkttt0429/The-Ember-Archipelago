@@ -20,6 +20,7 @@ uniform float depth_band_2 : hint_range(0.0, 50.0) = 5.0;
 
 uniform vec3 foam_outer_color : source_color = vec3(0.1, 0.3, 0.5); // Double layered foam edge
 uniform float foam_outer_extent : hint_range(0.0, 1.0) = 0.2;
+uniform float color_saturation : hint_range(0.0, 2.0) = 1.2;
 
 // --- Waterspout (Prompt B) ---
 group_uniforms Waterspout;
@@ -32,6 +33,8 @@ group_uniforms Basic;
 uniform float wave_speed = 0.05;
 uniform float height_scale = 1.0;
 uniform float roughness : hint_range(0.0, 1.0) = 0.2;
+uniform vec2 flow_direction = vec2(1.0, 0.0);
+uniform float flow_speed = 0.5;
 uniform sampler2D vertex_noise_big : repeat_enable;
 uniform float ripple_height_scale = 0.1;
 
@@ -134,8 +137,8 @@ void fragment() {
 	
 	// Hard Banding instead of lerp
 	vec3 water_color = deep_color;
-	water_color = mix(water_color, mid_color, 1.0 - step(depth_band_2, depth_diff));
-	water_color = mix(water_color, shallow_color, 1.0 - step(depth_band_1, depth_diff));
+	water_color = mix(water_color, mid_color * color_saturation, 1.0 - step(depth_band_2, depth_diff));
+	water_color = mix(water_color, shallow_color * color_saturation, 1.0 - step(depth_band_1, depth_diff));
 	
 	// --- Double Layered Foam (Prompt C) ---
 	// 1. Shore/Contact Foam
@@ -143,7 +146,8 @@ void fragment() {
 	float shore_outer_mask = (1.0 - step(foam_shore_extent, depth_diff)) * step(foam_shore_threshold, depth_diff);
 	
 	// 2. Crest Foam
-	float crest_noise = texture(foam_tex, v_world_pos.xz * 0.1 + sync_time * 0.1).r;
+	vec2 flow_offset = flow_direction * sync_time * flow_speed;
+	float crest_noise = texture(foam_tex, v_world_pos.xz * 0.1 + flow_offset).r;
 	float crest_foam_mask = step(foam_crest_threshold, v_height + crest_noise);
 	float crest_outer_mask = step(foam_crest_threshold - foam_crest_extent, v_height + crest_noise) * (1.0 - crest_foam_mask);
 	

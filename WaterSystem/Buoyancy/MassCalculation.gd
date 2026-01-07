@@ -42,6 +42,7 @@ func calculate_mass_properties():
 		) * mass
 
 func _physics_process(_delta: float) -> void:
+	if WaterManager.instance == null: return
 	apply_drag()
 
 func apply_drag() -> void:
@@ -85,26 +86,35 @@ func apply_pitch_drag() -> void:
 	var torque = torque_magnitude * basis.z
 	apply_torque(torque)
 
+func apply_drag_vertical() -> void:
+	var ref_size = Vector3(2, 1, 5)
+	var area = ref_size.x * ref_size.z
+	var water_vel = WaterManager.instance.get_water_velocity(global_position)
+	var relative_vel_vec = linear_velocity - water_vel
+	
+	var local_velocity = relative_vel_vec.dot(global_transform.basis.y)
+	var vertical_drag = calculate_drag(area, local_velocity, drag_coef_vertical) * basis.y * DRAG_SCALE
+	apply_central_force(vertical_drag)
+
 func apply_drag_axial() -> void:
 	var ref_size = Vector3(2, 1, 5)
 	var area = ref_size.y * ref_size.z
-	var local_velocity = linear_velocity.dot(global_transform.basis.x)
+	var water_vel = WaterManager.instance.get_water_velocity(global_position)
+	var relative_vel_vec = linear_velocity - water_vel
+	
+	var local_velocity = relative_vel_vec.dot(global_transform.basis.x)
 	var axial_drag = calculate_drag(area, local_velocity, drag_coef_axial) * basis.x * DRAG_SCALE
 	apply_central_force(axial_drag)
 
 func apply_drag_lateral() -> void:
 	var ref_size = Vector3(2, 1, 5)
 	var area = ref_size.y * ref_size.x
-	var local_velocity = linear_velocity.dot(global_transform.basis.z)
+	var water_vel = WaterManager.instance.get_water_velocity(global_position)
+	var relative_vel_vec = linear_velocity - water_vel
+	
+	var local_velocity = relative_vel_vec.dot(global_transform.basis.z)
 	var lateral_drag = calculate_drag(area, local_velocity, drag_coef_lateral) * basis.z * DRAG_SCALE
 	apply_central_force(lateral_drag)
-
-func apply_drag_vertical() -> void:
-	var ref_size = Vector3(2, 1, 5)
-	var area = ref_size.x * ref_size.z
-	var local_velocity = linear_velocity.dot(global_transform.basis.y)
-	var vertical_drag = calculate_drag(area, local_velocity, drag_coef_vertical) * basis.y * DRAG_SCALE
-	apply_central_force(vertical_drag)
 
 func calculate_drag_torque(area, length, ang_vel, drag_coef) -> float:
 	var torque_magnitude = (0.5 * WATER_MASS_DENSITY * ang_vel * ang_vel * area * drag_coef * length * 0.25)

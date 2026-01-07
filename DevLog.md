@@ -85,3 +85,52 @@
 
 **腳本驗證**
 *   確認 `WaterManager.gd` 中 `noise1`, `noise2`, `_time` 等關鍵變數已正確宣告並初始化，消除了編輯器的 Parse Error。
+### 2026-01-07: 水體系統全面優化實作 (Comprehensive Water System Implementation)
+
+我們完成了從簡易 Noise 水面到具備「次世代 Low-Poly 效果」與「精確物理互動」的水系統升級。
+
+#### 1. 核心波浪代數 (Core Wave Mathematics)
+*   **技術選型**: 放棄了純 Noise 隨機位移，改採 **多層 Gerstner Wave (5層疊加)**。
+    *   **優勢**: 提供了具體且可預測的方向性波形、陡峭的浪尖 (Steepness) 以及自然的頂點水平移動。
+*   **同步技術**: 
+    *   **CPU 迭代解算器 (Iterative Solver)**: 為了解決 Gerstner 波在水平方向產生的位移，我們在 `WaterManager.gd` 實作了迭代法（3次疊代），以根據物體世界座標反求對應的波浪高度，實現了 **毫釐級的 CPU/GPU 視覺同步**。
+
+#### 2. 進階視覺渲染 (Advanced Rendering)
+*   **深度感知系統 (Depth Awareness)**:
+    *   **線性深度泡沫**: 利用 `hint_depth_texture` 計算水體與幾何體的交集深度，自動在岸邊、岩石及物體交界處生成動態泡沫。
+    -   **多層色帶 (Banded Color)**: 透過 `step` 函數實作淺水 (Shallow)、中層 (Mid) 與深水 (Deep) 的硬邊色彩過渡，完美符合 Low-Poly 美術風格。
+*   **動態泡沫系統 (Dynamic Foam)**:
+    -   **波峰泡沫 (Crest Foam)**: 根據頂點垂直位移量 (`v_height`) 加權 Noise 紋理，僅在浪尖高度產生破碎感泡沫。
+    -   **尾浪投影 (Wake Projection)**: 採用 `SubViewport` 正交投影技術，將船隻運動產生的 Mesh 軌跡投影至 Shader 紋理，實現物體移動帶動的水面浪痕。
+
+#### 3. 物理互動與 VFX (Interaction & VFX)
+*   **動態漣漪 (Dynamic Ripples)**:
+    -   實作了基於法線擾動與頂點位移的 **Ripple Map** 系統。利用波方程式 (Wave Equation) 在 Viewport 中模擬圓形波紋的擴散與衰減。
+*   **特殊地貌與天氣互動**:
+    -   **水下漩渦/水柱位移 (Waterspout)**: 透過 `waterspout_pos` 參數同時影響 Shader 位移與 `WaterManager` 物理力場，實現視覺與物理統一的下陷/旋轉效果。
+*   **互動粒子 (Splash Particles)**:
+    -   開發了 `WaveSplashDetector.gd`，當偵測到高速物體入水或波浪拍打岩石時，觸發 Low-Poly 風格的水花粒子。
+
+#### 4. 系統架構結論
+水系統現已轉變為一個 **數據驅動 (Data-Driven)** 的模組。透過 `WaterManager` 單例管理所有波浪參數，能確保遊戲中所有實體（玩家船隻、浮漂、岩石）在視覺波動與物理力學上保持絕對的一致性。
+### 2026-01-07: 水體系統全面優化 - 第一階段實作完成
+
+我們針對水體系統進行了深度優化，核心修復了流體動力學與同步機制。
+
+#### 1. 水流場系統與阻力修正 (#1)
+- **實作內容**: 在 `WaterManager` 引入了 `global_flow_direction` 與 `global_flow_speed`。
+- **物理擬真**: 將物體的阻力計算從「絕對速度」修正為「相對速度」(`linear_velocity - water_velocity`)。
+- **渦流整合**: 海龍捲 (Waterspout) 現在具備切線方向的渦流場，會帶動周圍漂浮物旋轉並向中心聚集。
+
+#### 2. 自動化參數同步 (#2)
+- **技術改進**: 在 `WaterController.gd` 實作了基於反射 (Reflection) 的參數同步系統。
+- **優點**: 任何在 Shader 中新增的參數（如 `wave_c`, `flow_speed` 等）只需加入清單即可自動同步至 CPU 端，消除了手動維護導致的物理/視覺誤差。
+
+#### 3. 視覺與美術風格強化 (#3, #9, #10)
+- **視覺效果**: 調整了 `depth_band` 與顏色飽和度，增強了卡通色彩層次。
+- **硬邊極致化**: 全面改採 `step()` 函數實作雙層硬邊泡沫，視覺風格更趨向經典卡通效果。
+- **動態流動**: 實作了泡沫紋理的 UV 漂移，讓玩家能透過泡沫移動方向直觀判斷水流方向。
+
+#### 4. 性能優化 (#5, #6)
+- **自適應迭代**: 根據物體運動速度動態調整頂點位移迭代次數（靜止物 1 次，快速移動物 5 次），顯著降低大規模物理模擬的 CPU 開銷。
+- **Ripple 系統優化**: 降低模擬解析度至 256x256，並實作了距離感知的 LOD 系統，當相機過遠時自動暫停計算。

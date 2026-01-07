@@ -43,7 +43,14 @@ func apply_force_on_cell(_delta: float) -> void:
 	var volume: float = size.x * size.y * size.z
 	
 	# Get height from WaterManager
-	var wave_height = water_manager.get_wave_height(global_position)
+	var speed = parent_body.linear_velocity.length()
+	var iterations = 1
+	if speed > 10.0:
+		iterations = 5
+	elif speed > 1.0:
+		iterations = 3
+		
+	var wave_height = water_manager.get_wave_height(global_position, iterations)
 	var depth: float = wave_height - global_position.y
 	
 	var gravity_vec = ProjectSettings.get_setting("physics/3d/default_gravity_vector") 
