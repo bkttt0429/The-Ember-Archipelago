@@ -7,6 +7,7 @@
 [ext_resource type="Script" uid="uid://b24rq7ym2oo6m" path="res://WaterSystem/VFX/WaveSplashDetector.gd" id="6_detector"]
 [ext_resource type="PackedScene" uid="uid://d3yq8j2num46l" path="res://WaterSystem/RippleSystem/RippleViewport.tscn" id="7_ripple_vp"]
 [ext_resource type="Script" uid="uid://cj6v3ixmkq8p6" path="res://WaterSystem/RippleSystem/RippleManager.gd" id="8_ripple_man"]
+[ext_resource type="PackedScene" uid="uid://ck6m7v2n0p3w" path="res://WaterSystem/Waterspout.tscn" id="9_spout"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_main"]
 sky_top_color = Color(0.2, 0.5, 0.9, 1)
@@ -69,8 +70,11 @@ shadow_enabled = true
 [node name="FloatingBox" parent="." instance=ExtResource("5_box")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 5, 2.9679165)
 
+[node name="Waterspout" parent="." instance=ExtResource("9_spout")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
+
 [node name="Rock" type="CSGBox3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3, -1, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -9.922884, -1, 0)
 size = Vector3(5, 5, 5)
 
 [node name="SplashD1" type="Node3D" parent="Rock"]
@@ -90,4 +94,4 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, -2.6)
 script = ExtResource("6_detector")
 
 [node name="Camera3D" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0.6363743, 0.7713805, 0, -0.7713805, 0.6363743, -0.15685415, 13.703755, 7.245266)
+transform = Transform3D(1, 0, 0, 0, 0.81546116, 0.5788118, 0, -0.5788118, 0.81546116, -0.15685415, 52.897144, 52.02795)

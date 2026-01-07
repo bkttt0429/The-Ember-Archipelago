@@ -96,6 +96,9 @@ func _process(delta):
 			"height_scale", "wave_a", "wave_b", "wave_c", "wave_d", "wave_e",
 			"wave_speed", "ripple_height_scale",
 			"waterspout_pos", "waterspout_radius", "waterspout_strength",
+			"waterspout_spiral_strength", "waterspout_spiral_arms", 
+			"waterspout_foam_ring_inner", "waterspout_foam_ring_outer", 
+			"waterspout_darkness_factor",
 			"global_flow_direction", "global_flow_speed"
 		]
 		for p_name in params_to_sync:

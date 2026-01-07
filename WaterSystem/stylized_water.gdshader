@@ -5,28 +5,33 @@
 */
 
 shader_type spatial;
-render_mode cull_disabled, world_vertex_coords, depth_draw_always, diffuse_burley, specular_schlick_ggx;
+render_mode cull_disabled, depth_draw_always, diffuse_burley, specular_schlick_ggx;
 
 // --- Physical Context ---
 uniform float sync_time; 
 
 // --- Visual Overhaul (Prompt C) ---
 group_uniforms Visual_Overhaul;
-uniform vec3 shallow_color : source_color = vec3(0.0, 0.7, 0.9);
+uniform vec3 shallow_color : source_color = vec3(0.2, 0.85, 1.0); // #33D9FF
 uniform vec3 mid_color : source_color = vec3(0.0, 0.4, 0.7);
-uniform vec3 deep_color : source_color = vec3(0.0, 0.2, 0.4);
-uniform float depth_band_1 : hint_range(0.0, 20.0) = 0.5;
-uniform float depth_band_2 : hint_range(0.0, 50.0) = 5.0;
+uniform vec3 deep_color : source_color = vec3(0.0, 0.1, 0.2); // #001A33
+uniform float depth_band_1 : hint_range(0.0, 20.0) = 1.0;
+uniform float depth_band_2 : hint_range(0.0, 50.0) = 3.0;
 
-uniform vec3 foam_outer_color : source_color = vec3(0.1, 0.3, 0.5); // Double layered foam edge
+uniform vec3 foam_outer_color : source_color = vec3(0.0, 0.5, 0.8); // #0080CC
 uniform float foam_outer_extent : hint_range(0.0, 1.0) = 0.2;
-uniform float color_saturation : hint_range(0.0, 2.0) = 1.2;
+uniform float color_saturation : hint_range(0.0, 2.0) = 1.5;
 
-// --- Waterspout (Prompt B) ---
+// --- Waterspout (Prompt B + Realism Enhancement) ---
 group_uniforms Waterspout;
-uniform vec3 waterspout_pos = vec3(0.0, -100.0, 0.0);
+uniform vec3 waterspout_pos = vec3(0.0);
 uniform float waterspout_radius = 5.0;
-uniform float waterspout_strength = 0.0;
+uniform float waterspout_strength = 3.0;
+uniform float waterspout_spiral_strength : hint_range(0.0, 20.0) = 8.0;
+uniform int waterspout_spiral_arms : hint_range(1, 10) = 4;
+uniform float waterspout_foam_ring_inner : hint_range(0.0, 10.0) = 2.0;
+uniform float waterspout_foam_ring_outer : hint_range(0.0, 15.0) = 5.0;
+uniform float waterspout_darkness_factor : hint_range(0.0, 1.0) = 0.8;
 
 // --- Existing Uniforms Retained ---
 group_uniforms Basic;
@@ -47,12 +52,12 @@ uniform vec4 wave_e = vec4(0.2, -0.8, 0.05, 1.5);
 
 group_uniforms foam;
 uniform vec3 foam_color : source_color = vec3(1.0);
-uniform float foam_opacity : hint_range(0.0, 1.0) = 0.8;
+uniform float foam_opacity : hint_range(0.0, 1.0) = 0.6;
 uniform sampler2D foam_tex : repeat_enable;
-uniform float foam_crest_threshold : hint_range(0.0, 5.0) = 1.35;
+uniform float foam_crest_threshold : hint_range(0.0, 5.0) = 2.8;
 uniform float foam_crest_extent : hint_range(0.0, 1.0) = 0.2;
 uniform float foam_shore_threshold : hint_range(0.0, 2.0) = 0.25;
-uniform float foam_shore_extent : hint_range(0.0, 2.0) = 0.5;
+uniform float foam_shore_extent : hint_range(0.0, 2.0) = 0.2;
 uniform sampler2D foam_mask : filter_nearest;
 uniform float foam_mask_size = 10.0;
 
@@ -133,59 +138,82 @@ void fragment() {
 	vec4 view = INV_PROJECTION_MATRIX * vec4(ndc, 1.0);
 	view.xyz /= view.w;
 	float linear_depth = -view.z;
-	float depth_diff = linear_depth - VERTEX.z;
+	float depth_diff = VERTEX.z - view.z;
 	
-	// Hard Banding instead of lerp
+	// --- RESTORED VISUALS ---
+	// 1. Color Banding
 	vec3 water_color = deep_color;
 	water_color = mix(water_color, mid_color * color_saturation, 1.0 - step(depth_band_2, depth_diff));
 	water_color = mix(water_color, shallow_color * color_saturation, 1.0 - step(depth_band_1, depth_diff));
 	
-	// --- Double Layered Foam (Prompt C) ---
-	// 1. Shore/Contact Foam
-	float shore_foam_mask = 1.0 - step(foam_shore_threshold, depth_diff);
-	float shore_outer_mask = (1.0 - step(foam_shore_extent, depth_diff)) * step(foam_shore_threshold, depth_diff);
-	
-	// 2. Crest Foam
+	// 2. Crest Foam Logic
 	vec2 flow_offset = flow_direction * sync_time * flow_speed;
-	float crest_noise = texture(foam_tex, v_world_pos.xz * 0.1 + flow_offset).r;
-	float crest_foam_mask = step(foam_crest_threshold, v_height + crest_noise);
-	float crest_outer_mask = step(foam_crest_threshold - foam_crest_extent, v_height + crest_noise) * (1.0 - crest_foam_mask);
+	float crest_noise = texture(foam_tex, v_world_pos.xz * 0.05 + flow_offset).r;
 	
-	// Integrate Foam
+	// Stricter dynamic threshold
+	float peak_threshold = height_scale * 1.5; 
+	if (foam_crest_threshold > 0.1) peak_threshold = foam_crest_threshold;
+	
+	float pulse = 0.5 + 0.5 * sin(sync_time * 2.0 + v_world_pos.x * 0.5);
+	float crest_foam_mask = step(peak_threshold, v_height + crest_noise * 0.5 + pulse * 0.2);
+	float crest_outer_mask = step(peak_threshold - foam_crest_extent, v_height + crest_noise * 0.5 + pulse * 0.2) * (1.0 - crest_foam_mask);
+	
 	vec3 final_albedo = water_color;
 	
-	// Apply Outer Edge Foam (Darker/Blueish)
-	float total_outer = clamp(shore_outer_mask + crest_outer_mask, 0.0, 1.0);
-	final_albedo = mix(final_albedo, foam_outer_color, total_outer);
+	// --- Waterspout Visuals ---
+	float dist_to_spout = distance(v_world_pos.xz, waterspout_pos.xz);
 	
-	// Apply Core Foam (Pure White with Opacity)
-	float total_foam = clamp(shore_foam_mask + crest_foam_mask, 0.0, 1.0);
-	final_albedo = mix(final_albedo, foam_color, total_foam * foam_opacity);
-
-	// Wake Foam (from mask)
-	vec2 wake_uv = (v_world_pos.xz - NODE_POSITION_WORLD.xz + vec2(foam_mask_size/2.0)) / foam_mask_size;
-	float wake_raw = texture(foam_mask, wake_uv).r;
-	float wake_foam = step(0.5, wake_raw * crest_noise * 1.5);
-	final_albedo = mix(final_albedo, foam_color, wake_foam * foam_opacity);
+	// A. Spiral Foam Texture
+	vec2 rel_pos = v_world_pos.xz - waterspout_pos.xz;
+	float r = length(rel_pos);
+	float theta = atan(rel_pos.y, rel_pos.x);
+	
+	// Spiral distortion
+	float spiral_theta = theta + r * 0.1 * waterspout_spiral_strength + sync_time * 2.0;
+	vec2 spiral_uv = vec2(r * 0.1, spiral_theta * float(waterspout_spiral_arms) / 6.28);
+	float spout_foam_noise = texture(foam_tex, spiral_uv).r;
+	
+	// B. Foam Ring Mask (Swapped arguments to fix global white-out)
+	float spout_ring_mask = smoothstep(waterspout_foam_ring_inner, (waterspout_foam_ring_inner + waterspout_foam_ring_outer) * 0.5, r) * 
+						   (1.0 - smoothstep((waterspout_foam_ring_inner + waterspout_foam_ring_outer) * 0.5, waterspout_foam_ring_outer, r));
+	
+	float spout_spiral_mask = smoothstep(waterspout_radius * 1.5, waterspout_radius * 0.5, r);
+	float spout_final_mask = step(0.4, spout_foam_noise * (spout_ring_mask + spout_spiral_mask * 0.5));
+	
+	// --- RESTORING FINAL ALBEDO ---
+	// Apply Spout Foam
+	final_albedo = mix(final_albedo, foam_color, spout_final_mask * foam_opacity);
+	
+	// Merge Wave Foam
+	final_albedo = mix(final_albedo, foam_outer_color, crest_outer_mask * foam_opacity * (1.0 - spout_final_mask));
+	final_albedo = mix(final_albedo, foam_color, crest_foam_mask * foam_opacity * (1.0 - spout_final_mask));
+	
+	// C. Center Darkness (Abyss)
+	float abyss_mask = smoothstep(waterspout_radius, 0.0, r);
+	final_albedo = mix(final_albedo, vec3(0.005, 0.015, 0.04), abyss_mask * waterspout_darkness_factor);
+	
+	// D. Shore/Contact Foam (Subtle)
+	float shore_foam_mask = 1.0 - step(foam_shore_threshold, depth_diff);
+	final_albedo = mix(final_albedo, foam_color, shore_foam_mask * foam_opacity * 0.6);
 
 	ALBEDO = final_albedo;
 	ROUGHNESS = roughness;
 	
 	// Subtle Fresnel for reflection
 	float fresnel = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 3.0);
-	ALBEDO = mix(ALBEDO, sky_color, fresnel * 0.3);
+	// ALBEDO = mix(ALBEDO, sky_color, fresnel * 0.15);
 }
 
 void light() {
-	// Simple Toon Lighting for Hard Edges
+	// Re-enabling Simple Toon Lighting
 	float NdotL = dot(NORMAL, LIGHT);
 	float diff = step(0.2, NdotL * ATTENUATION);
 	
-	DIFFUSE_LIGHT += ALBEDO * LIGHT_COLOR * diff * 0.8;
+	DIFFUSE_LIGHT += ALBEDO * LIGHT_COLOR * diff * 0.5; // Slightly dimmer
 	
 	// Specular highlight (Hard)
 	vec3 H = normalize(VIEW + LIGHT);
 	float NdotH = dot(NORMAL, H);
-	float spec = step(0.98, pow(NdotH, 64.0));
+	float spec = step(0.99, pow(NdotH, 64.0));
 	SPECULAR_LIGHT += LIGHT_COLOR * spec * ATTENUATION;
 }
