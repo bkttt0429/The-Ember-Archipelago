@@ -10,6 +10,7 @@ extends Node3D
 var rd: RenderingDevice
 var shader_rid: RID
 var pipeline: RID
+var uniform_set_update: RID
 var uniform_set_horizontal: RID
 var uniform_set_vertical: RID
 var texture_rid: RID
@@ -89,40 +90,51 @@ func _init_compute():
 	tf_inter.usage_bits = RenderingDevice.TEXTURE_USAGE_STORAGE_BIT | RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT
 	ping_pong_texture_rid = rd.texture_create(tf_inter, RDTextureView.new(), [])
 	
-	# Uniform Set 1: Horizontal Pass (Read H0, Write PingPong)
-	# Binding 0: Params
-	# Binding 1: Output -> PingPong
-	# Binding 2: Input -> H0
+	# 3. Create Uniform Sets for the 3-Pass Sequence
+	# Pass 0 (Update): H0 -> Texture
+	# Pass 1 (Horiz): Texture -> PingPong
+	# Pass 2 (Vert): PingPong -> Texture
 	
-	var u_ping_pong_out = RDUniform.new()
-	u_ping_pong_out.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
-	u_ping_pong_out.binding = 1
-	u_ping_pong_out.add_id(ping_pong_texture_rid)
+	# -- Uniforms for Texture --
+	var u_texture_out = RDUniform.new()
+	u_texture_out.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
+	u_texture_out.binding = 1
+	u_texture_out.add_id(texture_rid)
 	
-	uniform_set_horizontal = rd.uniform_set_create([params_uniform, u_ping_pong_out, h0_uniform], shader_rid, 0)
+	var u_texture_in = RDUniform.new()
+	u_texture_in.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
+	u_texture_in.binding = 2
+	u_texture_in.add_id(texture_rid)
 	
-	# Uniform Set 2: Vertical Pass (Read PingPong, Write Displacement)
-	# Binding 0: Params
-	# Binding 1: Output -> Displacement
-	# Binding 2: Input -> PingPong
+	# -- Uniforms for PingPong --
+	var u_pingpong_out = RDUniform.new()
+	u_pingpong_out.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
+	u_pingpong_out.binding = 1
+	u_pingpong_out.add_id(ping_pong_texture_rid)
 	
-	var u_ping_pong_in = RDUniform.new()
-	u_ping_pong_in.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
-	u_ping_pong_in.binding = 2
-	u_ping_pong_in.add_id(ping_pong_texture_rid)
+	var u_pingpong_in = RDUniform.new()
+	u_pingpong_in.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
+	u_pingpong_in.binding = 2
+	u_pingpong_in.add_id(ping_pong_texture_rid)
+
+	# -- Assign Uniform Sets --
+	# US_Update: Output=Texture, Input=H0
+	uniform_set_update = rd.uniform_set_create([params_uniform, u_texture_out, h0_uniform], shader_rid, 0)
 	
-	var u_displacement_out = RDUniform.new()
-	u_displacement_out.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
-	u_displacement_out.binding = 1
-	u_displacement_out.add_id(texture_rid)
+	# US_Horizontal: Output=PingPong, Input=Texture
+	uniform_set_horizontal = rd.uniform_set_create([params_uniform, u_pingpong_out, u_texture_in], shader_rid, 0)
 	
-	uniform_set_vertical = rd.uniform_set_create([params_uniform, u_displacement_out, u_ping_pong_in], shader_rid, 0)
+	# US_Vertical: Output=Texture, Input=PingPong (Final height in Texture/displacement_map)
+	uniform_set_vertical = rd.uniform_set_create([params_uniform, u_texture_out, u_pingpong_in], shader_rid, 0)
 	
 	# 4. Bind to Material
 	if material_to_update:
 		var tex_obj = Texture2DRD.new()
 		tex_obj.texture_rd_rid = texture_rid
 		material_to_update.set_shader_parameter("displacement_map", tex_obj)
+		# Set texture_scale to match FFT texture's world space scale
+		# FFT texture covers 64x64 world units (matching OceanWaveGenerator's size)
+		material_to_update.set_shader_parameter("texture_scale", 64.0)
 
 func _generate_test_spectrum_data(size: int) -> PackedByteArray:
 	var data = PackedByteArray()
@@ -166,24 +178,26 @@ func _process(delta):
 	var compute_list := rd.compute_list_begin()
 	rd.compute_list_bind_compute_pipeline(compute_list, pipeline)
 	
+	# Pass 0: Update Spectrum (Texture size x texture size)
+	var push_constant_upd = PackedInt32Array([0, 0, 0, 0]).to_byte_array()
+	rd.compute_list_set_push_constant(compute_list, push_constant_upd, push_constant_upd.size())
+	rd.compute_list_bind_uniform_set(compute_list, uniform_set_update, 0)
+	rd.compute_list_dispatch(compute_list, 1, texture_size, 1) # Full 2D update
+	
+	rd.compute_list_add_barrier(compute_list)
+	
 	# Pass 1: Horizontal
-	# Push Constant: Pass Mode (0 = Horizontal)
-	var push_constant_hor = PackedInt32Array([0, 0, 0, 0]).to_byte_array()
+	var push_constant_hor = PackedInt32Array([1, 0, 0, 0]).to_byte_array()
 	rd.compute_list_set_push_constant(compute_list, push_constant_hor, push_constant_hor.size())
 	rd.compute_list_bind_uniform_set(compute_list, uniform_set_horizontal, 0)
-	# Dispatch: 1 Group per Row. Y groups = texture_size
 	rd.compute_list_dispatch(compute_list, 1, texture_size, 1)
 	
 	rd.compute_list_add_barrier(compute_list)
 	
 	# Pass 2: Vertical
-	# Push Constant: Pass Mode (1 = Vertical)
-	var push_constant_ver = PackedInt32Array([1, 0, 0, 0]).to_byte_array()
+	var push_constant_ver = PackedInt32Array([2, 0, 0, 0]).to_byte_array()
 	rd.compute_list_set_push_constant(compute_list, push_constant_ver, push_constant_ver.size())
 	rd.compute_list_bind_uniform_set(compute_list, uniform_set_vertical, 0)
-	# Dispatch: 1 Group per Column. Y groups = texture_size (Wait, standard logic is 1 per row/col)
-	# Visualizing Transpose or direct addressing?
-	# Usually easier to conceptually dispatch "texture_size" groups.
 	rd.compute_list_dispatch(compute_list, 1, texture_size, 1)
 	
 	rd.compute_list_end()

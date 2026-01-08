@@ -15,14 +15,21 @@
 render_priority = 0
 shader = ExtResource("4_bjdcc")
 shader_parameter/displacement_map = SubResource("Texture2DRD_wypwq")
+shader_parameter/texture_scale = 64.0
+shader_parameter/height_scale = 1.0
+shader_parameter/choppiness = 0.4
 shader_parameter/albedo = Color(0, 0.4, 0.8, 1)
 shader_parameter/roughness = 0.2
 shader_parameter/specular = 0.5
 shader_parameter/foam_color = Color(1, 1, 1, 1)
 shader_parameter/foam_threshold = 0.5
+shader_parameter/sss_color = Color(0, 0.4, 0.5, 1)
+shader_parameter/sss_strength = 0.5
 shader_parameter/swe_simulation_map = SubResource("Texture2DRD_lesnt")
-shader_parameter/swe_area = Vector4(59, -14.25, 64, 64)
-shader_parameter/swe_color_strength = 0.0
+shader_parameter/swe_area = Vector4(0, 0, 64, 64)
+shader_parameter/swe_color_strength = 1.0
+shader_parameter/debug_show_swe_area = false
+shader_parameter/debug_show_blend = false
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_i00r3"]
 sky_top_color = Color(0.3, 0.5, 0.8, 1)
@@ -59,14 +66,13 @@ compute_shader = ExtResource("3_lesnt")
 material_to_update = SubResource("ShaderMaterial_bjdcc")
 
 [node name="LocalOceanSim" type="Node3D" parent="." node_paths=PackedStringArray("follow_target")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 91, 5, 17.75)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 32, 5, 32)
 script = ExtResource("5_i00r3")
 compute_shader = ExtResource("6_cfdus")
-material_to_update = SubResource("ShaderMaterial_bjdcc")
-follow_target = NodePath("../Spectator")
+follow_target = NodePath("../PhysicsBall")
 
 [node name="Spectator" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 90.942024, 5, 17.83124)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 93.50298, 5, 18.915306)
 
 [node name="MainCamera" type="Camera3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, -4.371139e-08, 1, 0, -1, -4.371139e-08, 100, 45, 0)

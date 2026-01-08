@@ -42,7 +42,7 @@ func _setup_scene():
 		return
 
 	# Cleanup old nodes to prevent duplicates
-	var nodes_to_clean = ["OceanGenerator", "WaveDebugGrid", "PhysicsBall", "Spectator", "GlobalOceanSim", "LocalOceanSim", "MainCamera"]
+	var nodes_to_clean = ["OceanGenerator", "WaveDebugGrid", "PhysicsBall", "Spectator", "GlobalOceanSim", "LocalOceanSim", "MainCamera", "OceanLOD", "Sun", "WorldEnvironment"]
 	for node_name in nodes_to_clean:
 		if has_node(node_name):
 			get_node(node_name).queue_free()
@@ -161,7 +161,7 @@ func _setup_scene():
 		add_child(sun)
 		sun.owner = get_tree().edited_scene_root
 		sun.position = Vector3(100, 50, 0)
-		sun.look_at(Vector3(100, 0, 0)) # Look at center
+		sun.look_at(Vector3(100, 0, 0), Vector3.LEFT) # Look at center (from directly above, UP is effectively world LEFT or FORWARD to avoid gimbal lock)
 		sun.shadow_enabled = true
 		print("Created Sun")
 		
@@ -266,7 +266,7 @@ func _process(_delta: float):
 			
 			# Smooth follow?
 			var desired_pos = target_pos + offset
-			cam.position = cam.position.lerp(desired_pos, _delta * 5.0)
+			cam.position = cam.position.lerp(desired_pos, _delta * 3.0) # Smoother follow
 			cam.look_at(target_pos)
 
 func _setup_local_ocean_test() -> Node3D:
@@ -293,9 +293,11 @@ func _setup_local_ocean_test() -> Node3D:
 	# Create Shared Material
 	var water_mat = ShaderMaterial.new()
 	water_mat.shader = water_shader
-	# Set some defaults
-	water_mat.set_shader_parameter("albedo", Color(0.0, 0.4, 0.8))
-	water_mat.set_shader_parameter("roughness", 0.2)
+	water_mat.set_shader_parameter("albedo", Color(0.0, 0.2, 0.5))
+	water_mat.set_shader_parameter("height_scale", 2.0) 
+	water_mat.set_shader_parameter("choppiness", 0.0) 
+	water_mat.set_shader_parameter("texture_scale", 64.0) 
+	water_mat.set_shader_parameter("foam_threshold", 0.1) 
 
 	# 1. Create Global Ocean (FFT)
 	var global_ocean = Node3D.new()
@@ -327,9 +329,10 @@ func _setup_local_ocean_test() -> Node3D:
 	if clipmap_script:
 		clipmap.set_script(clipmap_script)
 		clipmap.name = "OceanLOD"
-		clipmap.clipmap_levels = 5 # 64, 128, 256, 512, 1024 meters
-		clipmap.base_grid_size = 64
-		clipmap.base_subdivisions = 64
+		clipmap.clipmap_levels = 6 # Expanded for better vista
+		clipmap.base_grid_size = 32.0 # Finer detail at center
+		clipmap.base_subdivisions = 32
+		clipmap.skirt_depth = 20.0 # Deep skirts for better horizon coverage
 		
 		add_child(clipmap) # Add to root
 		clipmap.owner = get_tree().edited_scene_root
