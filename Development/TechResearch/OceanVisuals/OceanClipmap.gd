@@ -246,14 +246,15 @@ func _add_skirt(st: SurfaceTool, N: int, half_size: float, depth: float, start_i
 		var x2 = x1 + step
 		var p1 = Vector3(x1, 0, -half_size)
 		var p2 = Vector3(x2, 0, -half_size)
-		var p3 = Vector3(x1, depth, -half_size)
-		var p4 = Vector3(x2, depth, -half_size)
+		var p3 = Vector3(x1, -depth, -half_size) # Downwards
+		var p4 = Vector3(x2, -depth, -half_size) # Downwards
 		st.set_normal(Vector3.FORWARD); st.add_vertex(p1)
 		st.set_normal(Vector3.FORWARD); st.add_vertex(p2)
 		st.set_normal(Vector3.FORWARD); st.add_vertex(p3)
 		st.set_normal(Vector3.FORWARD); st.add_vertex(p4)
-		st.add_index(current_idx); st.add_index(current_idx+1); st.add_index(current_idx+2)
-		st.add_index(current_idx+1); st.add_index(current_idx+3); st.add_index(current_idx+2)
+		# Face order: (p1, p3, p2), (p2, p3, p4) for Front Face
+		st.add_index(current_idx); st.add_index(current_idx+2); st.add_index(current_idx+1)
+		st.add_index(current_idx+1); st.add_index(current_idx+2); st.add_index(current_idx+3)
 		current_idx += 4
 		
 	# Bottom Edge (法線朝後 BACK)
@@ -262,14 +263,14 @@ func _add_skirt(st: SurfaceTool, N: int, half_size: float, depth: float, start_i
 		var x2 = x1 + step
 		var p1 = Vector3(x2, 0, half_size)
 		var p2 = Vector3(x1, 0, half_size)
-		var p3 = Vector3(x2, depth, half_size)
-		var p4 = Vector3(x1, depth, half_size)
+		var p3 = Vector3(x2, -depth, half_size) # Downwards
+		var p4 = Vector3(x1, -depth, half_size) # Downwards
 		st.set_normal(Vector3.BACK); st.add_vertex(p1)
 		st.set_normal(Vector3.BACK); st.add_vertex(p2)
 		st.set_normal(Vector3.BACK); st.add_vertex(p3)
 		st.set_normal(Vector3.BACK); st.add_vertex(p4)
-		st.add_index(current_idx); st.add_index(current_idx+1); st.add_index(current_idx+2)
-		st.add_index(current_idx+1); st.add_index(current_idx+3); st.add_index(current_idx+2)
+		st.add_index(current_idx); st.add_index(current_idx+2); st.add_index(current_idx+1)
+		st.add_index(current_idx+1); st.add_index(current_idx+2); st.add_index(current_idx+3)
 		current_idx += 4
 		
 	# Left Edge (法線朝左 LEFT)
@@ -278,14 +279,14 @@ func _add_skirt(st: SurfaceTool, N: int, half_size: float, depth: float, start_i
 		var z2 = z1 + step
 		var p1 = Vector3(-half_size, 0, z2)
 		var p2 = Vector3(-half_size, 0, z1)
-		var p3 = Vector3(-half_size, depth, z2)
-		var p4 = Vector3(-half_size, depth, z1)
+		var p3 = Vector3(-half_size, -depth, z2) # Downwards
+		var p4 = Vector3(-half_size, -depth, z1) # Downwards
 		st.set_normal(Vector3.LEFT); st.add_vertex(p1)
 		st.set_normal(Vector3.LEFT); st.add_vertex(p2)
 		st.set_normal(Vector3.LEFT); st.add_vertex(p3)
 		st.set_normal(Vector3.LEFT); st.add_vertex(p4)
-		st.add_index(current_idx); st.add_index(current_idx+1); st.add_index(current_idx+2)
-		st.add_index(current_idx+1); st.add_index(current_idx+3); st.add_index(current_idx+2)
+		st.add_index(current_idx); st.add_index(current_idx+2); st.add_index(current_idx+1)
+		st.add_index(current_idx+1); st.add_index(current_idx+2); st.add_index(current_idx+3)
 		current_idx += 4
 		
 	# Right Edge (法線朝右 RIGHT)
@@ -294,12 +295,12 @@ func _add_skirt(st: SurfaceTool, N: int, half_size: float, depth: float, start_i
 		var z2 = z1 + step
 		var p1 = Vector3(half_size, 0, z1)
 		var p2 = Vector3(half_size, 0, z2)
-		var p3 = Vector3(half_size, depth, z1)
-		var p4 = Vector3(half_size, depth, z2)
+		var p3 = Vector3(half_size, -depth, z1) # Downwards
+		var p4 = Vector3(half_size, -depth, z2) # Downwards
 		st.set_normal(Vector3.RIGHT); st.add_vertex(p1)
 		st.set_normal(Vector3.RIGHT); st.add_vertex(p2)
 		st.set_normal(Vector3.RIGHT); st.add_vertex(p3)
 		st.set_normal(Vector3.RIGHT); st.add_vertex(p4)
-		st.add_index(current_idx); st.add_index(current_idx+1); st.add_index(current_idx+2)
-		st.add_index(current_idx+1); st.add_index(current_idx+3); st.add_index(current_idx+2)
+		st.add_index(current_idx); st.add_index(current_idx+2); st.add_index(current_idx+1)
+		st.add_index(current_idx+1); st.add_index(current_idx+2); st.add_index(current_idx+3)
 		current_idx += 4

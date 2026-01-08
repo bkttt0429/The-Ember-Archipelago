@@ -37,6 +37,7 @@ varying float v_swe_h;
 varying float v_swe_foam;
 varying float v_in_swe_area; // Changed from bool to float because boolean varyings are not supported
 
+void vertex() {
 	// ========================================
 	// 🌊 Direct Sampling for Smooth Waves 🌊
 	// ========================================
