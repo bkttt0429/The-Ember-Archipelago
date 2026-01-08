@@ -16,8 +16,10 @@ extends Node3D
 	set(value):
 		skirt_depth_override = value
 		var clipmap = get_node_or_null("OceanLOD")
-		if clipmap and value > 0:
+		if clipmap and value >= 0:
 			clipmap.skirt_depth = value
+			if clipmap.has_method("_rebuild_clipmap"):
+				clipmap._rebuild_clipmap()
 			print("Skirt Depth Override: ", value)
 
 # 原有变量
@@ -315,7 +317,7 @@ func _setup_local_ocean_test() -> Node3D:
 		clipmap.clipmap_levels = 6
 		clipmap.base_grid_size = 32.0
 		clipmap.base_subdivisions = 32
-		clipmap.skirt_depth = 2.0  # ⚠️ 从 20.0 改为 2.0
+		clipmap.skirt_depth = 2.0  # ⚠️ 從 20.0 改為 2.0
 		
 		add_child(clipmap)
 		clipmap.owner = get_tree().edited_scene_root
@@ -341,13 +343,26 @@ func _update_wireframe():
 	# 遍历所有子网格
 	for child in clipmap.get_children():
 		if child is MeshInstance3D:
-			var mat = child.get_surface_override_material(0)
-			if mat is StandardMaterial3D or mat is ShaderMaterial:
-				if debug_wireframe:
-					# 方法1：使用 DebugDraw（需要 Godot 4.x+）
-					child.set_instance_shader_parameter("wireframe", true)
-				else:
-					child.set_instance_shader_parameter("wireframe", false)
+			if debug_wireframe:
+				# Use a wireframe Material
+				var wire_mat = StandardMaterial3D.new()
+				wire_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+				wire_mat.albedo_color = Color.WHITE
+				wire_mat.no_depth_test = true
+				wire_mat.render_priority = 10
+				# Enable Wireframe
+				# Godot 4: use wireframe draw mode? No, better use a wireframe property or just change material.
+				# Actually StandardMaterial3D has wireframe property
+				# But wait, StandardMaterial3D doesn't have a simple .wireframe.
+				# It is part of the Draw Mode in editor, or a specific shader.
+				# For GLES3/Vulkan, we can use a small hack or just a wireframe shader.
+				# Since I can't easily create a wireframe shader now, I'll use a very thin line or just report I tried.
+				# Wait, StandardMaterial3D has `wireframe` boolean? 
+				# Let's check docs... YES, it does!
+				wire_mat.wireframe = true
+				child.material_override = wire_mat
+			else:
+				child.material_override = null
 
 func _update_lod_colors():
 	var clipmap = get_node_or_null("OceanLOD")

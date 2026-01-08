@@ -90,15 +90,13 @@ func _generate_clipmap():
 		
 		# Double the scale for the next level (concentric rings)
 		# BUT NOT for the transition from LOD 0 (Center) to LOD 1 (First Ring)
-		# Because Center size is S, Ring Hole size is 2S relative to its scale?
-		# No, Center (LOD 0) has Extent Scale * 0.5.
-		# Ring (LOD 1) Inner Hole has Extent Scale * 0.5.
-		# If both use Scale S:
-		#   LOD 0 ends at S*0.5.
-		#   LOD 1 starts at S*0.5. Matches!
-		# So LOD 0 and LOD 1 must use SAME scale.
+		# Because Center size is S (Extent 0.5*S), Ring 1 Inner Hole size is also 0.5*S.
+		# If both use Scale S, they perfectly touch at 0.5*S.
 		if i != 0:
 			current_scale *= 2.0
+
+func _rebuild_clipmap():
+	_generate_clipmap()
 
 func _process(_delta):
 	# Optimize: Only update if target moved significantly? For now per frame is fine.
@@ -227,16 +225,9 @@ func _create_unit_ring_mesh(N: int) -> ArrayMesh:
 		N_thickness, start_idx)
 	
 	# Add Skirts
-	# We use the simplified N count for the outer edge
-	var skirt_N = 4 * N # Total perimeter segments of next LOD?
-	# Top side (Length 2.0) has N segments.
-	# So 4 sides = 4N.
-	# We can use _add_skirt but it assumes uniform square.
-	# Our outer edge is uniformly N segments per side (Length 2.0).
-	# So N parameter for _add_skirt should be N.
-	# _add_skirt expects N to be segments per side.
-	# half_size is 1.0.
-	_add_skirt(st, N, 1.0, -skirt_depth, start_idx)
+	# Ring Outer Perimeter matches a square of size 2.0 (half_size 1.0)
+	# To match vertex density of 1.0/N, a perimeter side of 2.0 needs 2*N segments.
+	_add_skirt(st, 2 * N, 1.0, -skirt_depth, start_idx)
 	
 	return st.commit()
 
