@@ -34,7 +34,7 @@ current = true
 [node name="PhysicsBall" type="BuoyancyProbe3D" parent="."]
 buoyancy_force = 20.0
 water_drag = 1.0
-ocean_node = NodePath("/root/@EditorNode@20438/@Panel@14/@VBoxContainer@15/DockHSplitLeftL/DockHSplitLeftR/DockHSplitMain/@VBoxContainer@26/DockVSplitCenter/@VSplitContainer@62/@VBoxContainer@63/@EditorMainScreen@103/MainScreen/@CanvasItemEditor@10871/@VSplitContainer@10516/@HSplitContainer@10518/@HSplitContainer@10520/@Control@10521/@SubViewportContainer@10522/@SubViewport@10523/OceanDemo/OceanGenerator")
+ocean_node = NodePath("../OceanGenerator")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 32, 5, 32)
 
 [node name="LocalOceanSim" type="Node3D" parent="." node_paths=PackedStringArray("follow_target")]

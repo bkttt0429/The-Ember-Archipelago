@@ -1,4 +1,5 @@
 shader_type spatial;
+render_mode cull_back, depth_draw_opaque; // Removed depth_test_enabled which may be invalid or covered by default
 
 // Parameter for the FFT displacement texture
 uniform sampler2D displacement_map : repeat_enable, filter_linear;
@@ -74,7 +75,16 @@ void fragment() {
     vec3 ddy = dFdy(VERTEX);
     
     // Calculate face normal using cross product of derivatives
-    vec3 face_normal = normalize(cross(ddx, ddy));
+    vec3 face_normal = cross(ddx, ddy);
+    float len = length(face_normal);
+    
+    // Safety check: avoid division by zero and NaN values
+    // If the normal is too small, fall back to UP vector
+    if (len < 0.0001) {
+        face_normal = vec3(0.0, 1.0, 0.0);
+    } else {
+        face_normal = normalize(face_normal);
+    }
     
     // Apply the flat normal
     NORMAL = face_normal;
@@ -110,11 +120,14 @@ void fragment() {
     // 3. Fake Subsurface Scattering (SSS)
     // Simple gradient based on height or normal facing up
     // Light passing through waves: approximate with view direction and normal
-    float fresnel = sqrt(1.0 - dot(NORMAL, VIEW));
+    float fresnel = sqrt(max(0.0, 1.0 - dot(NORMAL, VIEW)));
     vec3 sss = sss_color.rgb * fresnel * sss_strength;
     
     // Add SSS only to non-foam areas
     final_color += sss * (1.0 - total_foam);
+    
+    // Ensure color values are valid (prevent NaN/Inf)
+    final_color = clamp(final_color, vec3(0.0), vec3(10.0));
 
     ALBEDO = final_color;
     ROUGHNESS = roughness;

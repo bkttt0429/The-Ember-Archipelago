@@ -23,7 +23,7 @@ extends Node3D
 
 var ocean_generator: Node = null
 var grid_probes: Array[Node3D] = []
-var local_ocean: Node3D = null
+var local_ocean_sim: Node3D = null  # 修复：重命名避免变量遮蔽警告
 var physics_ball: Node3D = null
 
 func _ready():
@@ -103,10 +103,11 @@ func _setup_scene():
 		ball_mesh_inst.material_override = red_mat
 		ball.add_child(ball_mesh_inst)
 		
-		# ball.set_ocean_node(gen.get_path())
-		# Use a direct reference if possible or ensure path is relative/correct
-		# But set_ocean_node likely takes a NodePath.
-		ball.set_ocean_node(gen.get_path())
+		# 修复：使用相对路径而不是绝对路径（避免编辑器内部节点路径）
+		# 使用从 ball 到 gen 的相对路径（ball 和 gen 都是当前节点的子节点）
+		# 由于 ball 和 gen 是兄弟节点，路径应该是 "../OceanGenerator"
+		var relative_path = ball.get_path_to(gen)
+		ball.set_ocean_node(relative_path)
 		ball.set_buoyancy_force(20.0)
 		ball.set_water_drag(1.0)
 		
@@ -116,7 +117,7 @@ func _setup_scene():
 
 	# 4. Create Local SWE Ocean (Visual Test)
 	var local_sim = _setup_local_ocean_test()
-	local_ocean = local_sim
+	local_ocean_sim = local_sim  # 修复：使用重命名后的变量
 	
 	# 5. Create Orbiting Spectator (Target for Snapping)
 	var spectator = Node3D.new()
@@ -131,8 +132,8 @@ func _setup_scene():
 	spectator.add_child(spec_mesh)
 	
 	# Assign to Ocean
-	if local_ocean:
-		local_ocean.follow_target = spectator
+	if local_ocean_sim:
+		local_ocean_sim.follow_target = spectator
 	
 	var clipmap = get_node_or_null("OceanLOD")
 	if clipmap:
@@ -215,7 +216,7 @@ func _input(event):
 				print("Ripple Color Toggled (C): ", local_sim_node.debug_color_ripples)
 
 var time_elapsed = 0.0
-func _process(delta):
+func _process(_delta: float):
 	# Update visualization grid
 	if ocean_generator and not grid_probes.is_empty():
 		for probe in grid_probes:
@@ -224,7 +225,7 @@ func _process(delta):
 				probe.position.y = h
 				
 	# Animate Physics Ball and Create Wake
-	if physics_ball and local_ocean:
+	if physics_ball and local_ocean_sim:
 		var center = Vector3(100, 5, 0)
 		var radius = 15.0
 		var ball_speed = 1.3
@@ -234,11 +235,11 @@ func _process(delta):
 		
 		# Add continuous interaction (Wake/Drag)
 		# Using a slightly larger radius and strength for visibility
-		local_ocean.add_interaction_world(physics_ball.global_position, 2.0, 5.0)
+		local_ocean_sim.add_interaction_world(physics_ball.global_position, 2.0, 5.0)
 				
 				
 	# Orbit Logic
-	time_elapsed += delta
+	time_elapsed += _delta
 	var spectator = get_node_or_null("Spectator")
 	if spectator:
 		var center = Vector3(100, 5, 0)
@@ -265,7 +266,7 @@ func _process(delta):
 			
 			# Smooth follow?
 			var desired_pos = target_pos + offset
-			cam.position = cam.position.lerp(desired_pos, delta * 5.0)
+			cam.position = cam.position.lerp(desired_pos, _delta * 5.0)
 			cam.look_at(target_pos)
 
 func _setup_local_ocean_test() -> Node3D:

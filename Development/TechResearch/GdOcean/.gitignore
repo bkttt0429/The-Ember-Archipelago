@@ -1,0 +1,26 @@
+# 构建产物
+bin/
+*.pdb
+*.exp
+*.lib
+*.obj
+*.dll
+*.so
+*.dylib
+
+# 构建日志
+build*.log
+build*.txt
+error*.log
+*.log
+
+# SCons
+.sconsign.dblite
+
+# 临时文件
+*.tmp
+*.bak
+*~
+
+# Godot 缓存
+.godot/
