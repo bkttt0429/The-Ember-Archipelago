@@ -4,7 +4,7 @@ render_mode cull_back, depth_draw_opaque;
 // Parameter for the FFT displacement texture
 // Parameter for the FFT displacement texture
 uniform sampler2D displacement_map : repeat_enable, filter_linear;
-uniform float texture_scale = 50.0; // Scale of the texture mapping in world units
+uniform float texture_scale = 64.0; // Scale of the texture mapping in world units
 uniform float height_scale = 1.0; // Vertical scale of the waves
 uniform float choppiness : hint_range(0.0, 2.0) = 0.15; // Horizontal displacement scale (keep low to avoid self-intersection)
 uniform vec4 albedo : source_color = vec4(0.0, 0.4, 0.8, 1.0);
@@ -43,7 +43,7 @@ void vertex() {
 	// Use standard texture() to let GPU automatically handle mipmapping
 	// This ensures consistent sampling across all Clipmap levels
 	// Use textureLod with Level 0 to avoid artifacts from missing mipmaps on RD textures
-	vec4 displacement_sample = textureLod(displacement_map, fract(world_pos.xz / texture_scale), 0.0);
+	vec4 displacement_sample = textureLod(displacement_map, world_pos.xz / texture_scale, 0.0);
 	vec3 displacement = displacement_sample.xyz;
  // Safety clamp
 	

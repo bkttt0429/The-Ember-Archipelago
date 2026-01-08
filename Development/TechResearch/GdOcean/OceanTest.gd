@@ -47,6 +47,8 @@ func _ready():
 
 func _setup_scene():
 	grid_probes.clear()
+	debug_show_lod_colors = false
+	debug_wireframe = false
 	
 	var gd_ocean_class = ClassDB.class_exists("OceanWaveGenerator")
 	if not gd_ocean_class:
@@ -285,6 +287,10 @@ func _setup_local_ocean_test() -> Node3D:
 	water_mat.set_shader_parameter("choppiness", 0.0) 
 	water_mat.set_shader_parameter("texture_scale", 64.0) 
 	water_mat.set_shader_parameter("foam_threshold", 0.1) 
+	# 🔴 關閉所有調試功能，防止色塊出現
+	water_mat.set_shader_parameter("debug_show_swe_area", false)
+	water_mat.set_shader_parameter("debug_show_blend", false)
+	water_mat.set_shader_parameter("swe_color_strength", 0.0)
 
 	var global_ocean = Node3D.new()
 	global_ocean.set_script(global_ocean_script)

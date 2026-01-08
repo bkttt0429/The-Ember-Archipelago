@@ -9,7 +9,10 @@ extends Node3D
 # 4. 實作了 2:1 的邊界頂點縫合邏輯，防止 T-Junctions
 
 @export var clipmap_levels: int = 6
-@export var base_grid_size: float = 64.0
+@export var base_grid_size: float = 64.0:
+	set(v):
+		base_grid_size = v
+		if is_inside_tree(): _generate_clipmap()
 @export var base_subdivisions: int = 32:
 	set(v):
 		base_subdivisions = v
@@ -32,8 +35,12 @@ func _ready():
 
 func set_material(mat: ShaderMaterial):
 	material = mat
-	for m in meshes:
-		if m: m.material_override = material
+	for i in range(meshes.size()):
+		var m = meshes[i]
+		if m: 
+			m.material_override = material
+			# 注意：我們現在使用全球統一的 World-Space Sampling
+			# 每個 MeshInstance 不再需要獨立的 texture_scale 實例參數
 
 func _generate_clipmap():
 	# Cleaning existing meshes
@@ -79,6 +86,8 @@ func _generate_clipmap():
 		
 		if material:
 			mesh_inst.material_override = material
+			# 🔑 業界標準方案：使用全球統一的 World-Space Sampling
+			# 不再需要為每個 LOD 單獨設置 texture_scale，這會導致接縫處高度不連續
 		
 		add_child(mesh_inst)
 		meshes.append(mesh_inst)
