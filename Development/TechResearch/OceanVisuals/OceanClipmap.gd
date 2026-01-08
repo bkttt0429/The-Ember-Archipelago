@@ -87,7 +87,7 @@ func _generate_clipmap():
 		if material:
 			mesh_inst.material_override = material
 			# ✅ Pass the subdivisions to the shader for correct snapping
-			mesh_inst.set_instance_shader_parameter("grid_subdivisions", float(base_subdivisions))
+			# mesh_inst.set_instance_shader_parameter("grid_subdivisions", float(base_subdivisions))
 		
 		add_child(mesh_inst)
 		meshes.append(mesh_inst)

@@ -27,7 +27,7 @@ shader_parameter/foam_threshold = 0.1
 shader_parameter/sss_color = Color(0, 0.4, 0.5, 1)
 shader_parameter/sss_strength = 0.5
 shader_parameter/swe_simulation_map = SubResource("Texture2DRD_sgqwc")
-shader_parameter/swe_area = Vector4(87, -25.75, 64, 64)
+shader_parameter/swe_area = Vector4(48, -33, 64, 64)
 shader_parameter/swe_color_strength = 0.0
 shader_parameter/debug_show_swe_area = false
 shader_parameter/debug_show_blend = false
@@ -58,7 +58,7 @@ script = ExtResource("1_test_script")
 buoyancy_force = 20.0
 water_drag = 1.0
 ocean_node = NodePath("../OceanGenerator")
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 113.82598, 5, -5.8174043)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 99.26604, 5, -14.982033)
 
 [node name="GlobalOceanSim" type="Node3D" parent="."]
 script = ExtResource("2_cr5mg")
@@ -66,22 +66,22 @@ compute_shader = ExtResource("3_sgqwc")
 material_to_update = SubResource("ShaderMaterial_5yf4n")
 
 [node name="LocalOceanSim" type="Node3D" parent="." node_paths=PackedStringArray("follow_target")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 119, 5, 6.25)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 80, 5, -1)
 script = ExtResource("5_pixi7")
 compute_shader = ExtResource("6_26dag")
 material_to_update = SubResource("ShaderMaterial_5yf4n")
 follow_target = NodePath("../Spectator")
 
 [node name="OceanLOD" type="Node3D" parent="." node_paths=PackedStringArray("follow_target")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 118, 0, 6)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 80, 0, -2)
 script = ExtResource("7_jo150")
 follow_target = NodePath("../Spectator")
 
 [node name="Spectator" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 118.99796, 5, 6.251187)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 80.02233, 5, -0.9448887)
 
 [node name="MainCamera" type="Camera3D" parent="."]
-transform = Transform3D(0.9999984, 0.0006479968, -0.0016807917, 0, 0.93305916, 0.35972294, 0.0018013774, -0.35972238, 0.93305767, 113.788574, 13.005827, 14.948296)
+transform = Transform3D(0.9525775, -0.124322996, 0.27774084, 0, 0.9127318, 0.40855914, -0.3042962, -0.38918424, 0.86944777, 104.70448, 13.000001, 2.0426338)
 current = true
 
 [node name="Sun" type="DirectionalLight3D" parent="."]

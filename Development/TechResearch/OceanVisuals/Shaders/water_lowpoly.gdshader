@@ -31,98 +31,88 @@ uniform bool debug_show_swe_area = false;
 uniform bool debug_show_blend = false;
 
 // ✅ LOD Precision Helpers
-instance uniform float grid_subdivisions = 32.0;
+// instance uniform float grid_subdivisions = 32.0; // Removed as we use global grid now
 
 varying float v_swe_h;
 varying float v_swe_foam;
 varying float v_in_swe_area; // Changed from bool to float because boolean varyings are not supported
 
 void vertex() {
-    // 1. FFT Displacement
-	// Calculate the actual grid step (quad size) for this LOD level
-	// grid_step = MeshScale / Subdivisions
-	float actual_grid_step = length(MODEL_MATRIX[0].xyz) / grid_subdivisions;
-	
-	// Get high-precision world position
-	vec4 world_pos_4 = MODEL_MATRIX * vec4(VERTEX, 1.0);
-	vec3 world_pos = world_pos_4.xyz;
-	
-	// ✅ Vertex Snapping: Align BOTH sampling and vertex position to the grid.
-	// This ensures consistency between LOD levels and prevents 
-	// geometry shimmering/cracks during smooth movement.
-	vec2 snapped_world_xz = floor(world_pos.xz / actual_grid_step + 0.5) * actual_grid_step;
-	
-	// ✅ Vertex Snapping Strategy:
-	// We ONLY snap the UV sampling coordinate to the grid. 
-	// We do NOT snap the physical Vertex position (VERTEX.xz), as that causes "terraced" artifacts/staircasing
-	// especially when LOD transition meshes aren't perfectly aligned.
-	
-	// vec4 local_snapped = (inverse(MODEL_MATRIX) * vec4(snapped_world_xz.x, 0.0, snapped_world_xz.y, 1.0));
-	// VERTEX.xz = local_snapped.xz; // DISABLED
-	
-	// ✅ Use snapped world-space UV for displacement sampling
+	// ========================================
+	// 🔑 关键修复：全局统一采样网格 (Fix LOD Staircase Artifacts)
+	// ========================================
+
+	// 1. 获取高精度世界坐标
+	vec3 world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+
+	// 2. ✅ 使用【全局统一】的网格步长（基于最精细的 LOD）
+	// 假设 LOD 0 的 base_grid_size = 64m, subdivisions = 32
+	// 全局网格步长 = 64 / 32 = 2.0m
+	const float GLOBAL_GRID_STEP = 2.0; // ✅ 硬编码为最精细层级的步长
+
+	// 3. ✅ Snap 世界坐标到全局网格
+	// 所有 LOD 都 snap 到同一个 2m x 2m 的全局网格，确保不同 Scale 的 LOD 采样点对齐
+	vec2 snapped_world_xz = floor(world_pos.xz / GLOBAL_GRID_STEP + 0.5) * GLOBAL_GRID_STEP;
+
+	// 4. ✅ 使用 snapped 坐标进行采样
 	vec2 sample_uv = fract(snapped_world_xz / texture_scale);
 	vec4 displacement_sample = textureLod(displacement_map, sample_uv, 0.0);
 	
 	// ✅ Safety clamp to prevent exploding geometry
 	vec3 displacement = clamp(displacement_sample.xyz, vec3(-10.0), vec3(10.0));
- // Safety clamp
-	
-	// SWE Simulation Logic
-    
-    // Convert World Pos -> SWE UV
-    // swe_area: xy = min_pos (world), zw = size (world)
-    vec2 swe_min = swe_area.xy;
-    vec2 swe_size = swe_area.zw;
-    vec2 swe_max = swe_min + swe_size;
-    
-    // Check if we're inside SWE simulation area (with small margin for smooth blending)
-    float margin = 0.05; // 5% margin for edge blending
-    bool in_swe_area = (world_pos.x >= swe_min.x - margin * swe_size.x) && 
-                       (world_pos.x <= swe_max.x + margin * swe_size.x) &&
-                       (world_pos.z >= swe_min.y - margin * swe_size.y) && 
-                       (world_pos.z <= swe_max.y + margin * swe_size.y);
-    
-    float swe_h = 0.0;
-    float swe_foam = 0.0;
-    
-    if (in_swe_area) {
-        // Calculate UV (clamp to valid range to avoid sampling errors)
-        vec2 swe_uv = (world_pos.xz - swe_min) / swe_size;
-        swe_uv = clamp(swe_uv, 0.0, 1.0);
-        
-        vec4 swe_val = textureLod(swe_simulation_map, swe_uv, 0.0);
-        // Raw float height in RED channel
-        float h_raw = swe_val.r;
-        float f_raw = swe_val.a;
-        
-        // Edge Fading: Smooth blend at edges to avoid hard boundaries
-        // Calculate distance from center (0.5, 0.5) normalized to [0, 0.5]
-        vec2 center_dist = abs(swe_uv - 0.5);
-        float max_dist = max(center_dist.x, center_dist.y);
-        
-        // Fade out in the outermost 10% (0.4 to 0.5) to ensure 0 at boundary
-        // Changing smoothstep range to ensure it fully reaches 0 before the edge
-        // ✅ 3. 擴大淡出範圍並使用平方曲線，使 SWE 邊界更柔和
-        float fade_linear = 1.0 - smoothstep(0.3, 0.48, max_dist);
-        float fade = fade_linear * fade_linear;
-        
-        swe_h = h_raw * fade;
-        swe_foam = f_raw * fade;
-    }
-    
-    v_swe_h = swe_h;
-    v_swe_foam = swe_foam;
-    v_in_swe_area = in_swe_area ? 1.0 : 0.0;
 
-    // ✅ 4. Restore SWE Height
-    float swe_h_safe = clamp(swe_h, -5.0, 5.0);
-    
-    // ✅ 5. Read R channel (displacement.x) + SWE
-    VERTEX.y += displacement.x * height_scale + swe_h_safe;
-    // Keep X/Z zero for now to ensure 100% stability
-    // VERTEX.x -= displacement.x * height_scale * choppiness; 
-    // VERTEX.z -= displacement.z * height_scale * choppiness;
+	// ========================================
+	// SWE Simulation Logic
+	// ========================================
+	// swe_area: xy = min_pos (world), zw = size (world)
+	vec2 swe_min = swe_area.xy;
+	vec2 swe_size = swe_area.zw;
+	vec2 swe_max = swe_min + swe_size;
+
+	float margin = 0.05; // 5% margin for edge blending
+	bool in_swe_area = (world_pos.x >= swe_min.x - margin * swe_size.x) && 
+					   (world_pos.x <= swe_max.x + margin * swe_size.x) &&
+					   (world_pos.z >= swe_min.y - margin * swe_size.y) && 
+					   (world_pos.z <= swe_max.y + margin * swe_size.y);
+
+	float swe_h = 0.0;
+	float swe_foam = 0.0;
+
+	if (in_swe_area) {
+		// Calculate UV (clamp to valid range to avoid sampling errors)
+		vec2 swe_uv = (world_pos.xz - swe_min) / swe_size;
+		swe_uv = clamp(swe_uv, 0.0, 1.0);
+		
+		vec4 swe_val = textureLod(swe_simulation_map, swe_uv, 0.0);
+		// Raw float height in RED channel
+		float h_raw = swe_val.r;
+		float f_raw = swe_val.a;
+		
+		// Edge Fading: Smooth blend at edges to avoid hard boundaries
+		// Calculate distance from center (0.5, 0.5) normalized to [0, 0.5]
+		vec2 center_dist = abs(swe_uv - 0.5);
+		float max_dist = max(center_dist.x, center_dist.y);
+		
+		// Fade out in the outermost 10% (0.4 to 0.5) to ensure 0 at boundary
+		// Changing smoothstep range to ensure it fully reaches 0 before the edge
+		// ✅ 3. 擴大淡出範圍並使用平方曲線，使 SWE 邊界更柔和
+		float fade_linear = 1.0 - smoothstep(0.3, 0.48, max_dist);
+		float fade = fade_linear * fade_linear;
+		
+		swe_h = h_raw * fade;
+		swe_foam = f_raw * fade;
+	}
+
+	v_swe_h = swe_h;
+	v_swe_foam = swe_foam;
+	v_in_swe_area = in_swe_area ? 1.0 : 0.0;
+
+	// ✅ 4. Restore SWE Height
+	float swe_h_safe = clamp(swe_h, -5.0, 5.0);
+
+	// ✅ 5. Apply Final Displacement: FFT + SWE
+	VERTEX.y += displacement.x * height_scale + swe_h_safe;
+	// Keep X/Z zero for now to ensure 100% stability
 }
 
 void fragment() {
