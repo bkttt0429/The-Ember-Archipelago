@@ -1,0 +1,2 @@
+env = Environment()
+Program('test_compiler', 'test.cpp')

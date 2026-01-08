@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://qvgys1tl3ws2"
+path="res://.godot/imported/swe_ocean.glsl-e20a564c8cfc5b4e4c93744a95cecc73.res"
+
+[deps]
+
+source_file="res://Development/TechResearch/OceanVisuals/swe_ocean.glsl"
+dest_files=["res://.godot/imported/swe_ocean.glsl-e20a564c8cfc5b4e4c93744a95cecc73.res"]
+
+[params]
+

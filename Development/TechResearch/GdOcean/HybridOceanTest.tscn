@@ -1,0 +1,80 @@
+[gd_scene load_steps=13 format=3 uid="uid://bpfxtnxqu13nc"]
+
+[ext_resource type="Script" uid="uid://cejtyvoddxrkl" path="res://Development/TechResearch/GdOcean/OceanTest.gd" id="1_ocean_test"]
+[ext_resource type="Script" uid="uid://cyioheoeippmd" path="res://Development/TechResearch/OceanVisuals/GpuOcean.gd" id="2_wypwq"]
+[ext_resource type="RDShaderFile" uid="uid://dhx2bnfqtlsqw" path="res://Development/TechResearch/OceanVisuals/Shaders/fft_ocean.glsl" id="3_lesnt"]
+[ext_resource type="Shader" uid="uid://cfthhnj5pvo6b" path="res://Development/TechResearch/OceanVisuals/Shaders/water_lowpoly.gdshader" id="4_bjdcc"]
+[ext_resource type="Script" uid="uid://xc0t80stc1d5" path="res://Development/TechResearch/OceanVisuals/GpuLocalOcean.gd" id="5_i00r3"]
+[ext_resource type="RDShaderFile" uid="uid://qvgys1tl3ws2" path="res://Development/TechResearch/OceanVisuals/swe_ocean.glsl" id="6_cfdus"]
+
+[sub_resource type="Texture2DRD" id="Texture2DRD_wypwq"]
+
+[sub_resource type="Texture2DRD" id="Texture2DRD_lesnt"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_bjdcc"]
+render_priority = 0
+shader = ExtResource("4_bjdcc")
+shader_parameter/displacement_map = SubResource("Texture2DRD_wypwq")
+shader_parameter/albedo = Color(0, 0.4, 0.8, 1)
+shader_parameter/roughness = 0.2
+shader_parameter/specular = 0.5
+shader_parameter/foam_color = Color(1, 1, 1, 1)
+shader_parameter/foam_threshold = 0.5
+shader_parameter/swe_simulation_map = SubResource("Texture2DRD_lesnt")
+shader_parameter/swe_area = Vector4(59, -14.25, 64, 64)
+shader_parameter/swe_color_strength = 0.0
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_i00r3"]
+sky_top_color = Color(0.3, 0.5, 0.8, 1)
+sky_horizon_color = Color(0.6, 0.7, 0.8, 1)
+ground_bottom_color = Color(0.1, 0.2, 0.3, 1)
+ground_horizon_color = Color(0.6, 0.7, 0.8, 1)
+
+[sub_resource type="Sky" id="Sky_cfdus"]
+sky_material = SubResource("ProceduralSkyMaterial_i00r3")
+
+[sub_resource type="Environment" id="Environment_14qkg"]
+background_mode = 2
+sky = SubResource("Sky_cfdus")
+ambient_light_source = 3
+reflected_light_source = 2
+
+[node name="HybridOceanTest" type="Node3D"]
+script = ExtResource("1_ocean_test")
+
+[node name="OceanGenerator" type="OceanWaveGenerator" parent="."]
+
+[node name="WaveDebugGrid" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.1021652, 0)
+
+[node name="PhysicsBall" type="BuoyancyProbe3D" parent="."]
+buoyancy_force = 20.0
+water_drag = 1.0
+ocean_node = NodePath("/root/@EditorNode@20438/@Panel@14/@VBoxContainer@15/DockHSplitLeftL/DockHSplitLeftR/DockHSplitMain/@VBoxContainer@26/DockVSplitCenter/@VSplitContainer@62/@VBoxContainer@63/@EditorMainScreen@103/MainScreen/@CanvasItemEditor@10871/@VSplitContainer@10516/@HSplitContainer@10518/@HSplitContainer@10520/@Control@10521/@SubViewportContainer@10522/@SubViewport@10523/HybridOceanTest/OceanGenerator")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 32, 5, 32)
+
+[node name="GlobalOceanSim" type="Node3D" parent="."]
+script = ExtResource("2_wypwq")
+compute_shader = ExtResource("3_lesnt")
+material_to_update = SubResource("ShaderMaterial_bjdcc")
+
+[node name="LocalOceanSim" type="Node3D" parent="." node_paths=PackedStringArray("follow_target")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 91, 5, 17.75)
+script = ExtResource("5_i00r3")
+compute_shader = ExtResource("6_cfdus")
+material_to_update = SubResource("ShaderMaterial_bjdcc")
+follow_target = NodePath("../Spectator")
+
+[node name="Spectator" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 90.942024, 5, 17.83124)
+
+[node name="MainCamera" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, -4.371139e-08, 1, 0, -1, -4.371139e-08, 100, 45, 0)
+current = true
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(-4.371139e-08, -1, -4.371139e-08, 0, -4.371139e-08, 1, -1, 4.371139e-08, 1.9106855e-15, 100, 50, 0)
+shadow_enabled = true
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_14qkg")

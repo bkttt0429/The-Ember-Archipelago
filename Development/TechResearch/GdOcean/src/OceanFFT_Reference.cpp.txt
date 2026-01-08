@@ -1,0 +1,83 @@
+#include "gd_ocean.h"
+#include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/variant/utility_functions.hpp>
+#include <vector>
+#include <complex>
+#include <cmath>
+#include <algorithm>
+#include <utility>
+
+using namespace godot;
+
+// ... (Rest of the FFT implementation I wrote previously)
+// Basic bit reversal for FFT
+unsigned int OceanWaveGenerator::reverse_bits(unsigned int num, int log2n) {
+    unsigned int reversed = 0;
+    for (int i = 0; i < log2n; ++i) {
+        if (num & (1 << i)) {
+            reversed |= 1 << (log2n - 1 - i);
+        }
+    }
+    return reversed;
+}
+
+void OceanWaveGenerator::bit_reverse_copy(const std::vector<std::complex<double>>& src, std::vector<std::complex<double>>& dst, int n) {
+    int log2n = static_cast<int>(std::log2(n));
+    for (int i = 0; i < n; ++i) {
+        dst[reverse_bits(i, log2n)] = src[i];
+    }
+}
+
+void OceanWaveGenerator::perform_fft(std::vector<std::complex<double>>& data, int n) {
+    // Iterative Radix-2 FFT (Cooley-Tukey)
+    int log2n = static_cast<int>(std::log2(n));
+    for (int i = 0; i < n; ++i) {
+        unsigned int rev = reverse_bits(i, log2n);
+        if (i < rev) {
+            std::swap(data[i], data[rev]);
+        }
+    }
+
+    const double PI = 3.14159265358979323846;
+    for (int s = 1; s <= log2n; ++s) {
+        int m = 1 << s;
+        int m2 = m >> 1;
+        std::complex<double> wm = std::exp(std::complex<double>(0, -2.0 * PI / m));
+        
+        for (int k = 0; k < n; k += m) {
+            std::complex<double> w = 1.0;
+            for (int j = 0; j < m2; ++j) {
+                std::complex<double> t = w * data[k + j + m2];
+                std::complex<double> u = data[k + j];
+                data[k + j] = u + t;
+                data[k + j + m2] = u - t;
+                w *= wm;
+            }
+        }
+    }
+}
+
+void OceanWaveGenerator::init_spectrum() {
+    int total = resolution * resolution;
+    h0_k.resize(total);
+    h_k_t.resize(total);
+    height_map.resize(total);
+    butterfly_data.resize(std::max(resolution, resolution));
+
+    for(int i=0; i<total; ++i) {
+        h0_k[i] = std::complex<double>(0, 0);
+    }
+    
+    if (total > 2 + 2 * resolution) {
+         h0_k[1 + 1 * resolution] = std::complex<double>(10.0, 0);
+         h0_k[2 + 0 * resolution] = std::complex<double>(5.0, 5.0);
+    }
+}
+
+OceanWaveGenerator::OceanWaveGenerator() {
+    time = 0.0;
+    resolution = 64;
+    size = 64.0;
+    init_spectrum();
+}
+// ... (End of snippet)

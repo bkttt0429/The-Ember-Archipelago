@@ -1,0 +1,246 @@
+﻿Godot 4.6 引擎海盜遊戲開發技術報告：重物理與低多邊形風格的架構優化
+1. 執行摘要與架構總覽
+本報告旨在為基於 Godot 4.6 引擎（涵蓋 Godot 4.x 系列最新架構及預覽功能）開發海盜主題遊戲提供詳盡的技術解決方案。專案的核心需求定義為「重物理模擬（Heavy Physics）」與「低多邊形平面風格（Low Poly Flat Style）」的獨特結合。此組合在技術層面上呈現出一種有趣的二元性：視覺渲染上的低保真度（Low Fidelity）為 GPU 釋放了大量的算力，但海盜遊戲所要求的複雜水體交互——包括船隻浮力、波浪對物體的衝擊、以及砲彈落水的動態反饋——則對物理引擎的實時性與數據吞吐量提出了極高要求。
+針對開發者提出的兩大核心技術路徑：「使用預訓練模型加速 FFT 計算」與「GPU 計算的 CPU 通訊優化」，本報告將進行深度剖析。我們將首先建立海洋模擬的數學與物理基礎，接著深入探討 Godot 的 RenderingDevice 架構，評估神經網絡（Neural Networks）在實時流體力學中的應用潛力，並最終提出一套結合 C++ GDExtension 與 Compute Shader 的混合式架構。
+1.1 專案技術背景分析
+在 Godot 4.x 的渲染管線中，自 4.0 版本引入的 Vulkan 後端與 RenderingDevice API 徹底改變了大規模數據處理的可能性 1。對於海盜遊戲而言，海洋不僅是背景，更是遊戲玩法的核心載體。傳統的遊戲開發往往在「視覺真實度」與「物理真實度」之間做取捨，而本專案選擇了風格化的視覺，這在戰略上是極其明智的。因為低多邊形風格允許我們簡化 Fragment Shader 的光照計算，將更多的毫秒數（Frame Time）分配給波浪的頂點位移計算與剛體物理模擬。
+然而，挑戰在於數據的流向。標準的 FFT 海洋模擬通常在 GPU 上完成以獲得最佳效能，但物理交互（如船隻的 RigidBody3D）通常在 CPU 上運行。這導致了經典的「CPU-GPU 數據傳輸瓶頸」。本報告將詳細論證，為何單純依賴 GPU 讀回（Readback）在 Godot 4.6 中可能仍非最佳解，並提出「雙重模擬（Dual Simulation）」作為行業標準的替代方案。同時，我們將嚴肅評估 AI 模型在取代傳統 FFT 算法上的可行性，分析其在時間複雜度與空間複雜度上的真實收益。
+________________
+2. 核心技術基礎：海洋頻譜模擬 (FFT Ocean Simulation)
+要理解如何優化或替換 FFT，首先必須深入理解其數學構造及其在 Godot 中的實作代價。Jerry Tessendorf 於 2000 年提出的基於統計學的海洋模擬方法，至今仍是電影與遊戲行業的黃金標準 3。
+2.1 頻譜域的數學模型
+海洋表面可以被視為無數個不同波長、振幅和相位的正弦波的疊加。我們不在空間域（Spatial Domain）直接定義波浪，而是在頻譜域（Frequency Domain）定義波浪的能量分佈。最常用的頻譜模型是 Phillips Spectrum 或 Pierson-Moskowitz Spectrum，它們描述了在特定風速與風向與重力作用下，波浪能量隨頻率的分佈情況。
+在 Godot 的實作中，我們通常使用 Compute Shader 來生成這些頻譜。一個典型的頻譜函數 $H_0(\mathbf{k})$ 定義了初始狀態的波浪振幅，其中 $\mathbf{k}$ 是波向量（Wave Vector）。
+
+
+$$P_h(\mathbf{k}) = A \frac{\exp(-1/(kL)^2)}{k^4} |\hat{\mathbf{k}} \cdot \hat{\mathbf{w}}|^2$$
+這裡 $L = V^2/g$ 是由風速 $V$ 和重力 $g$ 決定的最大波長。對於「重物理」的海盜遊戲，這個公式至關重要，因為它直接決定了海況的「惡劣程度」。通過調整參數 $A$（振幅）和風向 $\hat{\mathbf{w}}$，我們可以從平靜的港口過渡到暴風雨中的狂濤 5。
+2.2 逆快速傅立葉變換 (IFFT) 的計算成本
+一旦頻譜 $H(\mathbf{k}, t)$ 隨時間 $t$ 更新（通過乘以相位因子 $\exp(i\omega(k)t)$），我們需要將其轉換回空間域的高度場 $h(\mathbf{x}, t)$。這就是 IFFT 發揮作用的地方。
+
+
+$$h(\mathbf{x}, t) = \sum_{\mathbf{k}} H(\mathbf{k}, t) \exp(i \mathbf{k} \cdot \mathbf{x})$$
+在演算法複雜度上，對於 $N \times N$ 的網格，FFT 的複雜度為 $O(N^2 \log N)$。相比之下，直接求和的複雜度是 $O(N^4)$。這就是為什麼 FFT 是必不可少的。
+在 Godot 4.6 的環境下，利用 Compute Shader 7，現代 GPU（如 RTX 3050 或更高 5）可以在不到 1 毫秒的時間內完成 512x512 解析度的 FFT 運算。這意味著，單純從「生成高度圖」的角度來看，FFT 算法本身在 GPU 上已經極度優化，幾乎不存在效能瓶頸。真正的瓶頸在於如何使用這些數據。
+2.3 Gerstner 波與 FFT 的物理適用性比較
+雖然 FFT 能提供極佳的細節，但在物理互動上，Gerstner 波（Trochoidal Waves）常被視為更容易處理的替代方案，因為它們是顯式的數學公式，不需要進行全域變換 8。然而，Gerstner 波在模擬廣闊海洋的隨機性與複雜性上遠不如 FFT。對於一款強調「海盜體驗」的遊戲，海面的不可預測性與視覺上的豐富度是沉浸感的關鍵。因此，堅持使用 FFT 並解決其物理同步問題，是達成高品質遊戲體驗的必要路徑。
+________________
+3. 視覺實作詳解：低多邊形平面風格 (Low Poly Flat Style)
+在確立了 FFT 作為波浪生成的核心後，下一步是將這些高度數據轉化為 Low Poly 的視覺風格。這不僅僅是美術資產的設定，更是 Shader 編程策略的選擇。
+3.1 平面著色的技術挑戰
+標準的 3D 渲染流程是為「平滑」設計的。頂點法線（Vertex Normals）在光柵化階段會被插值，導致 Fragment Shader 接收到的是平滑過渡的法線數據。要實現 Low Poly 的硬邊效果，我們必須打破這種平滑。
+3.1.1 頂點拆分 (Vertex Splitting) vs. 著色器重構 (Shader Reconstruction)
+一種直觀的方法是在 CPU 端將網格的每個面（Face）拆分成獨立的頂點（Non-shared vertices）。這樣每個頂點都有自己的法線，插值後依然保持硬邊。然而，這樣會將頂點數量增加 3 到 4 倍（對於三角形或四邊形網格），顯著增加 Vertex Shader 的開銷與內存佔用。
+更優雅且高效的方法是在 Fragment Shader 中實時重構法線 9。這允許我們使用共享頂點的高效網格（Shared vertices），這對於 FFT 這種需要頻繁更新頂點位置的算法來說，能大幅減少數據傳輸量。
+3.2 利用偏導數 (Partial Derivatives) 實現動態 Flat Shading
+Godot 的 Shading Language 提供了 dFdx() 和 dFdy() 函數，這兩個函數是實現動態 Flat Shading 的核心 10。它們計算當前像素的變量相對於屏幕空間坐標的變化率。
+當波浪使網格變形後，我們可以通過計算視圖空間位置（View Position）的導數來得到當前像素所屬平面的切線向量，進而計算出面法線（Face Normal）。
+
+
+$$\vec{N}_{face} = \text{normalize}(\vec{T}_x \times \vec{T}_y)$$
+其中 $\vec{T}_x = dFdx(\text{VERTEX})$，$\vec{T}_y = dFdy(\text{VERTEX})$。
+這種方法的優勢在於它完全動態。無論 FFT 如何扭曲網格，Fragment Shader 總能計算出正確的幾何法線，而不需要 CPU 每幀重新計算並上傳法線數據。這對於 Godot 4.6 的渲染管線來說是極致的優化，因為它將計算壓力完全留在了 GPU 內部，避免了 PCIe 頻寬的浪費。
+3.3 網格細分與 LOD 策略
+儘管目標是 Low Poly 風格，但為了表現海浪的物理起伏，網格本身需要足夠的頂點密度。這裡存在一個視覺與技術的悖論：我們需要高密度的網格來支撐物理形變，但希望它看起來像是由低密度的多邊形組成的。
+3.3.1 CDLOD (Continuous Distance-Dependent LOD)
+建議使用 CDLOD 或 QuadTree 結構來管理海面網格 3。
+* 近處： 使用高細分等級的網格。配合 Shader 中的法線重構，這些細小的三角形會呈現出豐富的棱角細節，模擬出細碎的波浪。
+* 遠處： 動態降低網格密度。由於 Low Poly 風格本身對抗鋸齒和細節的要求較低，遠處的低多邊形可以直接對應較大的波浪結構。
+在 Godot 中，可以通過實例化多個 MeshInstance3D 並根據相機距離在 Vertex Shader 中進行頂點過渡（Morphing）來實現無縫的 LOD 切換。雖然 Low Poly 風格允許一定程度的視覺跳變（Popping），但為了遊戲的品質感，建議在 Shader 中實現基於距離的頂點混合，隱藏 LOD 的邊界。
+3.4 風格化泡沫與深度檢測
+海盜遊戲中，船隻破浪而行的視覺反饋至關重要。Low Poly 風格的泡沫不應是模糊的半透明貼圖，而應是邊緣銳利的幾何色塊。
+利用 Godot 的 DEPTH_TEXTURE 和 SCREEN_UV，我們可以讀取場景的深度緩衝區 14。通過比較水面像素的深度與場景物體（如海岸、船身）的深度，我們可以計算出「水深」。
+
+
+$$D_{\text{diff}} = \text{Depth}_{\text{scene}} - \text{Depth}_{\text{water}}$$
+傳統寫實渲染會根據 $D_{\text{diff}}$ 進行平滑插值（Smoothstep）來繪製泡沫。而在 Low Poly 風格中，我們應使用階躍函數（Step Function）或閾值判斷：
+
+
+OpenGL Shading Language
+
+
+
+
+// 風格化硬邊泡沫
+float foam_mask = step(foam_threshold, depth_difference);
+ALBEDO = mix(foam_color, water_color, foam_mask);
+
+這會產生一條清晰的泡沫交界線，非常符合 Low Poly 的視覺語言。此外，還可以結合噪聲紋理對閾值進行擾動，使泡沫邊緣呈現出動態的鋸齒狀或塊狀變化 16，進一步增強風格化效果。
+________________
+4. 技術方向一深究：預訓練模型與 AI 加速 FFT
+使用者提出的第一個思考方向是「使用預訓練好的模型以快出算出 FFT 結果」。這是一個非常前沿且值得探討的方向，涉及將深度學習（Deep Learning）引入實時物理模擬。
+4.1 神經網絡作為物理代理 (Neural Physics Surrogates)
+傳統 FFT 算法雖然高效，但在模擬某些非線性現象（如波浪破碎、極端海況下的能量耗散）時存在局限性，或者需要極其複雜的修正項（如 Choppy Wave 偏移）。神經網絡，特別是 Fourier Neural Operators (FNO) 和 Physics-Informed Neural Networks (PINNs)，在近年來被證明能夠有效學習流體力學的偏微分方程（PDEs）解 18。
+4.1.1 理論可行性分析
+理論上，我們可以訓練一個神經網絡模型 $M$，其輸入參數 $\theta$（風速、風向、時間、位置），輸出為波浪高度 $h$。
+* 優勢：
+   1. 非線性擬合： AI 模型可以學習並重現標準 Phillips Spectrum 無法描述的複雜海況，例如由真實浮標數據訓練出的 Rogue Waves（瘋狗浪）模型 21。
+   2. 維度壓縮： AI 可以作為一個極高效的壓縮器。我們不需要在 CPU 和 GPU 之間傳輸整個頻譜數據，只需傳輸一個極小的「潛在向量（Latent Vector）」，由 GPU 端的輕量級神經網絡解碼成高度圖。
+4.1.2 實作與效能挑戰
+然而，針對「快速算出 FFT 結果」這一具體目標，現階段的 AI 模型面臨嚴峻挑戰：
+* 推理速度 vs. FFT： 標準的 FFT 算法是 $O(N \log N)$，在現代 GPU 上是硬體極度友好的。相比之下，即使是輕量級的卷積神經網絡（CNN）或 FNO，其底層運算主要是矩陣乘法。在生成 512x512 這種高解析度紋理時，AI 推理的算力消耗和顯存頻寬佔用往往高於直接執行 FFT。Compute Shader 執行一次 FFT 可能僅需 0.1ms，而執行一個能生成同等細節的 GAN 或 FNO 可能需要數毫秒。
+* 現成模型的匱乏： 目前遊戲業界尚無標準的、即插即用的「Godot 海洋 AI 模型」。大多數相關研究 6 仍停留在學術階段或特定用途（如氣象預測），需要開發者自行採集數據（如使用 Blender 離線模擬或真實海洋數據）並進行訓練。
+4.2 Godot 4.6 中的 AI 整合路徑
+如果在 Godot 4.6 中堅持使用 AI 方法，最可行的路徑並非直接替換 FFT 生成，而是用於參數預測或局部細節增強。
+1. 頻譜參數預測 (Spectrum Parameter Prediction)：
+   * 應用： 海盜遊戲的天氣系統需要動態過渡。使用一個簡單的 MLP（多層感知機）根據遊戲內的環境變數（風暴等級、距離島嶼遠近、水深）預測 Phillips Spectrum 的最佳參數。
+   * 實作： 這種小模型可以在 CPU 上極快運行（甚至使用 GDScript 或 C#），輸出的參數直接傳給 GPU 的 FFT Shader。這能讓海況變化顯得更加自然和不可預測，而無需人工手調複雜曲線。
+2. 船隻尾流模擬 (Ship Wake Simulation)：
+   * 應用： 凱爾文波（Kelvin Wake）的物理模擬非常昂貴。可以訓練一個 Image-to-Image 的小模型（如 U-Net 的簡化版），輸入船隻的速度場和轉向，輸出局部的尾流高度圖，疊加在 FFT 海面上。
+   * 技術棧： 需要使用 GDExtension 整合 ONNX Runtime 23。將訓練好的 PyTorch 模型導出為 ONNX 格式，在 C++ GDExtension 中載入並執行推理。Godot 4 的 GDExtension 提供了與引擎底層交互的高效接口，適合處理這種跨語言的整合。
+4.3 結論：AI 方案的評估
+對於「快速算出 FFT」這一目標，AI 目前並非最佳解。標準的 GPU FFT 算法在效能與品質上仍是不可撼動的王者。建議將 AI 技術的應用聚焦於「控制」與「預測」層面，而非底層的「生成」層面。
+________________
+5. 技術方向二深究：CPU 與 GPU 通訊優化 (CPU-GPU Communication)
+這是本專案最關鍵的技術瓶頸。海盜遊戲的核心體驗建立在物理互動上：船必須隨著波浪起伏。這意味著 CPU 端的物理引擎（Physics Server）必須知道 GPU 端生成的波浪形狀。
+5.1 PCIe 匯流排與同步停頓 (Stall)
+如果我們採用最直觀的方法：在 Compute Shader 中計算 FFT，然後每一幀使用 texture_get_data() 將整張高度圖讀回 CPU 7。
+* 後果： texture_get_data() 是一個同步操作。CPU 會發出指令並暫停執行，直到 GPU 完成計算並將數據通過 PCIe 匯流排傳回內存。這會破壞 CPU 和 GPU 的並行性，導致嚴重的幀率波動（Stuttering）24。
+* 數據量分析： 512x512 的 R32F 紋理約為 1MB。以 60FPS 計算，頻寬需求為 60MB/s，這對 PCIe 不是問題，但**延遲（Latency）**是致命的。
+5.2 Godot 4.6 的異步回調機制 (Async Readback)
+Godot 4.5 及預計的 4.6 版本對 RenderingDevice 進行了重大改進，引入了真正的異步讀回 API 25。
+* API: RenderingDevice.texture_get_data_async() 或基於回調的機制。
+* 工作流：
+   1. Frame N: CPU 發出「讀取高度圖」請求。
+   2. Frame N: CPU 不等待，繼續處理遊戲邏輯。
+   3. Frame N+2 or N+3: GPU 完成計算與傳輸，觸發回調函數，CPU 獲得數據。
+* 優點： 徹底消除了管線停頓，保持了高幀率。
+* 缺點： 引入了 2-3 幀的數據延遲。這意味著船隻是對應於 50ms 前的波浪進行物理反應的。對於高速戰鬥的海盜遊戲，這可能導致視覺上的「穿模」或物理上的「漂浮」。
+5.3 行業標準解決方案：雙重模擬 (Dual Simulation)
+為了解決通訊瓶頸，同時保證物理的即時性，3A 級航海遊戲（如《刺客教條：黑旗》、《盜賊之海》）普遍採用「雙重模擬」架構 27。這也是本報告最強烈推薦給 Godot 4.6 開發者的方案。
+5.3.1 架構原理
+我們不在 CPU 和 GPU 之間傳輸大數據，而是在兩端分別運行兩套獨立的 FFT 模擬。
+1. GPU 模擬 (Visual): 運行高解析度（如 512x512 或 1024x1024）的 FFT Compute Shader。負責生成法線貼圖、泡沫遮罩、細緻的位移。這部分數據永遠不傳回 CPU。
+2. CPU 模擬 (Physics): 運行低解析度（如 32x32 或 64x64）的 FFT。僅計算高度（Height）和位移（Displacement）。這部分數據用於驅動船隻的剛體物理。
+5.3.2 同步機制
+* 時間同步： 確保 CPU 和 GPU 使用完全相同的 Time 變量累加器。
+* 參數同步： 確保兩者使用相同的頻譜參數（風速、風向、A 值）。
+* 數學一致性： 只要算法一致（都是 Tessendorf FFT），大尺度的波浪形狀在數學上是吻合的。CPU 的低解析度版本相當於 GPU 高解析度版本的「低頻部分」。
+* Low Poly 的優勢： 由於遊戲採用 Low Poly 風格，視覺本身就過濾掉了高頻細節，這使得 CPU 和 GPU 模擬之間的細微差異更難被玩家察覺，從而完美掩蓋了雙重模擬的精度誤差。
+5.4 實作關鍵：GDExtension C++ 加速
+要在 CPU 上實時運行 FFT（即使是低解析度），GDScript 的效能是遠遠不夠的 28。GDScript 雖然在 Godot 4 中有優化，但對於每幀數千次的複數運算（Complex Number Arithmetic）仍顯吃力。
+解決方案：使用 C++ GDExtension
+1. 整合高性能庫： 在 C++ 擴展中整合 FFTW 或 KissFFT 庫。這些庫對 CPU 的 SIMD 指令集（SSE/AVX）進行了極致優化。
+2. 多執行緒： 利用 Godot 的 WorkerThreadPool 31，將 CPU FFT 計算分配到背景執行緒。
+3. 直接物理集成： C++ 代碼可以直接操作 PhysicsServer3D，計算浮力並應用力（Add Force），完全繞過 GDScript 的開銷。
+效能評估表格：各方案對比
+方案架構
+	CPU 負載
+	GPU 負載
+	PCIe 頻寬
+	延遲 (Latency)
+	實作難度
+	適用性
+	GPU Compute + Sync Readback
+	極高 (Stall)
+	中
+	高
+	低
+	低
+	不推薦 (卡頓嚴重)
+	GPU Compute + Async Readback
+	低
+	中
+	高
+	高 (2-3幀)
+	中 (需 Godot 4.5+)
+	可行 (需預測補償)
+	GPU Physics (Particle)
+	低
+	高
+	低
+	低
+	極高 (Shader邏輯複雜)
+	適合純視覺/簡單物理
+	雙重模擬 (Dual Sim)
+	中 (C++優化)
+	中
+	零
+	零
+	高 (需 C++)
+	強烈推薦 (最佳體驗)
+	________________
+6. 物理整合與浮力系統 (Physics Integration)
+解決了波浪生成與數據獲取後，最後一步是將其應用於海盜船的物理互動。
+6.1 浮力模型 (Buoyancy Model)
+對於海盜遊戲，簡單的單點浮力（Single Point Buoyancy）是不夠的，船隻需要表現出隨波搖晃（Pitch/Roll）的動態。建議採用 多點採樣（Multi-point Sampling） 模型。
+1. 探針設置： 在船體底部設置 4 個或更多（如 8-12 個）浮力探針（Buoyancy Probes）。
+2. 高度查詢： 每個物理幀，C++ 系統遍歷這些探針，輸入其世界坐標 $(x, z)$，從 CPU FFT 模擬器中獲取當前波浪高度 $h_{wave}$ 和速度 $\vec{v}_{wave}$。
+3. 阿基米德力： 計算每個探針的吃水深度 $d = h_{wave} - y_{probe}$。若 $d > 0$，則施加向上的浮力 $F = \rho \cdot g \cdot V_{disp} \cdot d$，其中 $\rho$ 是水密度，$V_{disp}$ 是該探針代表的排水體積。
+4. 阻力模擬： 根據 $\vec{v}_{wave}$ 和船隻速度計算相對速度，施加阻力（Drag），模擬水對船的推動作用。
+6.2 預測與補償 (Latency Compensation)
+如果您選擇了 Async Readback 方案（而非雙重模擬），則必須處理 3 幀的數據延遲。可以使用 線性預測（Linear Prediction）：
+
+
+$$h_{\text{predicted}}(t) = h_{\text{readback}}(t - \Delta t) + \vec{v}_{\text{vertical}} \cdot \Delta t$$
+通過讀回的高度和垂直速度，預測當前時刻的高度。這對於長週期的湧浪（Swell）非常有效，能顯著減少視覺上的穿模現象。
+________________
+7. 替代方案：紋理陣列烘焙 (Texture Array Baking / VAT)
+針對本專案的「Low Poly」與「海盜遊戲」特性，還有一個極具性價比的替代方案：預烘焙 FFT (Baked FFT) 13。
+7.1 技術原理
+海洋的運動本質上是週期性的。我們可以離線模擬一段時間（例如 60 秒）且完美循環的 FFT 數據。
+* 存儲： 將這 60 秒的高度圖序列存入 Texture2DArray。
+* GPU： Shader 根據時間簡單地採樣 Texture Array，開銷極低。
+* CPU： 將同樣的 60 秒高度數據存為二進位數組（Binary Array）。物理引擎直接讀取內存數組。
+7.2 優劣分析
+* 優點：
+   * 零實時 FFT 計算開銷（無論是 CPU 還是 GPU）。
+   * 零 CPU-GPU 通訊開銷。
+   * 完美同步： CPU 和 GPU 讀取的是完全相同的靜態數據。
+* 缺點：
+   * 重複性： 波浪模式是固定的。
+   * 應對策略： 使用多層不同頻率、不同方向、不同循環週期的烘焙數據進行疊加（Layering）。例如，一層 60 秒的大浪 + 一層 23 秒的小浪。它們的組合週期會變得非常長，足以欺騙玩家的眼睛，且仍保持極高的效能。
+對於追求「Low Poly」風格且資源有限的團隊，這往往是比實時 FFT 更實用的方案。
+________________
+8. 結論與建議架構 (Conclusion & Roadmap)
+綜合所有分析，針對您的 Godot 4.6 海盜遊戲專案，我們提出以下具體的技術路線圖：
+8.1 推薦架構：C++ 驅動的混合式雙重模擬
+這是兼顧「重物理」與「可擴展性」的最佳路徑。
+1. 基礎層 (Foundation): 使用 C++ GDExtension 構建核心海洋系統。
+   * 整合 FFT 庫（如 KissFFT）。
+   * 實作 CPU 端低解析度（64x64）的波浪模擬。
+2. 物理層 (Physics): 在 C++ 中實作多點浮力系統。直接與 Godot 的 PhysicsServer3D 交互，驅動船隻剛體。
+3. 渲染層 (Rendering): 使用 Godot 的 Compute Shader 實作 GPU 端高解析度（512x512）FFT。
+   * 通過 RenderingDevice 執行。
+   * 確保與 C++ 端的時間變量同步。
+4. 視覺層 (Visuals): 編寫 Low Poly 水面 Shader。
+   * 使用 dFdx()/dFdy() 實現動態 Flat Shading。
+   * 利用 DEPTH_TEXTURE 實現硬邊泡沫。
+   * 使用 CDLOD 管理網格細分。
+8.2 備選架構：紋理陣列烘焙 (The Baking Alternative)
+若團隊缺乏 C++ 開發資源，或者專案更側重於美術風格而非極致的隨機性，紋理陣列烘焙是極佳的備選方案。它能在純 GDScript 環境下實現高效能的物理同步，且開發複雜度大幅降低。
+最終建議：
+不要試圖用 AI 去「生成」波浪，那會得不償失。將 AI 用於「控制」天氣參數。不要試圖每幀從 GPU 讀回大數據，那會阻塞您的遊戲。請擁抱「雙重模擬」或「預烘焙」技術，這才是通往流暢海盜體驗的正確航道。
+引用的著作
+1. Overview of renderers - Godot Docs, 檢索日期：1月 8, 2026， https://docs.godotengine.org/en/stable/tutorials/rendering/renderers.html
+2. Godot 4.0 sets sail: All aboard for new horizons, 檢索日期：1月 8, 2026， https://godotengine.org/article/godot-4-0-sets-sail/
+3. tessarakkt/godot4-oceanfft: Tessendorf FFT based ocean waves and buoyancy in Godot 4 using compute shaders - GitHub, 檢索日期：1月 8, 2026， https://github.com/tessarakkt/godot4-oceanfft
+4. Work in Progress - Tessendorf FFT based ocean waves in Godot 4 with compute shaders. Link to Github in comments. - Reddit, 檢索日期：1月 8, 2026， https://www.reddit.com/r/godot/comments/z0kjdj/work_in_progress_tessendorf_fft_based_ocean_waves/
+5. Godot Ocean Waves - YouTube, 檢索日期：1月 8, 2026， https://www.youtube.com/watch?v=tnCUzDhBGB0
+6. A Deep Learning–Based Approach for Empirical Modeling of Single-Point Wave Spectra in Open Oceans in - AMS Journals, 檢索日期：1月 8, 2026， https://journals.ametsoc.org/view/journals/phoc/53/9/JPO-D-22-0198.1.xml
+7. Using compute shaders — Godot Engine (latest) documentation in English, 檢索日期：1月 8, 2026， https://docs.godotengine.org/en/latest/tutorials/shaders/compute_shaders.html
+8. I Made Ocean Waves and Buoyancy in Godot - YouTube, 檢索日期：1月 8, 2026， https://www.youtube.com/watch?v=lo8YwUkO9zQ
+9. Normals using dFdx and dFdy - OpenGL - Khronos Forums, 檢索日期：1月 8, 2026， https://community.khronos.org/t/normals-using-dfdx-and-dfdy/72287
+10. dFdx() and dFdy() in GLES2 - Archive - Godot Forum, 檢索日期：1月 8, 2026， https://forum.godotengine.org/t/dfdx-and-dfdy-in-gles2/20951
+11. Shading language — Godot Engine (3.0) documentation in English, 檢索日期：1月 8, 2026， https://docs.godotengine.org/en/3.0/tutorials/shading/shading_language.html
+12. How To Create A Water Shader 2.0 // Godot 4 Tutorial - YouTube, 檢索日期：1月 8, 2026， https://www.youtube.com/watch?v=TLUt14wHrIQ
+13. I Made An Endless Ocean in Godot 4 - YouTube, 檢索日期：1月 8, 2026， https://www.youtube.com/watch?v=WfRb50J7hD8
+14. How To Create a Water Depth Effect // Godot 4 3D Shader Tutorial - YouTube, 檢索日期：1月 8, 2026， https://www.youtube.com/watch?v=ib2atnKTLrs
+15. Shader/Anti-aliasing Issue : r/godot - Reddit, 檢索日期：1月 8, 2026， https://www.reddit.com/r/godot/comments/qzolxa/shaderantialiasing_issue/
+16. How to fix foam issue in 3D water shader - Godot Forums, 檢索日期：1月 8, 2026， https://godotforums.org/d/31759-how-to-fix-foam-issue-in-3d-water-shader
+17. Godot Water Shader with Foam Edges - YouTube, 檢索日期：1月 8, 2026， https://www.youtube.com/watch?v=x9-wbo-2Rk8
+18. Bridging ocean wave physics and deep learning: Physics-informed neural operators for nonlinear wavefield reconstruction in real-time - arXiv, 檢索日期：1月 8, 2026， https://arxiv.org/html/2508.03315v1
+19. Streamlining Ocean Dynamics Modeling with Fourier Neural Operators: A Multiobjective Hyperparameter and Architecture Optimization Approach - MDPI, 檢索日期：1月 8, 2026， https://www.mdpi.com/2227-7390/12/10/1483
+20. Streamlining Ocean Dynamics Modeling with Fourier Neural Operators: A Multiobjective Hyperparameter and Architecture Optimization Approach - arXiv, 檢索日期：1月 8, 2026， https://arxiv.org/html/2404.05768v1
+21. Machine-guided discovery of a real-world rogue wave model - PMC, 檢索日期：1月 8, 2026， https://pmc.ncbi.nlm.nih.gov/articles/PMC10691345/
+22. DEEPWAVE: Deep Learning based Real-time Water Wave Simulation, 檢索日期：1月 8, 2026， https://jinningli.cn/cv/DeepWavePaper.pdf
+23. It would be nice if GDExtension was better supported - General - Godot Forum, 檢索日期：1月 8, 2026， https://forum.godotengine.org/t/it-would-be-nice-if-gdextension-was-better-supported/116561
+24. Add support for asynchronous `RenderingDevice.buffer_get_data()` (hardware readbacks) · Issue #7886 · godotengine/godot-proposals - GitHub, 檢索日期：1月 8, 2026， https://github.com/godotengine/godot-proposals/issues/7886
+25. Compute shader : RenderingDevice.TextureGetDataAsync() don't seems to work : r/godot, 檢索日期：1月 8, 2026， https://www.reddit.com/r/godot/comments/1kikwcy/compute_shader_renderingdevicetexturegetdataasync/
+26. Compute shader : RenderingDevice.TextureGetDataAsync() don't seems to work, 檢索日期：1月 8, 2026， https://forum.godotengine.org/t/compute-shader-renderingdevice-texturegetdataasync-dont-seems-to-work/110485
+27. Trouble synchronizing buoyant objects with wave shader : r/godot - Reddit, 檢索日期：1月 8, 2026， https://www.reddit.com/r/godot/comments/1hnjdjr/trouble_synchronizing_buoyant_objects_with_wave/
+28. Would Compute Shaders Be Helpful for Finite Difference PDE Solving? : r/godot - Reddit, 檢索日期：1月 8, 2026， https://www.reddit.com/r/godot/comments/1mtqhg9/would_compute_shaders_be_helpful_for_finite/
+29. Voxel mesh generation performance, GDScript vs C++ : r/godot - Reddit, 檢索日期：1月 8, 2026， https://www.reddit.com/r/godot/comments/1jd8w2p/voxel_mesh_generation_performance_gdscript_vs_c/
+30. Collection of benchmarks to test performance of different areas of Godot - GitHub, 檢索日期：1月 8, 2026， https://github.com/godotengine/godot-benchmarks
+31. Godot Rendering Priorities: September 2024, 檢索日期：1月 8, 2026， https://godotengine.org/article/rendering-priorities-september-2024/
+32. Guide: Texture Array for 3D - Tips & Tricks - Godot Forum, 檢索日期：1月 8, 2026， https://forum.godotengine.org/t/guide-texture-array-for-3d/103652

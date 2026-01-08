@@ -1,0 +1,45 @@
+[gd_scene load_steps=7 format=3 uid="uid://is5i42xjc87t"]
+
+[ext_resource type="Script" uid="uid://cejtyvoddxrkl" path="res://Development/TechResearch/GdOcean/OceanTest.gd" id="1_test_script"]
+[ext_resource type="Script" uid="uid://xc0t80stc1d5" path="res://Development/TechResearch/OceanVisuals/GpuLocalOcean.gd" id="2_0l0fr"]
+[ext_resource type="RDShaderFile" uid="uid://qvgys1tl3ws2" path="res://Development/TechResearch/OceanVisuals/swe_ocean.glsl" id="3_fxyft"]
+[ext_resource type="Shader" uid="uid://bth24t3icsa5a" path="res://Development/TechResearch/OceanVisuals/swe_debug.gdshader" id="4_2mkod"]
+
+[sub_resource type="Texture2DRD" id="Texture2DRD_cr5mg"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_sgqwc"]
+render_priority = 0
+shader = ExtResource("4_2mkod")
+shader_parameter/swe_simulation_map = SubResource("Texture2DRD_cr5mg")
+shader_parameter/water_color = Color(0, 0.4, 0.8, 1)
+shader_parameter/height_scale = 1.0
+
+[node name="OceanDemo" type="Node3D"]
+script = ExtResource("1_test_script")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866025, -0.433013, 0.25, 0, 0.5, 0.866025, -0.5, -0.75, 0.433013, 0, 0, 0)
+shadow_enabled = true
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, -4.371139e-08, 1, 0, -1, -4.371139e-08, 100, 45, 0)
+current = true
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+
+[node name="OceanGenerator" type="OceanWaveGenerator" parent="."]
+
+[node name="WaveDebugGrid" type="Node3D" parent="."]
+
+[node name="PhysicsBall" type="BuoyancyProbe3D" parent="."]
+buoyancy_force = 20.0
+water_drag = 1.0
+ocean_node = NodePath("/root/@EditorNode@20438/@Panel@14/@VBoxContainer@15/DockHSplitLeftL/DockHSplitLeftR/DockHSplitMain/@VBoxContainer@26/DockVSplitCenter/@VSplitContainer@62/@VBoxContainer@63/@EditorMainScreen@103/MainScreen/@CanvasItemEditor@10871/@VSplitContainer@10516/@HSplitContainer@10518/@HSplitContainer@10520/@Control@10521/@SubViewportContainer@10522/@SubViewport@10523/OceanDemo/OceanGenerator")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 32, 5, 32)
+
+[node name="LocalOceanSim" type="Node3D" parent="." node_paths=PackedStringArray("follow_target")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 100.75, 5, 20)
+script = ExtResource("2_0l0fr")
+compute_shader = ExtResource("3_fxyft")
+material_to_update = SubResource("ShaderMaterial_sgqwc")
+follow_target = NodePath("../Spectator")

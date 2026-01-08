@@ -1,6 +1,6 @@
 [gd_scene load_steps=18 format=3 uid="uid://d1x6j8n4y2m3u"]
 
-[ext_resource type="Shader" uid="uid://bj8u8o8j8u8o8" path="res://WaterSystem/VFX/ShaderFiles/waterspout_funnel.gdshader" id="1_funnel_shader"]
+[ext_resource type="Shader" path="res://WaterSystem/VFX/ShaderFiles/waterspout_funnel.gdshader" id="1_funnel_shader"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_spiral"]
 transparency = 1

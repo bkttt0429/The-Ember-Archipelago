@@ -1,0 +1,9 @@
+[configuration]
+
+entry_symbol = "gd_ocean_library_init"
+compatibility_minimum = 4.1
+
+[libraries]
+
+windows.debug.x86_64 = "res://Development/TechResearch/GdOcean/bin/gd_ocean.dll"
+windows.release.x86_64 = "res://Development/TechResearch/GdOcean/bin/gd_ocean.dll"

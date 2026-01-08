@@ -1,0 +1,26 @@
+#!/usr/bin/env python
+import os
+import sys
+
+env = Environment()
+
+# SCons helper code for Godot-CPP
+env.Append(CPPPATH=["src/", "godot-cpp/include", "godot-cpp/gen/include", "godot-cpp/src", "godot-cpp/gdextension"])
+env.Append(LIBPATH=["godot-cpp/bin"])
+env.Append(LIBS=["libgodot-cpp.windows.template_debug.x86_64"]) # Matched with actual file
+
+# Flags
+if env["PLATFORM"] == "win32":
+    env.Append(CCFLAGS=["/EHsc", "/std:c++17", "/utf-8", "/Zi", "/Fdgd_ocean.pdb"])
+    env.Append(CPPDEFINES=["WIN32", "_WIN32", "_WINDOWS", "NOMINMAX", "TYPED_METHOD_BIND"])
+
+# Sources
+sources = Glob("src/*.cpp")
+
+# Shared Library
+library = env.SharedLibrary(
+    target="bin/gd_ocean",
+    source=sources,
+)
+
+Default(library)

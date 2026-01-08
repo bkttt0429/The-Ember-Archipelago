@@ -1,0 +1,13 @@
+scons: Reading SConscript files ...
+scons: done reading SConscript files.
+scons: Building targets ...
+cl /Fosrc\gd_ocean.obj /c src\gd_ocean.cpp /TP /nologo /EHsc /std:c++17 /utf-8 /Isrc /Igodot-cpp\include /Igodot-cpp\gen\include
+gd_ocean.cpp
+src\gd_ocean.cpp(31): error C2039: 'set_buoyancy_force': 並非 'godot::BuoyancyProbe3D' 的成員
+D:\Game\星海餘燼：漂浮群島\Development\TechResearch\GdOcean\src\gd_ocean.h(29): note: 請參閱 'godot::BuoyancyProbe3D' 的宣告
+src\gd_ocean.cpp(31): error C2065: 'set_buoyancy_force': 未宣告的識別項
+src\gd_ocean.cpp(32): error C2039: 'get_buoyancy_force': 並非 'godot::BuoyancyProbe3D' 的成員
+D:\Game\星海餘燼：漂浮群島\Development\TechResearch\GdOcean\src\gd_ocean.h(29): note: 請參閱 'godot::BuoyancyProbe3D' 的宣告
+src\gd_ocean.cpp(32): error C2065: 'get_buoyancy_force': 未宣告的識別項
+scons: *** [src\gd_ocean.obj] Error 2
+scons: building terminated because of errors.
