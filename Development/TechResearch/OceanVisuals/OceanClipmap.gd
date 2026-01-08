@@ -89,7 +89,16 @@ func _generate_clipmap():
 		meshes.append(mesh_inst)
 		
 		# Double the scale for the next level (concentric rings)
-		current_scale *= 2.0
+		# BUT NOT for the transition from LOD 0 (Center) to LOD 1 (First Ring)
+		# Because Center size is S, Ring Hole size is 2S relative to its scale?
+		# No, Center (LOD 0) has Extent Scale * 0.5.
+		# Ring (LOD 1) Inner Hole has Extent Scale * 0.5.
+		# If both use Scale S:
+		#   LOD 0 ends at S*0.5.
+		#   LOD 1 starts at S*0.5. Matches!
+		# So LOD 0 and LOD 1 must use SAME scale.
+		if i != 0:
+			current_scale *= 2.0
 
 func _process(_delta):
 	# Optimize: Only update if target moved significantly? For now per frame is fine.
