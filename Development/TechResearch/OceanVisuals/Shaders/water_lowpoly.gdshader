@@ -43,8 +43,11 @@ void vertex() {
 	// Use standard texture() to let GPU automatically handle mipmapping
 	// This ensures consistent sampling across all Clipmap levels
 	// Use textureLod with Level 0 to avoid artifacts from missing mipmaps on RD textures
-	vec4 displacement_sample = textureLod(displacement_map, world_pos.xz / texture_scale, 0.0);
-	vec3 displacement = displacement_sample.xyz;
+	// ✅ 1. 恢復 fract()，確保 UV 始終在 [0,1] 範圍內，解決邊界採樣錯誤
+	vec2 sample_uv = fract(world_pos.xz / texture_scale);
+	vec4 displacement_sample = textureLod(displacement_map, sample_uv, 0.0);
+	// ✅ 2. 限制 displacement 範圍，防止數值爆發導致頂點飛天
+	vec3 displacement = clamp(displacement_sample.xyz, vec3(-10.0), vec3(10.0));
  // Safety clamp
 	
 	// SWE Simulation Logic
@@ -82,7 +85,9 @@ void vertex() {
         
         // Fade out in the outermost 10% (0.4 to 0.5) to ensure 0 at boundary
         // Changing smoothstep range to ensure it fully reaches 0 before the edge
-        float fade = 1.0 - smoothstep(0.4, 0.5, max_dist);
+        // ✅ 3. 擴大淡出範圍並使用平方曲線，使 SWE 邊界更柔和
+        float fade_linear = 1.0 - smoothstep(0.3, 0.48, max_dist);
+        float fade = fade_linear * fade_linear;
         
         swe_h = h_raw * fade;
         swe_foam = f_raw * fade;
@@ -92,7 +97,9 @@ void vertex() {
     v_swe_foam = swe_foam;
     v_in_swe_area = in_swe_area ? 1.0 : 0.0;
 
-    VERTEX.y += displacement.y * height_scale + swe_h;
+    // ✅ 4. 安全疊加 SWE 高度
+    float swe_h_safe = clamp(swe_h, -5.0, 5.0);
+    VERTEX.y += displacement.y * height_scale + swe_h_safe;
     // Keep X/Z zero for now to ensure 100% stability
     // VERTEX.x -= displacement.x * height_scale * choppiness; 
     // VERTEX.z -= displacement.z * height_scale * choppiness;

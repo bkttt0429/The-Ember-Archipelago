@@ -46,6 +46,13 @@ func _ready():
 		_setup_scene()
 
 func _setup_scene():
+	if not is_inside_tree():
+		return
+		
+	var tree = get_tree()
+	if not tree:
+		return
+
 	grid_probes.clear()
 	debug_show_lod_colors = false
 	debug_wireframe = false
@@ -60,7 +67,7 @@ func _setup_scene():
 		if has_node(node_name):
 			get_node(node_name).queue_free()
 
-	await get_tree().process_frame
+	await tree.process_frame
 	
 	var gen = ClassDB.instantiate("OceanWaveGenerator")
 	if not gen:
@@ -69,18 +76,18 @@ func _setup_scene():
 		
 	gen.name = "OceanGenerator"
 	add_child(gen)
-	gen.owner = get_tree().edited_scene_root
+	gen.owner = tree.edited_scene_root
 	ocean_generator = gen
 	print("Created OceanWaveGenerator")
 
 	var grid_root = Node3D.new()
 	grid_root.name = "WaveDebugGrid"
 	add_child(grid_root)
-	grid_root.owner = get_tree().edited_scene_root
+	grid_root.owner = tree.edited_scene_root
 	
 	var sphere_mesh = SphereMesh.new()
-	sphere_mesh.radius = 0.1
-	sphere_mesh.height = 0.2
+	sphere_mesh.radius = 0.5
+	sphere_mesh.height = 1.0
 	
 	var material = StandardMaterial3D.new()
 	material.albedo_color = Color.CYAN
@@ -100,7 +107,7 @@ func _setup_scene():
 		var ball = ClassDB.instantiate("BuoyancyProbe3D")
 		ball.name = "PhysicsBall"
 		add_child(ball)
-		ball.owner = get_tree().edited_scene_root
+		ball.owner = tree.edited_scene_root
 		ball.position = Vector3(32, 5, 32)
 		physics_ball = ball
 		
@@ -129,7 +136,7 @@ func _setup_scene():
 	var spectator = Node3D.new()
 	spectator.name = "Spectator"
 	add_child(spectator)
-	spectator.owner = get_tree().edited_scene_root
+	spectator.owner = tree.edited_scene_root
 	spectator.position = Vector3(100, 5, 0)
 	
 	var spec_mesh = MeshInstance3D.new()
@@ -224,11 +231,21 @@ func _input(event):
 
 var time_elapsed = 0.0
 func _process(_delta: float):
-	if ocean_generator and not grid_probes.is_empty():
-		for probe in grid_probes:
-			if is_instance_valid(probe):
-				var h = ocean_generator.get_wave_height(probe.position.x, probe.position.z)
-				probe.position.y = h
+	var spectator = get_node_or_null("Spectator")
+	if ocean_generator and not grid_probes.is_empty() and spectator:
+		var center_x = floor(spectator.global_position.x / 4.0) * 4.0
+		var center_z = floor(spectator.global_position.z / 4.0) * 4.0
+		var i = 0
+		for x_off in range(-32, 32, 4):
+			for z_off in range(-32, 32, 4):
+				if i < grid_probes.size():
+					var probe = grid_probes[i]
+					if is_instance_valid(probe):
+						var world_x = center_x + x_off
+						var world_z = center_z + z_off
+						var h = ocean_generator.get_wave_height(world_x, world_z)
+						probe.global_position = Vector3(world_x, h, world_z)
+				i += 1
 				
 	if physics_ball and local_ocean_sim:
 		var center = Vector3(100, 5, 0)
@@ -240,7 +257,7 @@ func _process(_delta: float):
 		local_ocean_sim.add_interaction_world(physics_ball.global_position, 2.0, 5.0)
 				
 	time_elapsed += _delta
-	var spectator = get_node_or_null("Spectator")
+	# 更新 spectator 位置
 	if spectator:
 		var center = Vector3(100, 5, 0)
 		var radius = 20.0
@@ -321,7 +338,7 @@ func _setup_local_ocean_test() -> Node3D:
 		clipmap.set_script(clipmap_script)
 		clipmap.name = "OceanLOD"
 		clipmap.clipmap_levels = 6
-		clipmap.base_grid_size = 32.0
+		clipmap.base_grid_size = 64.0  # ✅ 強制設為 64.0 以匹配 texture_scale
 		clipmap.base_subdivisions = 32
 		clipmap.skirt_depth = 2.0  # ⚠️ 從 20.0 改為 2.0
 		

@@ -152,11 +152,11 @@ func _generate_test_spectrum_data(size: int) -> PackedByteArray:
 			var im = 0.0
 			
 			if real_kx == 1 and real_kz == 1:
-				re = 100.0 # Standard Scale
+				re = 1000.0 # Standard Scale (Increased for visibility)
 				im = 0.0
 			elif real_kx == 2 and real_kz == 0:
-				re = 50.0
-				im = 50.0
+				re = 500.0
+				im = 500.0
 				
 			buffer.put_float(re) # R
 			buffer.put_float(im) # G
