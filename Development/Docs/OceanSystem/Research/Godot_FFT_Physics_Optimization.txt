@@ -12,7 +12,265 @@ ________________
 海洋表面可以被視為無數個不同波長、振幅和相位的正弦波的疊加。我們不在空間域（Spatial Domain）直接定義波浪，而是在頻譜域（Frequency Domain）定義波浪的能量分佈。最常用的頻譜模型是 Phillips Spectrum 或 Pierson-Moskowitz Spectrum，它們描述了在特定風速與風向與重力作用下，波浪能量隨頻率的分佈情況。
 在 Godot 的實作中，我們通常使用 Compute Shader 來生成這些頻譜。一個典型的頻譜函數 $H_0(\mathbf{k})$ 定義了初始狀態的波浪振幅，其中 $\mathbf{k}$ 是波向量（Wave Vector）。
 
+# 水面破圖原因分析
 
+看圖3的彩色色塊問題，我找到了**多個關鍵原因**：
+
+## 🔴 主要問題
+
+### 1. **Clipmap 共享材質但 Scale 不同**
+```gdscript
+// OceanClipmap.gd 中
+for i in range(clipmap_levels):
+    mesh_inst.scale = Vector3(current_scale, 1, current_scale)
+    mesh_inst.material_override = material  // ❌ 所有層級共用同一個材質
+```
+
+**問題**：
+- 6個LOD層級的mesh scale分別是：64, 64, 128, 256, 512, 1024
+- 但它們都使用同一個`texture_scale`參數（64.0）
+- 導致大scale的mesh在採樣時UV完全錯誤
+
+### 2. **World Position 採樣邏輯錯誤**
+```glsl
+// water_lowpoly.gdshader
+vec3 world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+vec4 displacement_sample = textureLod(displacement_map, 
+    fract(world_pos.xz / texture_scale), 0.0);
+```
+
+**問題**：
+- `VERTEX` 在經過 `scale` 之後範圍不同
+- LOD0: VERTEX範圍 [-0.5, 0.5]，world_pos範圍 [-32, 32]
+- LOD5: VERTEX範圍 [-1, 1]，world_pos範圍 [-512, 512]
+- 用相同的`texture_scale`除會得到完全不同的重複次數
+
+### 3. **SWE 區域檢測混亂**
+```glsl
+bool in_swe_area = (world_pos.x >= swe_min.x) && ...
+v_swe_h = swe_h;  // 每個clipmap層都在計算這個
+```
+- 不同層級的mesh都在檢查同一個SWE區域
+- 可能導致多層疊加或錯誤的混合
+
+### 4. **可能開啟了調試模式**
+```gdscript
+// GpuLocalOcean.gd
+material_to_update.set_shader_parameter("swe_color_strength", 
+    1.0 if debug_color_ripples else 0.0)
+```
+- 如果`debug_color_ripples = true`，會顯示彩色區域
+- 圖3的洋紅、黃、藍、綠色塊很像是調試可視化
+
+---
+
+## ✅ 解決方案
+
+### 方案A：為每個 LOD 創建獨立材質（推薦）
+
+在 `OceanClipmap.gd` 的 `_generate_clipmap()` 中：
+
+```gdscript
+for i in range(clipmap_levels):
+    # ...
+    if material:
+        var lod_material = material.duplicate()  // 複製材質
+        
+        # 根據當前層級調整 texture_scale
+        var lod_texture_scale = base_grid_size * pow(2.0, max(0, i-1))
+        lod_material.set_shader_parameter("texture_scale", lod_texture_scale)
+        
+        mesh_inst.material_override = lod_material
+```
+
+### 方案B：改用 Local UV 採樣
+
+修改 `water_lowpoly.gdshader`：
+
+```glsl
+// 不要用 world_pos，改用 UV
+void vertex() {
+    // 使用mesh自己的UV（已經歸一化到0-1）
+    vec2 mesh_uv = UV;  
+    
+    // 如果需要世界坐標對齊，在Clipmap腳本中傳入offset
+    vec4 displacement_sample = textureLod(displacement_map, mesh_uv, 0.0);
+    
+    // ...
+}
+```
+
+### 方案C：統一使用 Camera-Relative 坐標
+
+```glsl
+// 改用相對於相機的坐標
+vec3 camera_pos = INV_VIEW_MATRIX[3].xyz;
+vec2 relative_pos = world_pos.xz - camera_pos.xz;
+vec2 uv = fract(relative_pos / texture_scale);
+```
+
+### 方案D：關閉所有調試功能
+
+檢查並設置：
+```gdscript
+# GpuLocalOcean.gd
+debug_color_ripples = false
+
+# Scene設置或代碼中
+material.set_shader_parameter("debug_show_swe_area", false)
+material.set_shader_parameter("debug_show_blend", false)
+material.set_shader_parameter("swe_color_strength", 0.0)
+```
+
+---
+
+## 🎯 最優解決流程
+
+1. **立即檢查**：所有調試參# 水面破圖原因分析
+
+看圖3的彩色色塊問題，我找到了**多個關鍵原因**：
+
+## 🔴 主要問題
+
+### 1. **Clipmap 共享材質但 Scale 不同**
+```gdscript
+// OceanClipmap.gd 中
+for i in range(clipmap_levels):
+    mesh_inst.scale = Vector3(current_scale, 1, current_scale)
+    mesh_inst.material_override = material  // ❌ 所有層級共用同一個材質
+```
+
+**問題**：
+- 6個LOD層級的mesh scale分別是：64, 64, 128, 256, 512, 1024
+- 但它們都使用同一個`texture_scale`參數（64.0）
+- 導致大scale的mesh在採樣時UV完全錯誤
+
+### 2. **World Position 採樣邏輯錯誤**
+```glsl
+// water_lowpoly.gdshader
+vec3 world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+vec4 displacement_sample = textureLod(displacement_map, 
+    fract(world_pos.xz / texture_scale), 0.0);
+```
+
+**問題**：
+- `VERTEX` 在經過 `scale` 之後範圍不同
+- LOD0: VERTEX範圍 [-0.5, 0.5]，world_pos範圍 [-32, 32]
+- LOD5: VERTEX範圍 [-1, 1]，world_pos範圍 [-512, 512]
+- 用相同的`texture_scale`除會得到完全不同的重複次數
+
+### 3. **SWE 區域檢測混亂**
+```glsl
+bool in_swe_area = (world_pos.x >= swe_min.x) && ...
+v_swe_h = swe_h;  // 每個clipmap層都在計算這個
+```
+- 不同層級的mesh都在檢查同一個SWE區域
+- 可能導致多層疊加或錯誤的混合
+
+### 4. **可能開啟了調試模式**
+```gdscript
+// GpuLocalOcean.gd
+material_to_update.set_shader_parameter("swe_color_strength", 
+    1.0 if debug_color_ripples else 0.0)
+```
+- 如果`debug_color_ripples = true`，會顯示彩色區域
+- 圖3的洋紅、黃、藍、綠色塊很像是調試可視化
+
+---
+
+## ✅ 解決方案
+
+### 方案A：為每個 LOD 創建獨立材質（推薦）
+
+在 `OceanClipmap.gd` 的 `_generate_clipmap()` 中：
+
+```gdscript
+for i in range(clipmap_levels):
+    # ...
+    if material:
+        var lod_material = material.duplicate()  // 複製材質
+        
+        # 根據當前層級調整 texture_scale
+        var lod_texture_scale = base_grid_size * pow(2.0, max(0, i-1))
+        lod_material.set_shader_parameter("texture_scale", lod_texture_scale)
+        
+        mesh_inst.material_override = lod_material
+```
+
+### 方案B：改用 Local UV 採樣
+
+修改 `water_lowpoly.gdshader`：
+
+```glsl
+// 不要用 world_pos，改用 UV
+void vertex() {
+    // 使用mesh自己的UV（已經歸一化到0-1）
+    vec2 mesh_uv = UV;  
+    
+    // 如果需要世界坐標對齊，在Clipmap腳本中傳入offset
+    vec4 displacement_sample = textureLod(displacement_map, mesh_uv, 0.0);
+    
+    // ...
+}
+```
+
+### 方案C：統一使用 Camera-Relative 坐標
+
+```glsl
+// 改用相對於相機的坐標
+vec3 camera_pos = INV_VIEW_MATRIX[3].xyz;
+vec2 relative_pos = world_pos.xz - camera_pos.xz;
+vec2 uv = fract(relative_pos / texture_scale);
+```
+
+### 方案D：關閉所有調試功能
+
+檢查並設置：
+```gdscript
+# GpuLocalOcean.gd
+debug_color_ripples = false
+
+# Scene設置或代碼中
+material.set_shader_parameter("debug_show_swe_area", false)
+material.set_shader_parameter("debug_show_blend", false)
+material.set_shader_parameter("swe_color_strength", 0.0)
+```
+
+---
+
+## 🎯 最優解決流程
+
+1. **立即檢查**：所有調試參數是否關閉
+2. **實施方案A**：為每個LOD複製並調整材質的`texture_scale`
+3. **驗證**：確保`texture_scale = current_scale`對每個層級
+4. **可選優化**：如果還有問題，改用方案B的Local UV
+
+**關鍵公式**：
+```
+LOD i 的 texture_scale = base_grid_size × 2^max(0, i-1)
+```
+- LOD 0: 64
+- LOD 1: 64
+- LOD 2: 128
+- LOD 3: 256
+- 以此類推...
+
+這樣可以確保所有層級的紋理密度一致，不會出現色塊或破圖。 數是否關閉
+2. **實施方案A**：為每個LOD複製並調整材質的`texture_scale`
+3. **驗證**：確保`texture_scale = current_scale`對每個層級
+4. **可選優化**：如果還有問題，改用方案B的Local UV
+
+**關鍵公式**：
+```
+LOD i 的 texture_scale = base_grid_size × 2^max(0, i-1)
+```
+- LOD 0: 64
+- LOD 1: 64
+- LOD 2: 128
+- LOD 3: 256
+- 以此類推...
+
+這樣可以確保所有層級的紋理密度一致，不會出現色塊或破圖。 
 $$P_h(\mathbf{k}) = A \frac{\exp(-1/(kL)^2)}{k^4} |\hat{\mathbf{k}} \cdot \hat{\mathbf{w}}|^2$$
 這裡 $L = V^2/g$ 是由風速 $V$ 和重力 $g$ 決定的最大波長。對於「重物理」的海盜遊戲，這個公式至關重要，因為它直接決定了海況的「惡劣程度」。通過調整參數 $A$（振幅）和風向 $\hat{\mathbf{w}}$，我們可以從平靜的港口過渡到暴風雨中的狂濤 5。
 2.2 逆快速傅立葉變換 (IFFT) 的計算成本
