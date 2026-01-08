@@ -12,6 +12,14 @@ extends Node3D
 		debug_show_lod_colors = value
 		_update_lod_colors()
 
+# ✅ 新增：控制波浪网格可见性
+@export var show_wave_grid: bool = false:
+	set(value):
+		show_wave_grid = value
+		var grid_root = get_node_or_null("WaveDebugGrid")
+		if grid_root:
+			grid_root.visible = value
+
 @export var skirt_depth_override: float = -1.0:
 	set(value):
 		skirt_depth_override = value
@@ -22,7 +30,6 @@ extends Node3D
 				clipmap._rebuild_clipmap()
 			print("Skirt Depth Override: ", value)
 
-# 原有变量
 @export var create_test_scene: bool = false:
 	set(value):
 		if value:
@@ -80,35 +87,40 @@ func _setup_scene():
 	ocean_generator = gen
 	print("Created OceanWaveGenerator")
 
+	# ✅ 修复：创建更小、更稀疏的调试网格
 	var grid_root = Node3D.new()
 	grid_root.name = "WaveDebugGrid"
+	grid_root.visible = false  # 默认隐藏
 	add_child(grid_root)
 	grid_root.owner = tree.edited_scene_root
 	
 	var sphere_mesh = SphereMesh.new()
-	sphere_mesh.radius = 0.5
-	sphere_mesh.height = 1.0
+	sphere_mesh.radius = 0.1  # ✅ 从 0.5 减小到 0.1
+	sphere_mesh.height = 0.2  # ✅ 从 1.0 减小到 0.2
 	
 	var material = StandardMaterial3D.new()
 	material.albedo_color = Color.CYAN
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.albedo_color.a = 0.7  # ✅ 半透明
 	sphere_mesh.material = material
 
-	for x in range(0, 64, 4):
-		for z in range(0, 64, 4):
+	# ✅ 从每4米改为每8米一个球体，减少数量
+	for x in range(0, 64, 8):
+		for z in range(0, 64, 8):
 			var probe = MeshInstance3D.new()
 			probe.mesh = sphere_mesh
 			probe.position = Vector3(x, 0, z)
 			grid_root.add_child(probe)
 			grid_probes.append(probe)
 			
-	print("Created Visualization Grid")
+	print("Created Visualization Grid (Hidden by default)")
 	
 	if ClassDB.class_exists("BuoyancyProbe3D"):
 		var ball = ClassDB.instantiate("BuoyancyProbe3D")
 		ball.name = "PhysicsBall"
 		add_child(ball)
 		ball.owner = tree.edited_scene_root
-		ball.position = Vector3(32, 5, 32)
+		ball.position = Vector3(100, 5, 0)  # ✅ 移到 spectator 附近
 		physics_ball = ball
 		
 		var ball_mesh_inst = MeshInstance3D.new()
@@ -137,7 +149,7 @@ func _setup_scene():
 	spectator.name = "Spectator"
 	add_child(spectator)
 	spectator.owner = tree.edited_scene_root
-	spectator.position = Vector3(100, 5, 0)
+	spectator.position = Vector3(80, 5, -1)  # ✅ 从 (100,5,0) 改为场景中心附近
 	
 	var spec_mesh = MeshInstance3D.new()
 	spec_mesh.mesh = BoxMesh.new()
@@ -160,8 +172,9 @@ func _setup_scene():
 		print("Created MainCamera")
 		
 	if cam:
-		cam.position = Vector3(100, 45, 0) 
-		cam.look_at(Vector3(100, 0, 0), Vector3.FORWARD)
+		# ✅ 调整相机位置以查看整个场景
+		cam.position = Vector3(104, 13, 2)
+		cam.look_at(Vector3(80, 0, -1), Vector3.UP)
 
 	if not has_node("Sun"):
 		var sun = DirectionalLight3D.new()
@@ -195,14 +208,15 @@ func _setup_scene():
 		
 	print("✅ Scene Setup Complete")
 	print("🔧 Debug Controls:")
+	print("  - Toggle 'show_wave_grid' to see debug spheres")
 	print("  - Toggle 'debug_wireframe' to see mesh topology")
-	print("  - Adjust 'skirt_depth_override' (try 2.0 first)")
 	print("  - Press C to toggle ripple colors")
+	print("  - Press SPACE to create splash")
 
 @export var lock_camera: bool = false
 @export var camera_distance: float = 15.0
 @export var camera_height: float = 8.0
-@export var track_target: bool = true
+@export var track_target: bool = false  # ✅ 默认关闭跟踪
 
 func _input(event):
 	if event is InputEventMouseButton:
@@ -228,16 +242,22 @@ func _input(event):
 		elif event.keycode == KEY_W:
 			debug_wireframe = not debug_wireframe
 			print("Wireframe Mode: ", debug_wireframe)
+			
+		elif event.keycode == KEY_G:
+			show_wave_grid = not show_wave_grid
+			print("Wave Grid Visible: ", show_wave_grid)
 
 var time_elapsed = 0.0
 func _process(_delta: float):
 	var spectator = get_node_or_null("Spectator")
-	if ocean_generator and not grid_probes.is_empty() and spectator:
-		var center_x = floor(spectator.global_position.x / 4.0) * 4.0
-		var center_z = floor(spectator.global_position.z / 4.0) * 4.0
+	
+	# ✅ 只在显示时更新波浪网格
+	if show_wave_grid and ocean_generator and not grid_probes.is_empty() and spectator:
+		var center_x = floor(spectator.global_position.x / 8.0) * 8.0
+		var center_z = floor(spectator.global_position.z / 8.0) * 8.0
 		var i = 0
-		for x_off in range(-32, 32, 4):
-			for z_off in range(-32, 32, 4):
+		for x_off in range(-32, 32, 8):
+			for z_off in range(-32, 32, 8):
 				if i < grid_probes.size():
 					var probe = grid_probes[i]
 					if is_instance_valid(probe):
@@ -248,7 +268,7 @@ func _process(_delta: float):
 				i += 1
 				
 	if physics_ball and local_ocean_sim:
-		var center = Vector3(100, 5, 0)
+		var center = Vector3(80, 5, -1)  # ✅ 匹配新的场景中心
 		var radius = 15.0
 		var ball_speed = 1.3
 		var bx = center.x + cos(-time_elapsed * ball_speed + PI) * radius
@@ -257,9 +277,10 @@ func _process(_delta: float):
 		local_ocean_sim.add_interaction_world(physics_ball.global_position, 2.0, 5.0)
 				
 	time_elapsed += _delta
+	
 	# 更新 spectator 位置
 	if spectator:
-		var center = Vector3(100, 5, 0)
+		var center = Vector3(80, 5, -1)
 		var radius = 20.0
 		var speed = 1.0 
 		var x = center.x + cos(time_elapsed * speed) * radius
@@ -269,8 +290,8 @@ func _process(_delta: float):
 	var cam = get_viewport().get_camera_3d()
 	if cam:
 		if lock_camera:
-			cam.position = Vector3(100, 45, 0)
-			cam.look_at(Vector3(100, 0, 0), Vector3.FORWARD)
+			cam.position = Vector3(104, 13, 2)
+			cam.look_at(Vector3(80, 0, -1), Vector3.UP)
 		elif track_target and physics_ball:
 			var target_pos = physics_ball.position
 			var offset = Vector3(0, camera_height, camera_distance)
@@ -304,12 +325,11 @@ func _setup_local_ocean_test() -> Node3D:
 	water_mat.set_shader_parameter("choppiness", 0.0) 
 	water_mat.set_shader_parameter("texture_scale", 64.0) 
 	water_mat.set_shader_parameter("foam_threshold", 0.1) 
-	# 🔴 關閉所有調試功能，防止色塊出現
 	water_mat.set_shader_parameter("debug_show_swe_area", false)
 	water_mat.set_shader_parameter("debug_show_blend", false)
 	water_mat.set_shader_parameter("swe_color_strength", 0.0)
 
-	# 1. 初始化 GlobalOcean (FFT)
+	# 1. Global Ocean (FFT)
 	var global_ocean = Node3D.new()
 	global_ocean.set_script(global_ocean_script)
 	global_ocean.name = "GlobalOceanSim"
@@ -318,9 +338,9 @@ func _setup_local_ocean_test() -> Node3D:
 	global_ocean.material_to_update = water_mat
 	add_child(global_ocean)
 	global_ocean.owner = get_tree().edited_scene_root
-	global_ocean._init_compute() # 💡 這裡會綁定 displacement_map
+	global_ocean._init_compute()
 
-	# 2. 初始化 LocalOcean (SWE)
+	# 2. Local Ocean (SWE)
 	var local_ocean = Node3D.new()
 	local_ocean.set_script(local_ocean_script)
 	local_ocean.name = "LocalOceanSim"
@@ -330,10 +350,10 @@ func _setup_local_ocean_test() -> Node3D:
 	local_ocean.material_to_update = water_mat
 	add_child(local_ocean)
 	local_ocean.owner = get_tree().edited_scene_root
-	local_ocean.position = Vector3(100, 0, 0)
-	local_ocean._init_compute() # 💡 這裡會綁定 swe_simulation_map
+	local_ocean.position = Vector3(80, 0, -1)
+	local_ocean._init_compute()
 
-	# 3. 最後創建 Clipmap (LOD) 並套用已配置好的材質
+	# 3. Clipmap (LOD)
 	var clipmap = Node3D.new()
 	if clipmap_script:
 		clipmap.set_script(clipmap_script)
@@ -346,10 +366,9 @@ func _setup_local_ocean_test() -> Node3D:
 		add_child(clipmap)
 		clipmap.owner = get_tree().edited_scene_root
 		
-		# 此時 water_mat 已經擁有了 FFT 和 SWE 的紋理
 		clipmap.set_material(water_mat)
 	
-	print("✅ Hybrid Ocean Created (Reordered)")
+	print("✅ Hybrid Ocean Created")
 	return local_ocean
 
 # 🔧 调试功能
@@ -358,25 +377,14 @@ func _update_wireframe():
 	if not clipmap:
 		return
 		
-	# 遍历所有子网格
 	for child in clipmap.get_children():
 		if child is MeshInstance3D:
 			if debug_wireframe:
-				# Use a wireframe Material
 				var wire_mat = StandardMaterial3D.new()
 				wire_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 				wire_mat.albedo_color = Color.WHITE
 				wire_mat.no_depth_test = true
 				wire_mat.render_priority = 10
-				# Enable Wireframe
-				# Godot 4: use wireframe draw mode? No, better use a wireframe property or just change material.
-				# Actually StandardMaterial3D has wireframe property
-				# But wait, StandardMaterial3D doesn't have a simple .wireframe.
-				# It is part of the Draw Mode in editor, or a specific shader.
-				# For GLES3/Vulkan, we can use a small hack or just a wireframe shader.
-				# Since I can't easily create a wireframe shader now, I'll use a very thin line or just report I tried.
-				# Wait, StandardMaterial3D has `wireframe` boolean? 
-				# Let's check docs... YES, it does!
 				wire_mat.wireframe = true
 				child.material_override = wire_mat
 			else:
@@ -388,12 +396,8 @@ func _update_lod_colors():
 		return
 		
 	var colors = [
-		Color.RED,      # LOD 0
-		Color.GREEN,    # LOD 1
-		Color.BLUE,     # LOD 2
-		Color.YELLOW,   # LOD 3
-		Color.MAGENTA,  # LOD 4
-		Color.CYAN      # LOD 5
+		Color.RED, Color.GREEN, Color.BLUE,
+		Color.YELLOW, Color.MAGENTA, Color.CYAN
 	]
 	
 	var idx = 0
@@ -406,4 +410,4 @@ func _update_lod_colors():
 				child.material_override = debug_mat
 			else:
 				child.material_override = null
-			idx += 1 
+			idx += 1

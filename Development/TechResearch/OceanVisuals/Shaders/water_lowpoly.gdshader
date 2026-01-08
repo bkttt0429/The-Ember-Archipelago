@@ -37,25 +37,18 @@ varying float v_swe_h;
 varying float v_swe_foam;
 varying float v_in_swe_area; // Changed from bool to float because boolean varyings are not supported
 
-void vertex() {
 	// ========================================
-	// 🔑 关键修复：全局统一采样网格 (Fix LOD Staircase Artifacts)
+	// 🌊 Direct Sampling for Smooth Waves 🌊
 	// ========================================
-
-	// 1. 获取高精度世界坐标
+	
+	// 1. Get world position
 	vec3 world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-
-	// 2. ✅ 使用【全局统一】的网格步长（基于最精细的 LOD）
-	// 假设 LOD 0 的 base_grid_size = 64m, subdivisions = 32
-	// 全局网格步长 = 64 / 32 = 2.0m
-	const float GLOBAL_GRID_STEP = 2.0; // ✅ 硬编码为最精细层级的步长
-
-	// 3. ✅ Snap 世界坐标到全局网格
-	// 所有 LOD 都 snap 到同一个 2m x 2m 的全局网格，确保不同 Scale 的 LOD 采样点对齐
-	vec2 snapped_world_xz = floor(world_pos.xz / GLOBAL_GRID_STEP + 0.5) * GLOBAL_GRID_STEP;
-
-	// 4. ✅ 使用 snapped 坐标进行采样
-	vec2 sample_uv = fract(snapped_world_xz / texture_scale);
+	
+	// 2. Sample Texture Directly
+	// CPU script (OceanClipmap.gd) handles mesh-snapping to prevent swimming geometry.
+	// We do NOT snap UVs here, because snapping UVs creates the "Staircase/Terrace" artifact.
+	// We want smooth waves even on low-poly geometry.
+	vec2 sample_uv = fract(world_pos.xz / texture_scale);
 	vec4 displacement_sample = textureLod(displacement_map, sample_uv, 0.0);
 	
 	// ✅ Safety clamp to prevent exploding geometry

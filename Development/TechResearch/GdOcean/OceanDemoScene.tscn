@@ -1,4 +1,4 @@
-[gd_scene load_steps=14 format=3 uid="uid://is5i42xjc87t"]
+[gd_scene load_steps=12 format=3 uid="uid://is5i42xjc87t"]
 
 [ext_resource type="Script" uid="uid://cejtyvoddxrkl" path="res://Development/TechResearch/GdOcean/OceanTest.gd" id="1_test_script"]
 [ext_resource type="Script" uid="uid://cyioheoeippmd" path="res://Development/TechResearch/OceanVisuals/GpuOcean.gd" id="2_cr5mg"]
@@ -8,80 +8,63 @@
 [ext_resource type="RDShaderFile" uid="uid://qvgys1tl3ws2" path="res://Development/TechResearch/OceanVisuals/swe_ocean.glsl" id="6_26dag"]
 [ext_resource type="Script" uid="uid://brkhh4uxytom5" path="res://Development/TechResearch/OceanVisuals/OceanClipmap.gd" id="7_jo150"]
 
-[sub_resource type="Texture2DRD" id="Texture2DRD_cr5mg"]
-
-[sub_resource type="Texture2DRD" id="Texture2DRD_sgqwc"]
-
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_5yf4n"]
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_cr5mg"]
 render_priority = 0
 shader = ExtResource("4_5yf4n")
-shader_parameter/displacement_map = SubResource("Texture2DRD_cr5mg")
-shader_parameter/texture_scale = 64.0
-shader_parameter/height_scale = 2.0
-shader_parameter/choppiness = 0.0
-shader_parameter/albedo = Color(0, 0.2, 0.5, 1)
-shader_parameter/roughness = 0.2
-shader_parameter/specular = 0.5
-shader_parameter/foam_color = Color(1, 1, 1, 1)
-shader_parameter/foam_threshold = 0.1
-shader_parameter/sss_color = Color(0, 0.4, 0.5, 1)
-shader_parameter/sss_strength = 0.5
-shader_parameter/swe_simulation_map = SubResource("Texture2DRD_sgqwc")
-shader_parameter/swe_area = Vector4(48, -33, 64, 64)
-shader_parameter/swe_color_strength = 0.0
-shader_parameter/debug_show_swe_area = false
-shader_parameter/debug_show_blend = false
 
-[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_pixi7"]
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sgqwc"]
 sky_top_color = Color(0.3, 0.5, 0.8, 1)
 sky_horizon_color = Color(0.6, 0.7, 0.8, 1)
 ground_bottom_color = Color(0.1, 0.2, 0.3, 1)
 ground_horizon_color = Color(0.6, 0.7, 0.8, 1)
 
-[sub_resource type="Sky" id="Sky_26dag"]
-sky_material = SubResource("ProceduralSkyMaterial_pixi7")
+[sub_resource type="Sky" id="Sky_5yf4n"]
+sky_material = SubResource("ProceduralSkyMaterial_sgqwc")
 
-[sub_resource type="Environment" id="Environment_jo150"]
+[sub_resource type="Environment" id="Environment_pixi7"]
 background_mode = 2
-sky = SubResource("Sky_26dag")
+sky = SubResource("Sky_5yf4n")
 ambient_light_source = 3
 reflected_light_source = 2
 
 [node name="OceanDemo" type="Node3D"]
 script = ExtResource("1_test_script")
+show_wave_grid = null
+track_target = true
 
 [node name="OceanGenerator" type="OceanWaveGenerator" parent="."]
 
 [node name="WaveDebugGrid" type="Node3D" parent="."]
+visible = false
 
 [node name="PhysicsBall" type="BuoyancyProbe3D" parent="."]
 buoyancy_force = 20.0
 water_drag = 1.0
 ocean_node = NodePath("../OceanGenerator")
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 99.26604, 5, -14.982033)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 94.47629, 5, -4.929018)
 
 [node name="GlobalOceanSim" type="Node3D" parent="."]
 script = ExtResource("2_cr5mg")
 compute_shader = ExtResource("3_sgqwc")
-material_to_update = SubResource("ShaderMaterial_5yf4n")
+material_to_update = SubResource("ShaderMaterial_cr5mg")
 
 [node name="LocalOceanSim" type="Node3D" parent="." node_paths=PackedStringArray("follow_target")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 80, 5, -1)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 77.75, 5, 19)
 script = ExtResource("5_pixi7")
 compute_shader = ExtResource("6_26dag")
-material_to_update = SubResource("ShaderMaterial_5yf4n")
+material_to_update = SubResource("ShaderMaterial_cr5mg")
 follow_target = NodePath("../Spectator")
 
 [node name="OceanLOD" type="Node3D" parent="." node_paths=PackedStringArray("follow_target")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 80, 0, -2)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 76, 0, 18)
 script = ExtResource("7_jo150")
 follow_target = NodePath("../Spectator")
 
 [node name="Spectator" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 80.02233, 5, -0.9448887)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 77.77991, 5, 18.876398)
 
 [node name="MainCamera" type="Camera3D" parent="."]
-transform = Transform3D(0.9525775, -0.124322996, 0.27774084, 0, 0.9127318, 0.40855914, -0.3042962, -0.38918424, 0.86944777, 104.70448, 13.000001, 2.0426338)
+transform = Transform3D(0.9993012, 0.013629584, -0.034805227, 0, 0.9311506, 0.36463475, 0.03737873, -0.36437994, 0.9304999, 93.71267, 13, 15.485931)
 current = true
 
 [node name="Sun" type="DirectionalLight3D" parent="."]
@@ -89,4 +72,4 @@ transform = Transform3D(-4.371139e-08, -1, -4.371139e-08, 0, -4.371139e-08, 1, -
 shadow_enabled = true
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
-environment = SubResource("Environment_jo150")
+environment = SubResource("Environment_pixi7")
