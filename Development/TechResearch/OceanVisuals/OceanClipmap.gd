@@ -83,6 +83,11 @@ func _generate_clipmap():
 			# So we double current_scale for the next iteration.
 	
 		mesh_inst.name = "LOD_Level_" + str(i)
+		
+		# Critical fix for Shader Displacement: Increase Cull Margin
+		# Large value to prevent engine from culling the mesh when waves displace vertices outside AABB
+		mesh_inst.extra_cull_margin = 16384.0 
+		
 		if material:
 			mesh_inst.material_override = material
 		
