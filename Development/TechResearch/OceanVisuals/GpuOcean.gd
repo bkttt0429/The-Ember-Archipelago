@@ -6,6 +6,34 @@ extends Node3D
 @export var texture_size: int = 256
 @export var wind_speed: float = 10.0
 @export var choppiness: float = 1.0
+@export var debug_read_fft: bool = false:
+	set(v):
+		if v and rd and texture_rid.is_valid():
+			# Read data back from GPU
+			var data = rd.texture_get_data(texture_rid, 0)
+			var buffer = StreamPeerBuffer.new()
+			buffer.data_array = data
+			
+			# Sample center pixel (128, 128)
+			var size = texture_size
+			var offset = (int(size/2) * size + int(size/2)) * 16
+			buffer.seek(offset)
+			var r = buffer.get_float()
+			var g = buffer.get_float()
+			var b = buffer.get_float()
+			var a = buffer.get_float()
+			
+			print("=== GPU FFT Texture Debug ===")
+			print("Center Pixel (", size/2, ",", size/2, ") RGBA: ", r, ", ", g, ", ", b, ", ", a)
+			
+			# Sample few random pixels
+			for idx in range(3):
+				var rx = randi() % size
+				var ry = randi() % size
+				var off = (ry * size + rx) * 16
+				buffer.seek(off)
+				print("Pixel (", rx, ",", ry, ") R: ", buffer.get_float())
+		debug_read_fft = false
 
 var rd: RenderingDevice
 var shader_rid: RID
@@ -152,11 +180,11 @@ func _generate_test_spectrum_data(size: int) -> PackedByteArray:
 			var im = 0.0
 			
 			if real_kx == 1 and real_kz == 1:
-				re = 1000.0 # Standard Scale (Increased for visibility)
+				re = 100.0 # Standard Scale
 				im = 0.0
 			elif real_kx == 2 and real_kz == 0:
-				re = 500.0
-				im = 500.0
+				re = 50.0
+				im = 50.0
 				
 			buffer.put_float(re) # R
 			buffer.put_float(im) # G

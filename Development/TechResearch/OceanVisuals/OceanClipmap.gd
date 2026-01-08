@@ -86,8 +86,8 @@ func _generate_clipmap():
 		
 		if material:
 			mesh_inst.material_override = material
-			# 🔑 業界標準方案：使用全球統一的 World-Space Sampling
-			# 不再需要為每個 LOD 單獨設置 texture_scale，這會導致接縫處高度不連續
+			# ✅ Pass the subdivisions to the shader for correct snapping
+			mesh_inst.set_instance_shader_parameter("grid_subdivisions", float(base_subdivisions))
 		
 		add_child(mesh_inst)
 		meshes.append(mesh_inst)

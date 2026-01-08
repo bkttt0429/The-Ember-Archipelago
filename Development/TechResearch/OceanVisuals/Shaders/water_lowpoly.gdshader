@@ -30,23 +30,41 @@ uniform float swe_color_strength : hint_range(0.0, 1.0) = 0.0;
 uniform bool debug_show_swe_area = false;
 uniform bool debug_show_blend = false;
 
+// ✅ LOD Precision Helpers
+instance uniform float grid_subdivisions = 32.0;
+
 varying float v_swe_h;
 varying float v_swe_foam;
 varying float v_in_swe_area; // Changed from bool to float because boolean varyings are not supported
 
 void vertex() {
     // 1. FFT Displacement
-    	// Calculate World Position FIRST
-	vec3 world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	// Calculate the actual grid step (quad size) for this LOD level
+	// grid_step = MeshScale / Subdivisions
+	float actual_grid_step = length(MODEL_MATRIX[0].xyz) / grid_subdivisions;
 	
-	// Sample Displacement using World Position (Seamless across Clipmaps)
-	// Use standard texture() to let GPU automatically handle mipmapping
-	// This ensures consistent sampling across all Clipmap levels
-	// Use textureLod with Level 0 to avoid artifacts from missing mipmaps on RD textures
-	// ✅ 1. 恢復 fract()，確保 UV 始終在 [0,1] 範圍內，解決邊界採樣錯誤
-	vec2 sample_uv = fract(world_pos.xz / texture_scale);
+	// Get high-precision world position
+	vec4 world_pos_4 = MODEL_MATRIX * vec4(VERTEX, 1.0);
+	vec3 world_pos = world_pos_4.xyz;
+	
+	// ✅ Vertex Snapping: Align BOTH sampling and vertex position to the grid.
+	// This ensures consistency between LOD levels and prevents 
+	// geometry shimmering/cracks during smooth movement.
+	vec2 snapped_world_xz = floor(world_pos.xz / actual_grid_step + 0.5) * actual_grid_step;
+	
+	// ✅ Vertex Snapping Strategy:
+	// We ONLY snap the UV sampling coordinate to the grid. 
+	// We do NOT snap the physical Vertex position (VERTEX.xz), as that causes "terraced" artifacts/staircasing
+	// especially when LOD transition meshes aren't perfectly aligned.
+	
+	// vec4 local_snapped = (inverse(MODEL_MATRIX) * vec4(snapped_world_xz.x, 0.0, snapped_world_xz.y, 1.0));
+	// VERTEX.xz = local_snapped.xz; // DISABLED
+	
+	// ✅ Use snapped world-space UV for displacement sampling
+	vec2 sample_uv = fract(snapped_world_xz / texture_scale);
 	vec4 displacement_sample = textureLod(displacement_map, sample_uv, 0.0);
-	// ✅ 2. 限制 displacement 範圍，防止數值爆發導致頂點飛天
+	
+	// ✅ Safety clamp to prevent exploding geometry
 	vec3 displacement = clamp(displacement_sample.xyz, vec3(-10.0), vec3(10.0));
  // Safety clamp
 	
@@ -97,9 +115,11 @@ void vertex() {
     v_swe_foam = swe_foam;
     v_in_swe_area = in_swe_area ? 1.0 : 0.0;
 
-    // ✅ 4. 安全疊加 SWE 高度
+    // ✅ 4. Restore SWE Height
     float swe_h_safe = clamp(swe_h, -5.0, 5.0);
-    VERTEX.y += displacement.y * height_scale + swe_h_safe;
+    
+    // ✅ 5. Read R channel (displacement.x) + SWE
+    VERTEX.y += displacement.x * height_scale + swe_h_safe;
     // Keep X/Z zero for now to ensure 100% stability
     // VERTEX.x -= displacement.x * height_scale * choppiness; 
     // VERTEX.z -= displacement.z * height_scale * choppiness;

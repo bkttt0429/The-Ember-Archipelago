@@ -309,17 +309,18 @@ func _setup_local_ocean_test() -> Node3D:
 	water_mat.set_shader_parameter("debug_show_blend", false)
 	water_mat.set_shader_parameter("swe_color_strength", 0.0)
 
+	# 1. 初始化 GlobalOcean (FFT)
 	var global_ocean = Node3D.new()
 	global_ocean.set_script(global_ocean_script)
 	global_ocean.name = "GlobalOceanSim"
 	global_ocean.compute_shader = fft_shader
 	global_ocean.texture_size = 256
 	global_ocean.material_to_update = water_mat
-	
 	add_child(global_ocean)
 	global_ocean.owner = get_tree().edited_scene_root
-	global_ocean._init_compute()
+	global_ocean._init_compute() # 💡 這裡會綁定 displacement_map
 
+	# 2. 初始化 LocalOcean (SWE)
 	var local_ocean = Node3D.new()
 	local_ocean.set_script(local_ocean_script)
 	local_ocean.name = "LocalOceanSim"
@@ -327,34 +328,28 @@ func _setup_local_ocean_test() -> Node3D:
 	local_ocean.texture_size = 256
 	local_ocean.grid_size = 64.0
 	local_ocean.material_to_update = water_mat
-	
 	add_child(local_ocean)
 	local_ocean.owner = get_tree().edited_scene_root
 	local_ocean.position = Vector3(100, 0, 0)
-	
-	# 🔧 关键修复：减小 Skirt 深度
+	local_ocean._init_compute() # 💡 這裡會綁定 swe_simulation_map
+
+	# 3. 最後創建 Clipmap (LOD) 並套用已配置好的材質
 	var clipmap = Node3D.new()
 	if clipmap_script:
 		clipmap.set_script(clipmap_script)
 		clipmap.name = "OceanLOD"
 		clipmap.clipmap_levels = 6
-		clipmap.base_grid_size = 64.0  # ✅ 強制設為 64.0 以匹配 texture_scale
+		clipmap.base_grid_size = 64.0
 		clipmap.base_subdivisions = 32
-		clipmap.skirt_depth = 2.0  # ⚠️ 從 20.0 改為 2.0
+		clipmap.skirt_depth = 2.0
 		
 		add_child(clipmap)
 		clipmap.owner = get_tree().edited_scene_root
 		
+		# 此時 water_mat 已經擁有了 FFT 和 SWE 的紋理
 		clipmap.set_material(water_mat)
-		
-		print("⚠️ Clipmap Settings:")
-		print("  - Levels: 6")
-		print("  - Base Grid Size: 32.0")
-		print("  - Skirt Depth: 2.0 (Reduced from 20.0)")
-		
-	local_ocean._init_compute()
 	
-	print("✅ Hybrid Ocean Created")
+	print("✅ Hybrid Ocean Created (Reordered)")
 	return local_ocean
 
 # 🔧 调试功能

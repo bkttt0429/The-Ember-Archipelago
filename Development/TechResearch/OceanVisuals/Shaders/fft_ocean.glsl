@@ -122,7 +122,7 @@ void main() {
     } else {
         store_pos = ivec2(int(gid), int(tid));
         float h = normalized_val.x;
-        final_color = vec4(0.0, h, 0.0, 1.0);
+        final_color = vec4(h, 0.0, 0.0, 1.0); // Store height in R channel
     }
     
     imageStore(output_image, store_pos, final_color);

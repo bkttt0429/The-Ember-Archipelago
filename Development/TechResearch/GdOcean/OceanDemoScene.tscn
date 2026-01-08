@@ -1,7 +1,92 @@
-[gd_scene load_steps=2 format=3 uid="uid://is5i42xjc87t"]
+[gd_scene load_steps=14 format=3 uid="uid://is5i42xjc87t"]
 
 [ext_resource type="Script" uid="uid://cejtyvoddxrkl" path="res://Development/TechResearch/GdOcean/OceanTest.gd" id="1_test_script"]
+[ext_resource type="Script" uid="uid://cyioheoeippmd" path="res://Development/TechResearch/OceanVisuals/GpuOcean.gd" id="2_cr5mg"]
+[ext_resource type="RDShaderFile" uid="uid://dhx2bnfqtlsqw" path="res://Development/TechResearch/OceanVisuals/Shaders/fft_ocean.glsl" id="3_sgqwc"]
+[ext_resource type="Shader" uid="uid://cfthhnj5pvo6b" path="res://Development/TechResearch/OceanVisuals/Shaders/water_lowpoly.gdshader" id="4_5yf4n"]
+[ext_resource type="Script" uid="uid://xc0t80stc1d5" path="res://Development/TechResearch/OceanVisuals/GpuLocalOcean.gd" id="5_pixi7"]
+[ext_resource type="RDShaderFile" uid="uid://qvgys1tl3ws2" path="res://Development/TechResearch/OceanVisuals/swe_ocean.glsl" id="6_26dag"]
+[ext_resource type="Script" uid="uid://brkhh4uxytom5" path="res://Development/TechResearch/OceanVisuals/OceanClipmap.gd" id="7_jo150"]
+
+[sub_resource type="Texture2DRD" id="Texture2DRD_cr5mg"]
+
+[sub_resource type="Texture2DRD" id="Texture2DRD_sgqwc"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_5yf4n"]
+render_priority = 0
+shader = ExtResource("4_5yf4n")
+shader_parameter/displacement_map = SubResource("Texture2DRD_cr5mg")
+shader_parameter/texture_scale = 64.0
+shader_parameter/height_scale = 2.0
+shader_parameter/choppiness = 0.0
+shader_parameter/albedo = Color(0, 0.2, 0.5, 1)
+shader_parameter/roughness = 0.2
+shader_parameter/specular = 0.5
+shader_parameter/foam_color = Color(1, 1, 1, 1)
+shader_parameter/foam_threshold = 0.1
+shader_parameter/sss_color = Color(0, 0.4, 0.5, 1)
+shader_parameter/sss_strength = 0.5
+shader_parameter/swe_simulation_map = SubResource("Texture2DRD_sgqwc")
+shader_parameter/swe_area = Vector4(87, -25.75, 64, 64)
+shader_parameter/swe_color_strength = 0.0
+shader_parameter/debug_show_swe_area = false
+shader_parameter/debug_show_blend = false
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_pixi7"]
+sky_top_color = Color(0.3, 0.5, 0.8, 1)
+sky_horizon_color = Color(0.6, 0.7, 0.8, 1)
+ground_bottom_color = Color(0.1, 0.2, 0.3, 1)
+ground_horizon_color = Color(0.6, 0.7, 0.8, 1)
+
+[sub_resource type="Sky" id="Sky_26dag"]
+sky_material = SubResource("ProceduralSkyMaterial_pixi7")
+
+[sub_resource type="Environment" id="Environment_jo150"]
+background_mode = 2
+sky = SubResource("Sky_26dag")
+ambient_light_source = 3
+reflected_light_source = 2
 
 [node name="OceanDemo" type="Node3D"]
 script = ExtResource("1_test_script")
-create_test_scene = true
+
+[node name="OceanGenerator" type="OceanWaveGenerator" parent="."]
+
+[node name="WaveDebugGrid" type="Node3D" parent="."]
+
+[node name="PhysicsBall" type="BuoyancyProbe3D" parent="."]
+buoyancy_force = 20.0
+water_drag = 1.0
+ocean_node = NodePath("../OceanGenerator")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 113.82598, 5, -5.8174043)
+
+[node name="GlobalOceanSim" type="Node3D" parent="."]
+script = ExtResource("2_cr5mg")
+compute_shader = ExtResource("3_sgqwc")
+material_to_update = SubResource("ShaderMaterial_5yf4n")
+
+[node name="LocalOceanSim" type="Node3D" parent="." node_paths=PackedStringArray("follow_target")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 119, 5, 6.25)
+script = ExtResource("5_pixi7")
+compute_shader = ExtResource("6_26dag")
+material_to_update = SubResource("ShaderMaterial_5yf4n")
+follow_target = NodePath("../Spectator")
+
+[node name="OceanLOD" type="Node3D" parent="." node_paths=PackedStringArray("follow_target")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 118, 0, 6)
+script = ExtResource("7_jo150")
+follow_target = NodePath("../Spectator")
+
+[node name="Spectator" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 118.99796, 5, 6.251187)
+
+[node name="MainCamera" type="Camera3D" parent="."]
+transform = Transform3D(0.9999984, 0.0006479968, -0.0016807917, 0, 0.93305916, 0.35972294, 0.0018013774, -0.35972238, 0.93305767, 113.788574, 13.005827, 14.948296)
+current = true
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(-4.371139e-08, -1, -4.371139e-08, 0, -4.371139e-08, 1, -1, 4.371139e-08, 1.9106855e-15, 100, 50, 0)
+shadow_enabled = true
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_jo150")
