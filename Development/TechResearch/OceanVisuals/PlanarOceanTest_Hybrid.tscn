@@ -16,7 +16,7 @@
 render_priority = 0
 shader = ExtResource("3_rswci")
 shader_parameter/grid_resolution = 64.0
-shader_parameter/player_pos = Vector3(-1.3146584, 241.24596, 215.43932)
+shader_parameter/player_pos = Vector3(-1.3146584, 145.19806, 339.16724)
 shader_parameter/radial_bias = 2.0
 shader_parameter/base_spacing = 2.0317460317460316
 shader_parameter/swe_simulation_map = SubResource("Texture2DRD_cxe1d")
@@ -76,7 +76,7 @@ choppiness = 1.0
 texture_scale = null
 
 [node name="GpuLocalOcean_SWE" type="Node3D" parent="." node_paths=PackedStringArray("follow_target")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.25, 241.24596, 215.5)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.25, 145.19806, 339.25)
 script = ExtResource("3_swe")
 compute_shader = ExtResource("4_swe_glsl")
 material_to_update = SubResource("ShaderMaterial_bk2r2")
@@ -99,4 +99,4 @@ test_wave = null
 test_wave_amplitude = null
 
 [node name="Camera3D" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0.8660253, 0.50000024, 0, -0.50000024, 0.8660253, -1.3146584, 241.24596, 215.43932)
+transform = Transform3D(1, 0, 0, 0, 0.8660253, 0.50000024, 0, -0.50000024, 0.8660253, -1.3146584, 145.19806, 339.16724)

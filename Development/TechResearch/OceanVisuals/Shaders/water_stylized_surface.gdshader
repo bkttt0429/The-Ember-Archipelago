@@ -128,18 +128,21 @@ void vertex() {
 }
 
 void fragment() {
-	// 1. FLAT SHADING (Essential for low-poly look!)
+	// 1. FLAT SHADING (View Space)
 	vec3 face_normal = normalize(cross(dFdy(v_view_pos), dFdx(v_view_pos)));
 	
-	// 2. POSTERIZED LIGHTING (Toon shading with hard bands)
-	vec3 light_dir = normalize(vec3(0.5, 0.8, 0.3));
-	float ndotl = dot(face_normal, light_dir) * 0.5 + 0.5;
+	// 2. DYNAMIC LIGHTING
+	// Use a world-to-view space light direction for stability
+	vec3 world_light_dir = normalize(vec3(0.5, 1.0, 0.3));
+	vec3 view_light_dir = (VIEW_MATRIX * vec4(world_light_dir, 0.0)).xyz;
+	
+	float ndotl = dot(face_normal, view_light_dir) * 0.5 + 0.5;
 	
 	// Create discrete lighting bands
 	float shade = floor(ndotl * float(shade_bands)) / float(shade_bands);
-	shade = clamp(shade, 0.3, 1.0); // Prevent pure black
+	shade = clamp(shade, 0.25, 1.0); // Minimum ambient light
 	
-	// 3. DEPTH-BASED COLOR BANDING
+	// 3. COLOR CALCULATION
 	float depth_raw = texture(depth_texture, SCREEN_UV).r;
 	vec3 ndc = vec3(SCREEN_UV * 2.0 - 1.0, depth_raw);
 	vec4 view_pos_depth = INV_PROJECTION_MATRIX * vec4(ndc, 1.0);
@@ -147,65 +150,71 @@ void fragment() {
 	
 	float water_depth = max(length(view_pos_depth.xyz) - length(v_view_pos), 0.0);
 	
-	// Posterize depth into distinct color bands
-	float depth_band = floor(water_depth * 2.0) / 2.0;
-	float depth_factor = clamp(depth_band / 3.0, 0.0, 1.0);
+	// If depth is infinite (sky), use a default value for ocean color
+	if (depth_raw >= 0.99) {
+		water_depth = 5.0; // Assume deep water for horizon
+	}
 	
-	// 3-tier color system
+	// Mix factors: Depth + Wave Height
+	float depth_factor = clamp(water_depth / 8.0, 0.0, 1.0);
+	float wave_factor = clamp((v_total_h / wave_height_scale) * 0.5 + 0.5, 0.0, 1.0);
+	
+	// Combine depth and wave height for variety
+	float color_mix = mix(depth_factor, 1.0 - wave_factor, 0.3);
+	
+	// 3-tier posterized color system
 	vec3 base_color;
-	if (depth_factor < 0.33) {
+	if (color_mix < 0.33) {
 		base_color = color_shallow;
-	} else if (depth_factor < 0.66) {
+	} else if (color_mix < 0.66) {
 		base_color = color_mid;
 	} else {
 		base_color = color_deep;
 	}
 	
-	// 4. FOAM ON WAVE CRESTS
+	// 4. FOAM & SHORELINE
+	// Crest Foam
 	float foam_mask = step(foam_threshold, v_total_h / wave_height_scale);
 	base_color = mix(base_color, color_foam, foam_mask);
 	
-	// 5. EDGE FOAM (Shore interaction)
+	// Shoreline Foam (Linear blend for softer edge)
 	float edge_foam = smoothstep(edge_foam_width, 0.0, water_depth);
-	edge_foam = step(0.3, edge_foam); // Hard edge
-	base_color = mix(base_color, color_foam, edge_foam);
+	if (depth_raw < 0.99) {
+		base_color = mix(base_color, color_foam, edge_foam * 0.8);
+	}
 	
-	// 6. RIPPLE GLOW (SWE visualization)
-	float ripple_intensity = abs(v_ripple_h) * 10.0;
-	ripple_intensity = step(0.1, ripple_intensity); // Binary on/off
+	// 5. RIPPLE GLOW (SWE)
+	float ripple_intensity = clamp(abs(v_ripple_h) * 15.0, 0.0, 1.0);
+	vec3 ripple_emission = color_ripple_glow * step(0.1, ripple_intensity) * ripple_glow_intensity;
 	
-	vec3 ripple_emission = color_ripple_glow * ripple_intensity * ripple_glow_intensity;
-	
-	// 7. DEBUG MODES
+	// 6. DEBUG MODES
 	if (debug_lod) {
 		vec3 lod_colors[6] = {
 			vec3(1.0, 0.2, 0.2), vec3(0.2, 1.0, 0.2), vec3(0.2, 0.2, 1.0),
 			vec3(1.0, 1.0, 0.2), vec3(1.0, 0.2, 1.0), vec3(0.2, 1.0, 1.0)
 		};
-		base_color = mix(base_color, lod_colors[int(v_level) % 6], 0.5);
+		base_color = mix(base_color, lod_colors[int(v_level) % 6], 0.3);
 	}
 	
 	if (debug_wireframe) {
 		vec2 grid = fract(v_grid_uv * (grid_resolution - 1.0));
-		float edge = 0.05;
+		float edge = 0.05 * (1.0 + v_level);
 		float wire = step(edge, grid.x) * step(edge, grid.y);
 		base_color = mix(vec3(0.0, 1.0, 1.0), base_color, wire);
 	}
 	
-	// 8. FINAL OUTPUT
-	vec3 final_color = base_color * shade;
-	
-	ALBEDO = final_color;
+	// 7. FINAL OUTPUT
+	ALBEDO = base_color * shade;
 	EMISSION = ripple_emission;
 	NORMAL = face_normal;
 	
-	ROUGHNESS = 0.3;
-	SPECULAR = 0.7;
-	METALLIC = 0.1;
+	ROUGHNESS = 0.2;
+	SPECULAR = 0.5;
 	
-	// Hard-edge specular highlight
-	vec3 half_vec = normalize(VIEW + light_dir);
-	float spec = pow(max(dot(face_normal, half_vec), 0.0), 64.0);
-	spec = step(0.5, spec); // Binary specular
-	EMISSION += vec3(1.0, 1.0, 0.9) * spec * 2.0;
+	// Specular Highlight (Hard-edge)
+	vec3 half_vec = normalize(VIEW + view_light_dir);
+	float spec = pow(max(dot(face_normal, half_vec), 0.0), 32.0);
+	float spec_mask = step(0.6, spec);
+	EMISSION += color_foam * spec_mask * 0.5;
 }
+
