@@ -50,9 +50,14 @@
 - [x] **混合系統 (Blending)**
     - [x] 將 Global FFT 高度 與 Local SWE 高度在 Vertex Shader 中疊加
     - [x] 處理邊界過渡 (隨距離衰減 Local 影響)
-- [x] **視覺效果增強**
+- [x] **視覺效果增強 (Visual Enhancements)**
     - [x] 白沫 (Foam) 生成邏輯 (基於 速度散度 與 互動)
     - [x] 次表面散射 (SSS) 與各向異性高光 (Anisotropic Specular) - (實作 Beer's Law 與 Specular)
+    - [x] **格式化渲染 (Stylized Rendering)**
+        - [x] 實作 `water_stylized_surface.gdshader` (卡通風格)
+        - [x] 整合 Toon Shading 與 Posterized Lighting (階梯化光影)
+        - [x] 實作深度色彩分層 (Depth-based Color Banding)
+        - [x] 優化頂點捕捉 (Vertex Snapping) 與 FFT UV 對齊
 - [x] **效能優化 (LOD & Optimization)** [已完成]
     - [x] LOD (Level of Detail) 網格系統 (Data-less Grid with Radial Bias)
     - [x] Geomorphing (幾何變形平滑過渡)
