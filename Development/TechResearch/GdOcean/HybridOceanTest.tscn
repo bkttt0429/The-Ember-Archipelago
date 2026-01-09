@@ -1,7 +1,7 @@
 [gd_scene load_steps=13 format=3 uid="uid://bpfxtnxqu13nc"]
 
 [ext_resource type="Script" uid="uid://cejtyvoddxrkl" path="res://Development/TechResearch/GdOcean/OceanTest.gd" id="1_ocean_test"]
-[ext_resource type="Script" uid="uid://cyioheoeippmd" path="res://Development/TechResearch/OceanVisuals/GpuOcean.gd" id="2_wypwq"]
+[ext_resource type="Script" uid="uid://cyioheoeippmd" path="res://Development/TechResearch/GdOcean/GpuOcean.gd" id="2_wypwq"]
 [ext_resource type="RDShaderFile" uid="uid://dhx2bnfqtlsqw" path="res://Development/TechResearch/OceanVisuals/Shaders/fft_ocean.glsl" id="3_lesnt"]
 [ext_resource type="Shader" uid="uid://cfthhnj5pvo6b" path="res://Development/TechResearch/OceanVisuals/Shaders/water_lowpoly.gdshader" id="4_bjdcc"]
 [ext_resource type="Script" uid="uid://xc0t80stc1d5" path="res://Development/TechResearch/OceanVisuals/GpuLocalOcean.gd" id="5_i00r3"]

@@ -16,6 +16,7 @@ layout(set = 0, binding = 0) uniform OceanParams {
     float wind_speed;
     float wind_dir;
     int texture_size;
+    float frequency_scale;
 } params;
 
 shared vec2 sm_data[256];
@@ -45,22 +46,32 @@ void main() {
         ivec2 pos = ivec2(int(tid), int(gid));
         vec4 h0_val = imageLoad(input_image, pos);
         
-        // Dispersion relation: w^2 = g * k
+        // k vector
         float kx = float(int(tid) <= 128 ? int(tid) : int(tid) - 256);
         float kz = float(int(gid) <= 128 ? int(gid) : int(gid) - 256);
         float k_len = sqrt(kx * kx + kz * kz);
-        float w = sqrt(9.81 * k_len);
+        
+        if (k_len < 0.0001) {
+            imageStore(output_image, pos, vec4(0.0));
+            return;
+        }
+
+        // Dispersion relation: w^2 = g * k
+        float w = sqrt(9.81 * k_len) * params.frequency_scale;
         
         float t = params.time;
         float cos_wt = cos(w * t);
         float sin_wt = sin(w * t);
         
+        // Procedural Spectrum hack to make it more "ocean-like" if h0 is simple
+        // Using a much larger base multiplier to overcome 1/N^2 normalization
+        float amp = (20000.0 + params.wind_speed * 2000.0) / (k_len + 1.0);
+        
         // h(t) = h0 * exp(iwt)
-        // (a + bi) * (cos + i sin) = (a*cos - b*sin) + i(a*sin + b*cos)
         vec2 h_t = vec2(
             h0_val.x * cos_wt - h0_val.y * sin_wt,
             h0_val.x * sin_wt + h0_val.y * cos_wt
-        );
+        ) * amp;
         
         imageStore(output_image, pos, vec4(h_t, 0.0, 1.0));
         return;

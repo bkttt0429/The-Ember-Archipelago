@@ -3,11 +3,18 @@ extends Node3D
 class_name GpuLocalOcean
 
 @export var compute_shader: RDShaderFile
-@export var material_to_update: ShaderMaterial
+@export var material_to_update: ShaderMaterial:
+	set(v):
+		material_to_update = v
+		if is_inside_tree() and material_to_update and texture_0_rid.is_valid():
+			var tex_obj = Texture2DRD.new()
+			tex_obj.texture_rd_rid = texture_0_rid
+			material_to_update.set_shader_parameter("swe_simulation_map", tex_obj)
 @export var grid_size: float = 64.0
 @export var texture_size: int = 256
-@export var drag: float = 0.99
+@export var drag: float = 0.98
 @export var gravity: float = 9.8
+@export var sub_steps: int = 4
 
 var rd: RenderingDevice
 var shader_rid: RID
@@ -90,8 +97,8 @@ func _init_compute():
 	var sampler_state = RDSamplerState.new()
 	sampler_state.mag_filter = RenderingDevice.SAMPLER_FILTER_LINEAR
 	sampler_state.min_filter = RenderingDevice.SAMPLER_FILTER_LINEAR
-	sampler_state.repeat_u = RenderingDevice.SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE
-	sampler_state.repeat_v = RenderingDevice.SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE
+	sampler_state.repeat_u = RenderingDevice.SAMPLER_REPEAT_MODE_REPEAT
+	sampler_state.repeat_v = RenderingDevice.SAMPLER_REPEAT_MODE_REPEAT
 	var sampler_rid = rd.sampler_create(sampler_state)
 	
 	var u_input_t0 = RDUniform.new()
@@ -132,7 +139,8 @@ func _init_compute():
 
 
 var last_snapped_pos: Vector3 = Vector3.ZERO
-var uv_offset: Vector2 = Vector2.ZERO
+var first_frame: bool = true
+var uv_offset: Vector2 = Vector2.ZERO # This is the DELTA UV for shifting
 
 func _process(delta):
 	if not rd or not shader_rid.is_valid():
@@ -144,7 +152,10 @@ func _process(delta):
 	_update_snapping()
 	
 	# Update Params
-	var params_bytes = _get_params_bytes(delta)
+	# Clamp delta and divide by sub-steps
+	var total_dt = min(delta, 1.0 / 30.0)
+	var sub_dt = total_dt / float(sub_steps)
+	var params_bytes = _get_params_bytes(sub_dt)
 	rd.buffer_update(params_buffer_rid, 0, params_bytes.size(), params_bytes)
 	
 	# Update Interactions
@@ -170,19 +181,26 @@ func _process(delta):
 	var x_groups = int(texture_size / 8)
 	var y_groups = int(texture_size / 8)
 	
-	# Pass 1: Advection (Read T0 -> Write T1)
-	var push_advect = PackedInt32Array([0, 0, 0, 0]).to_byte_array() # Mode 0
-	rd.compute_list_set_push_constant(compute_list, push_advect, push_advect.size())
-	rd.compute_list_bind_uniform_set(compute_list, uniform_set_pass1, 0)
-	rd.compute_list_dispatch(compute_list, x_groups, y_groups, 1)
-	
-	rd.compute_list_add_barrier(compute_list)
-	
-	# Pass 2: Update (Read T1 -> Write T0)
-	var push_update = PackedInt32Array([1, 0, 0, 0]).to_byte_array() # Mode 1
-	rd.compute_list_set_push_constant(compute_list, push_update, push_update.size())
-	rd.compute_list_bind_uniform_set(compute_list, uniform_set_pass2, 0)
-	rd.compute_list_dispatch(compute_list, x_groups, y_groups, 1)
+	for i in range(sub_steps):
+		# Update Params for this sub-step (Actually just use the same sub-dt)
+		# Pass 1: Update Velocity (Read T0 -> Write T1)
+		# apply_shift = 1 ONLY on the first sub-step of the frame
+		var apply_shift = 1 if i == 0 else 0
+		var push_v = PackedInt32Array([0, apply_shift, 0, 0]).to_byte_array() # Mode 0, apply_shift
+		rd.compute_list_set_push_constant(compute_list, push_v, push_v.size())
+		rd.compute_list_bind_uniform_set(compute_list, uniform_set_pass1, 0)
+		rd.compute_list_dispatch(compute_list, x_groups, y_groups, 1)
+		
+		rd.compute_list_add_barrier(compute_list)
+		
+		# Pass 2: Update Height (Read T1 -> Write T0)
+		# No shift in Pass 2 because Pass 1 already shifted it into T1
+		var push_h = PackedInt32Array([1, 0, 0, 0]).to_byte_array() # Mode 1, no shift
+		rd.compute_list_set_push_constant(compute_list, push_h, push_h.size())
+		rd.compute_list_bind_uniform_set(compute_list, uniform_set_pass2, 0)
+		rd.compute_list_dispatch(compute_list, x_groups, y_groups, 1)
+		
+		rd.compute_list_add_barrier(compute_list)
 	
 	rd.compute_list_end()
 	# Global RD submits automatically. Manual submit/sync is for local RD only.
@@ -199,6 +217,10 @@ func _update_snapping():
 	var snapped_z = round(target_pos.z / snap_size) * snap_size
 	
 	var current_snapped_pos = Vector3(snapped_x, target_pos.y, snapped_z) # Keep Y (height)
+	
+	if first_frame:
+		last_snapped_pos = current_snapped_pos
+		first_frame = false
 	
 	# Move the grid mesh to follow
 	global_position = current_snapped_pos

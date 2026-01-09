@@ -2,10 +2,25 @@
 extends Node3D
 
 @export var compute_shader: RDShaderFile
-@export var material_to_update: ShaderMaterial
+@export var material_to_update: ShaderMaterial:
+	set(v):
+		material_to_update = v
+		if is_inside_tree() and material_to_update:
+			_update_material_params()
 @export var texture_size: int = 256
 @export var wind_speed: float = 10.0
+@export var wind_direction: float = 0.0
 @export var choppiness: float = 1.0
+@export var time_scale: float = 0.1
+@export var height_scale: float = 0.18:
+	set(v):
+		height_scale = v
+		if material_to_update: material_to_update.set_shader_parameter("height_scale", v)
+@export var texture_scale: float = 64.0:
+	set(v):
+		texture_scale = v
+		if material_to_update: material_to_update.set_shader_parameter("texture_scale", v)
+@export var frequency_scale: float = 1.0
 @export var debug_read_fft: bool = false:
 	set(v):
 		if v and rd and texture_rid.is_valid():
@@ -156,13 +171,16 @@ func _init_compute():
 	uniform_set_vertical = rd.uniform_set_create([params_uniform, u_texture_out, u_pingpong_in], shader_rid, 0)
 	
 	# 4. Bind to Material
-	if material_to_update:
-		var tex_obj = Texture2DRD.new()
-		tex_obj.texture_rd_rid = texture_rid
-		material_to_update.set_shader_parameter("displacement_map", tex_obj)
-		# Set texture_scale to match FFT texture's world space scale
-		# FFT texture covers 64x64 world units (matching OceanWaveGenerator's size)
-		material_to_update.set_shader_parameter("texture_scale", 64.0)
+	_update_material_params()
+
+func _update_material_params():
+	if not material_to_update or not texture_rid.is_valid(): return
+	var tex_obj = Texture2DRD.new()
+	tex_obj.texture_rd_rid = texture_rid
+	material_to_update.set_shader_parameter("displacement_map", tex_obj)
+	material_to_update.set_shader_parameter("texture_scale", texture_scale)
+	material_to_update.set_shader_parameter("height_scale", height_scale)
+	material_to_update.set_shader_parameter("choppiness", choppiness)
 
 func _generate_test_spectrum_data(size: int) -> PackedByteArray:
 	var data = PackedByteArray()
@@ -197,7 +215,7 @@ func _process(delta):
 	if not rd or not shader_rid.is_valid():
 		return
 		
-	time += delta
+	time += delta * time_scale
 	
 	# Update Params Buffer
 	var params_bytes = _get_params_bytes()
@@ -242,8 +260,10 @@ func _get_params_bytes() -> PackedByteArray:
 	buffer.put_float(time)           # 0
 	buffer.put_float(choppiness)     # 4
 	buffer.put_float(wind_speed)     # 8
-	buffer.put_float(0.0)            # 12 (wind_dir placeholder)
+	buffer.put_float(deg_to_rad(wind_direction)) # 12
 	buffer.put_32(texture_size)      # 16
+	buffer.put_float(frequency_scale) # 20
+	# Padding remaining...
 	# Padding remaining...
 	
 	return buffer.data_array

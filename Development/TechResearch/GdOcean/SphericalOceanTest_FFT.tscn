@@ -1,0 +1,17 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="PackedScene" uid="uid://c8q4j2y5x7p2" path="res://Development/TechResearch/GdOcean/SphericalOceanTest.tscn" id="1_base"]
+[ext_resource type="Script" uid="uid://cyioheoeippmd" path="res://Development/TechResearch/GdOcean/GpuOcean.gd" id="2_fft_script"]
+[ext_resource type="RDShaderFile" uid="uid://dhx2bnfqtlsqw" path="res://Development/TechResearch/OceanVisuals/Shaders/fft_ocean.glsl" id="3_fft_shader"]
+
+
+[node name="SphericalOceanTest_FFT" instance=ExtResource("1_base")]
+
+[node name="SphericalOceanNodes" parent="." index="0"]
+wave_source = null
+fft_source = NodePath("../GpuOcean")
+ripple_source = NodePath("../GpuLocalOcean")
+
+[node name="GpuOcean" type="Node3D" parent="." index="2"]
+script = ExtResource("2_fft_script")
+compute_shader = ExtResource("3_fft_shader")

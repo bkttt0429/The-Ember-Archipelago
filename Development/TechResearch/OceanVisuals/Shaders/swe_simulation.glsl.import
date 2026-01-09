@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://dko7ttxflpdex"
+path="res://.godot/imported/swe_simulation.glsl-5ade44a2aee24c3fdfd9d29f1f5c2264.res"
+
+[deps]
+
+source_file="res://Development/TechResearch/OceanVisuals/Shaders/swe_simulation.glsl"
+dest_files=["res://.godot/imported/swe_simulation.glsl-5ade44a2aee24c3fdfd9d29f1f5c2264.res"]
+
+[params]
+

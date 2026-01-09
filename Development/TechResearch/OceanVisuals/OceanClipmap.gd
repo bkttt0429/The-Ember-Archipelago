@@ -60,11 +60,14 @@ func _generate_clipmap():
 	var current_scale = base_grid_size
 	
 	print("\n=== Ocean LOD Generation Debug ===")
+	print("Skirt Depth: ", skirt_depth)
 	for i in range(clipmap_levels):
 		var mesh_inst = MeshInstance3D.new()
 		mesh_inst.name = "LOD_Level_" + str(i)
 		mesh_inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		mesh_inst.extra_cull_margin = 16384.0
+		# Prevent frustum culling issues with large waves/skirts by setting a huge AABB
+		mesh_inst.custom_aabb = AABB(Vector3(-100000, -5000, -100000), Vector3(200000, 10000, 200000))
 		
 		# ⚠️ 關鍵邏輯：LOD 0 和 LOD 1 必須使用相同的 scale S
 		# L0 (Center) 覆蓋 [-0.5, 0.5] * S = [-16, 16] (若 S=32)
@@ -178,7 +181,12 @@ func _create_unit_ring_mesh(N: int) -> ArrayMesh:
 		N, int(N / 2), N_thickness, start_idx)
 	
 	# Add Skirts for ring mesh (Outer edge ±1.0)
-	_add_skirt(st, 2 * N, 1.0, -skirt_depth, start_idx)
+	# Outer edge corresponds to 'segs_outer' which is N
+	start_idx = _add_skirt(st, N, 1.0, -skirt_depth, start_idx)
+	
+	# Add Inner Skirts for ring mesh hole (Inner edge ±0.5)
+	# Inner edge corresponds to 'segs_inner' which is 2 * N
+	_add_inner_skirt(st, 2 * N, 0.5, -skirt_depth, start_idx)
 	
 	return st.commit()
 
@@ -240,14 +248,18 @@ func _add_skirt(st: SurfaceTool, N: int, half_size: float, depth: float, start_i
 	var step = (half_size * 2.0) / N
 	var current_idx = start_idx
 	
+	# Force strictly downward skirt regardless of input sign
+	# depth should be negative, but let's be 100% sure
+	var bottom_y = -abs(depth) 
+	
 	# Top Edge (法線朝前 FORWARD)
 	for i in range(N):
 		var x1 = -half_size + i * step
 		var x2 = x1 + step
 		var p1 = Vector3(x1, 0, -half_size)
 		var p2 = Vector3(x2, 0, -half_size)
-		var p3 = Vector3(x1, depth, -half_size)
-		var p4 = Vector3(x2, depth, -half_size)
+		var p3 = Vector3(x1, bottom_y, -half_size)
+		var p4 = Vector3(x2, bottom_y, -half_size)
 		st.set_normal(Vector3.FORWARD); st.add_vertex(p1)
 		st.set_normal(Vector3.FORWARD); st.add_vertex(p2)
 		st.set_normal(Vector3.FORWARD); st.add_vertex(p3)
@@ -262,8 +274,8 @@ func _add_skirt(st: SurfaceTool, N: int, half_size: float, depth: float, start_i
 		var x2 = x1 + step
 		var p1 = Vector3(x2, 0, half_size)
 		var p2 = Vector3(x1, 0, half_size)
-		var p3 = Vector3(x2, depth, half_size)
-		var p4 = Vector3(x1, depth, half_size)
+		var p3 = Vector3(x2, bottom_y, half_size)
+		var p4 = Vector3(x1, bottom_y, half_size)
 		st.set_normal(Vector3.BACK); st.add_vertex(p1)
 		st.set_normal(Vector3.BACK); st.add_vertex(p2)
 		st.set_normal(Vector3.BACK); st.add_vertex(p3)
@@ -278,8 +290,8 @@ func _add_skirt(st: SurfaceTool, N: int, half_size: float, depth: float, start_i
 		var z2 = z1 + step
 		var p1 = Vector3(-half_size, 0, z2)
 		var p2 = Vector3(-half_size, 0, z1)
-		var p3 = Vector3(-half_size, depth, z2)
-		var p4 = Vector3(-half_size, depth, z1)
+		var p3 = Vector3(-half_size, bottom_y, z2)
+		var p4 = Vector3(-half_size, bottom_y, z1)
 		st.set_normal(Vector3.LEFT); st.add_vertex(p1)
 		st.set_normal(Vector3.LEFT); st.add_vertex(p2)
 		st.set_normal(Vector3.LEFT); st.add_vertex(p3)
@@ -294,8 +306,8 @@ func _add_skirt(st: SurfaceTool, N: int, half_size: float, depth: float, start_i
 		var z2 = z1 + step
 		var p1 = Vector3(half_size, 0, z1)
 		var p2 = Vector3(half_size, 0, z2)
-		var p3 = Vector3(half_size, depth, z1)
-		var p4 = Vector3(half_size, depth, z2)
+		var p3 = Vector3(half_size, bottom_y, z1)
+		var p4 = Vector3(half_size, bottom_y, z2)
 		st.set_normal(Vector3.RIGHT); st.add_vertex(p1)
 		st.set_normal(Vector3.RIGHT); st.add_vertex(p2)
 		st.set_normal(Vector3.RIGHT); st.add_vertex(p3)
@@ -303,3 +315,110 @@ func _add_skirt(st: SurfaceTool, N: int, half_size: float, depth: float, start_i
 		st.add_index(current_idx); st.add_index(current_idx+1); st.add_index(current_idx+2)
 		st.add_index(current_idx+1); st.add_index(current_idx+3); st.add_index(current_idx+2)
 		current_idx += 4
+		
+	return current_idx
+
+# Inner Skirt: 法線指向中心 (Inwards)，用於 Ring Mesh 的內孔
+# 注意：為了正確顯示，法線必須反轉 (指向中心)，且面朝向也要調整為從中心看可見
+func _add_inner_skirt(st: SurfaceTool, N: int, half_size: float, depth: float, start_idx: int) -> int:
+	var step = (half_size * 2.0) / N
+	var current_idx = start_idx
+	
+	# Force strictly downward skirt
+	var bottom_y = -abs(depth)
+	
+	# Inner Top Edge (z = -half_size)
+	# Original Normal: FORWARD (0,0,-1) -> Outwards (Away from center).
+	# We want Inwards: BACK (0,0,1).
+	for i in range(N):
+		var x1 = -half_size + i * step
+		var x2 = x1 + step
+		var p1 = Vector3(x1, 0, -half_size)
+		var p2 = Vector3(x2, 0, -half_size)
+		var p3 = Vector3(x1, bottom_y, -half_size)
+		var p4 = Vector3(x2, bottom_y, -half_size)
+		
+		# Normal Back (Inwards for Top Edge)
+		st.set_normal(Vector3.BACK)
+		st.add_vertex(p1); st.add_vertex(p2); st.add_vertex(p3); st.add_vertex(p4)
+		
+		# Winding for Inner Facing: Flip triangle order relative to Outer Skirt
+		# Outer: (0, 1, 2), (1, 3, 2)
+		# Inner: (0, 2, 1), (1, 2, 3) -> Or simply verify CCW relative to normal
+		# Face P1-P2-P3. P1->P2 is Right(+X). P1->P3 is Down(-Y). Cross = -Z (Forward). 
+		# We want Normal Back (+Z). So (P1, P2, P3) produces -Z. 
+		# So (P1, P3, P2) produces +Z.
+		
+		# Use (idx, idx+2, idx+1) for Back Normal
+		st.add_index(current_idx); st.add_index(current_idx+2); st.add_index(current_idx+1)
+		st.add_index(current_idx+1); st.add_index(current_idx+2); st.add_index(current_idx+3)
+		current_idx += 4
+
+	# Inner Bottom Edge (z = half_size)
+	# Original Normal: BACK (0,0,1) -> Outwards.
+	# We want Inwards: FORWARD (0,0,-1).
+	for i in range(N):
+		var x1 = -half_size + i * step
+		var x2 = x1 + step
+		var p1 = Vector3(x2, 0, half_size) # Note: p1/p2 swapped x in original to keep winding? No, x2>x1.
+		# Original Bottom used x2 then x1 for p1/p2. Let's stick to standard x1->x2.
+		# Let's align with Top loop structure for clarity, but account for position.
+		var v1 = Vector3(x1, 0, half_size)
+		var v2 = Vector3(x2, 0, half_size)
+		var v3 = Vector3(x1, bottom_y, half_size)
+		var v4 = Vector3(x2, bottom_y, half_size)
+		
+		st.set_normal(Vector3.FORWARD)
+		st.add_vertex(v1); st.add_vertex(v2); st.add_vertex(v3); st.add_vertex(v4)
+		
+		# Face V1-V2-V3. V1->V2 (+X). V1->V3 (-Y). Cross = -Z (Forward).
+		# We want Normal Forward (-Z).
+		# So (V1, V2, V3) produces -Z.
+		st.add_index(current_idx); st.add_index(current_idx+1); st.add_index(current_idx+2)
+		st.add_index(current_idx+1); st.add_index(current_idx+3); st.add_index(current_idx+2) # V2-V4-V3 ? No V2(1)-V4(3)-V3(2)
+		current_idx += 4
+		
+	# Inner Left Edge (x = -half_size)
+	# Original Normal: LEFT (-1,0,0) -> Outwards.
+	# We want Inwards: RIGHT (1,0,0).
+	for i in range(N):
+		var z1 = -half_size + i * step
+		var z2 = z1 + step
+		# Standard Order z1->z2
+		var p1 = Vector3(-half_size, 0, z1)
+		var p2 = Vector3(-half_size, 0, z2)
+		var p3 = Vector3(-half_size, bottom_y, z1)
+		var p4 = Vector3(-half_size, bottom_y, z2)
+		
+		st.set_normal(Vector3.RIGHT)
+		st.add_vertex(p1); st.add_vertex(p2); st.add_vertex(p3); st.add_vertex(p4)
+		
+		# Face P1-P2-P3. P1->P2 (+Z). P1->P3 (-Y). Cross(Z, -Y) = X.
+		# We want Normal Right (+X).
+		# So (P1, P2, P3) produces +X.
+		st.add_index(current_idx); st.add_index(current_idx+1); st.add_index(current_idx+2)
+		st.add_index(current_idx+1); st.add_index(current_idx+3); st.add_index(current_idx+2)
+		current_idx += 4
+		
+	# Inner Right Edge (x = half_size)
+	# Original Normal: RIGHT (1,0,0) -> Outwards.
+	# We want Inwards: LEFT (-1,0,0).
+	for i in range(N):
+		var z1 = -half_size + i * step
+		var z2 = z1 + step
+		var p1 = Vector3(half_size, 0, z1)
+		var p2 = Vector3(half_size, 0, z2)
+		var p3 = Vector3(half_size, bottom_y, z1)
+		var p4 = Vector3(half_size, bottom_y, z2)
+		
+		st.set_normal(Vector3.LEFT)
+		st.add_vertex(p1); st.add_vertex(p2); st.add_vertex(p3); st.add_vertex(p4)
+		
+		# Face P1-P2-P3. P1->P2 (+Z). P1->P3 (-Y). Cross (Z, -Y) = X.
+		# We want Normal Left (-X).
+		# So (P1, P3, P2) produces -X.
+		st.add_index(current_idx); st.add_index(current_idx+2); st.add_index(current_idx+1)
+		st.add_index(current_idx+1); st.add_index(current_idx+2); st.add_index(current_idx+3)
+		current_idx += 4
+		
+	return current_idx

@@ -105,7 +105,10 @@ void vertex() {
 	float swe_h_safe = clamp(swe_h, -5.0, 5.0);
 
 	// ✅ 5. Apply Final Displacement: FFT + SWE
-	VERTEX.y += displacement.x * height_scale + swe_h_safe;
+	// DEBUG: Temporarily disabled to check geometric alignment
+	// VERTEX.y += displacement.x * height_scale + swe_h_safe;
+	VERTEX.y += 0.0;
+	
 	// Keep X/Z zero for now to ensure 100% stability
 }
 
