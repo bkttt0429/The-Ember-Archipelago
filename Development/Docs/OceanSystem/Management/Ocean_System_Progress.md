@@ -45,20 +45,25 @@
     - [x] 將船隻的形狀/速度 寫入 "Obstacle/Force Texture" (Implemented via Buffer)
     - [x] 在 Shader 中讀取 Force Texture 並注入動量
 
-## 4. 融合與優化 (Hybrid & Polish) [待辦]
-
-- [ ] **混合系統 (Blending)**
+## 4. 融合與優化 (Hybrid & Polish) [已完成]
+ 
+- [x] **混合系統 (Blending)**
     - [x] 將 Global FFT 高度 與 Local SWE 高度在 Vertex Shader 中疊加
     - [x] 處理邊界過渡 (隨距離衰減 Local 影響)
-- [ ] **視覺效果增強**
+- [x] **視覺效果增強**
     - [x] 白沫 (Foam) 生成邏輯 (基於 速度散度 與 互動)
-    - [x] 次表面散射 (SSS) 與各向異性高光 (Anisotropic Specular)
-- [ ] **效能優化 (LOD & Optimization)** [In Progress]
-    - [ ] LOD (Level of Detail) 網格系統 (QuadTree 或 Clipmap)
-    - [ ] Culling (視錐剔除)
-
-## 5. 專案整合 (Game Integration) [待辦]
-
+    - [x] 次表面散射 (SSS) 與各向異性高光 (Anisotropic Specular) - (實作 Beer's Law 與 Specular)
+- [x] **效能優化 (LOD & Optimization)** [已完成]
+    - [x] LOD (Level of Detail) 網格系統 (Data-less Grid with Radial Bias)
+    - [x] Geomorphing (幾何變形平滑過渡)
+    - [x] Vertex Snapping (頂點抖動修復)
+ 
+## 5. 專案整合與工具 (Integration & Tooling) [進行中]
+ 
+- [x] **除錯工具箱**
+    - [x] LOD 層級染色、線框模式、法線偵錯、獨立 Sine 波測試模式
+- [x] **技術文檔與總解**
+    - [x] 完成 `/doc_classes/TechnicalSummary_CN.md`
 - [ ] **Geopolitics 系統整合**
     - [ ] 讓貿易船隻使用此海洋物理移動
     - [ ] 根據海況影響船隻速度 (逆風/順風)

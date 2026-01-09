@@ -19,9 +19,13 @@ class_name PlanarOceanVisualizer
 		_update_materials()
 @export var sphere_mesh: Mesh = SphereMesh.new()
 @export var visual_material: ShaderMaterial
-@export var wave_height_scale: float = 5.0:
+@export var wave_height_scale: float = 2.5:
 	set(v):
 		wave_height_scale = v
+		_update_materials()
+@export var crest_softness: float = 0.5:
+	set(v):
+		crest_softness = v
 		_update_materials()
 
 @export var lod_levels: int = 4:
@@ -200,6 +204,7 @@ func _update_materials():
 	_shader_mat.set_shader_parameter("test_wave", test_wave)
 	_shader_mat.set_shader_parameter("test_wave_amplitude", test_wave_amplitude)
 	_shader_mat.set_shader_parameter("wave_height_scale", wave_height_scale)
+	_shader_mat.set_shader_parameter("crest_softness", crest_softness)
 	
 	# Visuals
 	_shader_mat.set_shader_parameter("color_deep", color_deep)

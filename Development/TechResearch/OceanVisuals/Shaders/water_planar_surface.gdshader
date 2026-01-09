@@ -23,6 +23,7 @@ uniform sampler2D displacement_map : repeat_enable, filter_linear;
 uniform float texture_scale = 128.0;
 uniform float height_scale = 1.0;
 uniform float wave_height_scale = 1.0;
+uniform float crest_softness = 0.5;
 
 // Visuals
 uniform vec3 color_deep : source_color = vec3(0.0, 0.02, 0.08);
@@ -106,7 +107,12 @@ void vertex() {
 	}
 	
 	v_ripple_h = h_swe;
-	v_total_h = (h_swe + h_fft + h_test) * wave_height_scale;
+	float raw_h = h_swe + h_fft + h_test;
+	
+	// Soften Peaks: Apply non-linear scaling to high values
+	// If crest_softness is > 0, it will 'round' the peaks
+	float soften = 1.0 / (1.0 + crest_softness * max(0.0, raw_h));
+	v_total_h = raw_h * soften * wave_height_scale;
 	
 	v_world_pos.y += v_total_h;
 
@@ -147,11 +153,12 @@ void fragment() {
 		final_albedo = mix(final_albedo, debug_colors[int(v_level)%6], 0.7);
 	}
 	
-	// 3. Shading & Lighting (Crucial for Low-Poly visibility)
+	// 3. Shading & Lighting (Soften contrast for smoother look)
 	NORMAL = face_normal;
 	vec3 light_dir = normalize(vec3(0.5, 1.0, 0.2)); 
 	float diff = max(dot(NORMAL, light_dir), 0.0);
-	float shade = 0.25 + 0.75 * pow(diff, 2.0);
+	// Reduced intensity (0.75 -> 0.6) and power (2.0 -> 1.5)
+	float shade = 0.3 + 0.7 * pow(diff, 1.5);
 	final_albedo *= shade;
 	
 	if (debug_wireframe) {

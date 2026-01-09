@@ -1,11 +1,41 @@
-[gd_scene load_steps=11 format=3 uid="uid://dg671sv4tkjlx"]
+[gd_scene load_steps=15 format=3 uid="uid://dg671sv4tkjlx"]
 
 [ext_resource type="Script" uid="uid://cyioheoeippmd" path="res://Development/TechResearch/GdOcean/GpuOcean.gd" id="1_fft"]
 [ext_resource type="RDShaderFile" uid="uid://dhx2bnfqtlsqw" path="res://Development/TechResearch/OceanVisuals/Shaders/fft_ocean.glsl" id="2_fft_glsl"]
+[ext_resource type="Shader" uid="uid://djl3v51mdqfo1" path="res://Development/TechResearch/OceanVisuals/Shaders/water_planar_surface.gdshader" id="3_rswci"]
 [ext_resource type="Script" uid="uid://xc0t80stc1d5" path="res://Development/TechResearch/OceanVisuals/GpuLocalOcean.gd" id="3_swe"]
 [ext_resource type="RDShaderFile" uid="uid://dko7ttxflpdex" path="res://Development/TechResearch/OceanVisuals/Shaders/swe_simulation.glsl" id="4_swe_glsl"]
 [ext_resource type="Script" uid="uid://dwqquhy7jvmic" path="res://Development/TechResearch/OceanVisuals/PlanarOceanVisualizer.gd" id="7_visualizer"]
 [ext_resource type="Shader" uid="uid://b4cmfvde22qk6" path="res://Development/TechResearch/OceanVisuals/Shaders/planar_spheres.gdshader" id="8_spheres_sh"]
+
+[sub_resource type="Texture2DRD" id="Texture2DRD_kjyor"]
+
+[sub_resource type="Texture2DRD" id="Texture2DRD_cxe1d"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_bk2r2"]
+render_priority = 0
+shader = ExtResource("3_rswci")
+shader_parameter/grid_resolution = 64.0
+shader_parameter/player_pos = Vector3(-1.3146584, 241.24596, 215.43932)
+shader_parameter/radial_bias = 2.0
+shader_parameter/base_spacing = 2.0317460317460316
+shader_parameter/swe_simulation_map = SubResource("Texture2DRD_cxe1d")
+shader_parameter/swe_area = Vector4(-32, -32, 64, 64)
+shader_parameter/swe_height_scale = 1.0
+shader_parameter/displacement_map = SubResource("Texture2DRD_kjyor")
+shader_parameter/texture_scale = 128.0
+shader_parameter/height_scale = 0.18
+shader_parameter/wave_height_scale = 5.0
+shader_parameter/crest_softness = 0.5
+shader_parameter/color_deep = Color(0.01, 0.05, 0.15, 1)
+shader_parameter/color_shallow = Color(0.05, 0.4, 0.6, 1)
+shader_parameter/color_ripple = Color(0.1, 1, 0.8, 1)
+shader_parameter/refraction_strength = 0.05
+shader_parameter/debug_lod = false
+shader_parameter/debug_wireframe = false
+shader_parameter/debug_normals = false
+shader_parameter/test_wave = false
+shader_parameter/test_wave_amplitude = 1.0
 
 [sub_resource type="SphereMesh" id="SphereMesh_rswci"]
 
@@ -41,11 +71,15 @@ shadow_enabled = true
 [node name="GpuOcean_FFT" type="Node3D" parent="."]
 script = ExtResource("1_fft")
 compute_shader = ExtResource("2_fft_glsl")
+material_to_update = SubResource("ShaderMaterial_bk2r2")
+choppiness = 1.0
+texture_scale = null
 
 [node name="GpuLocalOcean_SWE" type="Node3D" parent="." node_paths=PackedStringArray("follow_target")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.25, 14.5264635, 24)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.25, 241.24596, 215.5)
 script = ExtResource("3_swe")
 compute_shader = ExtResource("4_swe_glsl")
+material_to_update = SubResource("ShaderMaterial_bk2r2")
 follow_target = NodePath("../Camera3D")
 
 [node name="SpheresVisualizer" type="Node3D" parent="." node_paths=PackedStringArray("follow_target", "gpu_ocean", "gpu_local_ocean")]
@@ -55,9 +89,14 @@ grid_resolution = 64
 sphere_radius = 0.2
 sphere_mesh = SubResource("SphereMesh_rswci")
 visual_material = SubResource("ShaderMaterial_spheres")
+wave_height_scale = 5.0
+crest_softness = null
 follow_target = NodePath("../Camera3D")
 gpu_ocean = NodePath("../GpuOcean_FFT")
 gpu_local_ocean = NodePath("../GpuLocalOcean_SWE")
+debug_normals = null
+test_wave = null
+test_wave_amplitude = null
 
 [node name="Camera3D" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0.8660253, 0.50000024, 0, -0.50000024, 0.8660253, -1.3146584, 14.5264635, 23.99157)
+transform = Transform3D(1, 0, 0, 0, 0.8660253, 0.50000024, 0, -0.50000024, 0.8660253, -1.3146584, 241.24596, 215.43932)

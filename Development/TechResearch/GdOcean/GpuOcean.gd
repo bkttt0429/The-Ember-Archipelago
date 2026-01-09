@@ -10,7 +10,7 @@ extends Node3D
 @export var texture_size: int = 256
 @export var wind_speed: float = 10.0
 @export var wind_direction: float = 0.0
-@export var choppiness: float = 1.0
+@export var choppiness: float = 0.5
 @export var time_scale: float = 0.1
 @export var height_scale: float = 0.18:
 	set(v):
