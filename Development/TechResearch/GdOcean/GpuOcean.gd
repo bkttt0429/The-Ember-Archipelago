@@ -188,24 +188,39 @@ func _generate_test_spectrum_data(size: int) -> PackedByteArray:
 	var buffer = StreamPeerBuffer.new()
 	buffer.data_array = data
 	
-	for z in range(size):
+	# Matches WaterManager.gd 'wave_components' for base sync
+	# Format: [k_x, k_z, amp_real, amp_imag]
+	var sync_components = [
+		[1, 1, 100.0, 0.0],
+		[2, 0, 50.0, -50.0],
+		[-1, 2, 40.0, 30.0],
+		[0, -2, 30.0, -20.0],
+		[-2, -1, 20.0, 20.0],
+		[3, 1, 15.0, -10.0]
+	]
+	
+	for y in range(size):
 		for x in range(size):
-			# Mirror C++ logic: get_test_h0
-			var real_kx = x if x <= int(size / 2.0) else x - size
-			var real_kz = z if z <= int(size / 2.0) else z - size
+			# Map 0..size to Frequency (-size/2 .. size/2)
+			var kx = x if x <= int(size / 2.0) else x - size
+			var ky = y if y <= int(size / 2.0) else y - size
 			
 			var re = 0.0
 			var im = 0.0
 			
-			if real_kx == 1 and real_kz == 1:
-				re = 100.0 # Standard Scale
-				im = 0.0
-			elif real_kx == 2 and real_kz == 0:
-				re = 50.0
-				im = 50.0
-				
-			buffer.put_float(re) # R
-			buffer.put_float(im) # G
+			# 1. Background Noise (High Frequency Detail)
+			if kx != 0 or ky != 0:
+				re = randf_range(-2.0, 2.0)
+				im = randf_range(-2.0, 2.0)
+			
+			# 2. Inject Synchronized Components
+			for wave in sync_components:
+				if kx == wave[0] and ky == wave[1]:
+					re += wave[2]
+					im += wave[3]
+					
+			buffer.put_float(re) # R (Real)
+			buffer.put_float(im) # G (Imaginary)
 			buffer.put_float(0.0) # B
 			buffer.put_float(0.0) # A
 			

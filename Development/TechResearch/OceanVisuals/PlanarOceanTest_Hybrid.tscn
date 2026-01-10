@@ -16,26 +16,26 @@
 render_priority = 0
 shader = ExtResource("3_rswci")
 shader_parameter/grid_resolution = 64.0
-shader_parameter/player_pos = Vector3(-1.3146584, 145.19806, 339.16724)
+shader_parameter/player_pos = Vector3(-1.3146584, 192.32712, 359.61777)
 shader_parameter/radial_bias = 2.0
 shader_parameter/base_spacing = 2.0317460317460316
 shader_parameter/swe_simulation_map = SubResource("Texture2DRD_cxe1d")
 shader_parameter/swe_area = Vector4(-32, -32, 64, 64)
 shader_parameter/swe_height_scale = 1.0
 shader_parameter/displacement_map = SubResource("Texture2DRD_kjyor")
-shader_parameter/texture_scale = 128.0
+shader_parameter/texture_scale = 64.0
 shader_parameter/height_scale = 0.18
 shader_parameter/wave_height_scale = 5.0
 shader_parameter/crest_softness = 0.5
-shader_parameter/color_deep = Color(0.01, 0.05, 0.15, 1)
-shader_parameter/color_shallow = Color(0.05, 0.4, 0.6, 1)
-shader_parameter/color_ripple = Color(0.1, 1, 0.8, 1)
+shader_parameter/color_deep = Color(0, 0.27, 0.73, 1)
+shader_parameter/color_shallow = Color(0.1, 0.9, 1, 1)
+shader_parameter/color_ripple = Color(1, 1, 1, 1)
 shader_parameter/refraction_strength = 0.05
 shader_parameter/debug_lod = false
 shader_parameter/debug_wireframe = false
 shader_parameter/debug_normals = false
 shader_parameter/test_wave = false
-shader_parameter/test_wave_amplitude = 1.0
+shader_parameter/test_wave_amplitude = 2.0
 
 [sub_resource type="SphereMesh" id="SphereMesh_rswci"]
 
@@ -73,10 +73,9 @@ script = ExtResource("1_fft")
 compute_shader = ExtResource("2_fft_glsl")
 material_to_update = SubResource("ShaderMaterial_bk2r2")
 choppiness = 1.0
-texture_scale = null
 
 [node name="GpuLocalOcean_SWE" type="Node3D" parent="." node_paths=PackedStringArray("follow_target")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.25, 145.19806, 339.25)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.25, 192.32712, 359.5)
 script = ExtResource("3_swe")
 compute_shader = ExtResource("4_swe_glsl")
 material_to_update = SubResource("ShaderMaterial_bk2r2")
@@ -90,13 +89,9 @@ sphere_radius = 0.2
 sphere_mesh = SubResource("SphereMesh_rswci")
 visual_material = SubResource("ShaderMaterial_spheres")
 wave_height_scale = 5.0
-crest_softness = null
 follow_target = NodePath("../Camera3D")
 gpu_ocean = NodePath("../GpuOcean_FFT")
 gpu_local_ocean = NodePath("../GpuLocalOcean_SWE")
-debug_normals = null
-test_wave = null
-test_wave_amplitude = null
 
 [node name="Camera3D" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0.8660253, 0.50000024, 0, -0.50000024, 0.8660253, -1.3146584, 145.19806, 339.16724)
+transform = Transform3D(1, 0, 0, 0, 0.8660253, 0.50000024, 0, -0.50000024, 0.8660253, -1.3146584, 192.32712, 359.61777)

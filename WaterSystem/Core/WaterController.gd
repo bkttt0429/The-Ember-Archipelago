@@ -65,14 +65,14 @@ func _process(delta):
 	if WaterManager:
 		# Read values from Manager (Authority) and apply to Shader
 		var h_scale = WaterManager.height_scale
-		var w_speed = WaterManager.wave_speed
-		var amp1 = WaterManager.amplitude1
-		var amp2 = WaterManager.amplitude2
+		# var w_speed = WaterManager.wave_speed
+		# var amp1 = WaterManager.amplitude1
+		# var amp2 = WaterManager.amplitude2
 		
 		mat.set_shader_parameter("height_scale", h_scale)
-		mat.set_shader_parameter("wave_speed", w_speed)
-		mat.set_shader_parameter("amplitude1", amp1)
-		mat.set_shader_parameter("amplitude2", amp2)
+		# mat.set_shader_parameter("wave_speed", w_speed)
+		# mat.set_shader_parameter("amplitude1", amp1)
+		# mat.set_shader_parameter("amplitude2", amp2)
 		
 		# Sync Waterspout
 		mat.set_shader_parameter("waterspout_pos", WaterManager.waterspout_pos)

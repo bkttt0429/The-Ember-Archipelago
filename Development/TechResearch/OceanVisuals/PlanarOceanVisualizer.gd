@@ -42,15 +42,15 @@ class_name PlanarOceanVisualizer
 		if is_inside_tree(): _rebuild_all()
 @export var follow_target: Node3D
 
-@export var color_deep: Color = Color(0.01, 0.05, 0.15):
+@export var color_deep: Color = Color(0.0, 0.27, 0.73):
 	set(v):
 		color_deep = v
 		_update_materials()
-@export var color_shallow: Color = Color(0.05, 0.4, 0.6):
+@export var color_shallow: Color = Color(0.1, 0.9, 1.0):
 	set(v):
 		color_shallow = v
 		_update_materials()
-@export var color_ripple: Color = Color(0.1, 1.0, 0.8):
+@export var color_ripple: Color = Color(1.0, 1.0, 1.0):
 	set(v):
 		color_ripple = v
 		_update_materials()

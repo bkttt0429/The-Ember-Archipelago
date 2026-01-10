@@ -1,5 +1,5 @@
 shader_type spatial;
-render_mode cull_back, depth_draw_opaque;
+render_mode cull_back;
 
 // 🌊 Optimized Planar Low-Poly Water Shader
 // Phase 1: Data-less Grid | Phase 2: Geomorphing | Phase 4: Beer's Law
@@ -123,8 +123,9 @@ void vertex() {
 void fragment() {
 	// 1. Dynamic Flat Shading
 	vec3 face_normal = normalize(cross(dFdy(v_view_pos), dFdx(v_view_pos)));
-	
-	// 2. Beer's Law Depth
+	NORMAL = face_normal;
+
+	// 2. Linear Depth & Transparency
 	float depth_raw = texture(depth_texture, SCREEN_UV).r;
 	vec3 ndc = vec3(SCREEN_UV * 2.0 - 1.0, depth_raw);
 	vec4 view_pos_depth = INV_PROJECTION_MATRIX * vec4(ndc, 1.0);
@@ -133,55 +134,55 @@ void fragment() {
 	float water_depth = length(view_pos_depth.xyz) - length(v_view_pos);
 	water_depth = max(water_depth, 0.0);
 	
-	// Darken faster with depth
-	float depth_fade = 1.0 - exp(-water_depth * 0.4);
-	vec3 ocean_color = mix(color_shallow, color_deep, depth_fade);
+	// Beer's law alpha: exponentially transparent at shallow depths
+	float alpha_depth = 1.0 - exp(-water_depth * 0.5);
+	ALPHA = clamp(alpha_depth + 0.2, 0.0, 1.0); // Baseline opacity
 	
-	float ripple_intensity = clamp(abs(v_ripple_h) * 15.0, 0.0, 1.0);
-	vec3 final_albedo = mix(ocean_color, color_ripple, ripple_intensity);
-	
-	// --- DEBUG MODES ---
-	if (debug_normals) {
-		ALBEDO = face_normal * 0.5 + 0.5;
+	// 3. Screen Space Refraction (SSA)
+	if (depth_raw < 1.0) { // Only refracting if there is something behind
+		vec2 ref_uv = SCREEN_UV + (NORMAL.xz * refraction_strength * alpha_depth);
+		// Check depth at refracted sample to prevent "leaking" objects in front
+		float depth_ref = texture(depth_texture, ref_uv).r;
+		// If refracted depth is further than surface, use it. Else stick to original.
+		// (Simple approximation)
+		vec3 ref_color = texture(screen_texture, ref_uv).rgb;
+		// Mix refraction with deep color
+		ALBEDO = mix(ref_color, color_deep, alpha_depth * 0.8);
 	} else {
-	
-	if (debug_lod) {
-		vec3 debug_colors[6] = {
-			vec3(0.8, 0.1, 0.1), vec3(0.1, 0.8, 0.1), vec3(0.1, 0.1, 0.8),
-			vec3(0.8, 0.8, 0.1), vec3(0.8, 0.1, 0.8), vec3(0.1, 0.8, 0.8)
-		};
-		final_albedo = mix(final_albedo, debug_colors[int(v_level)%6], 0.7);
+		ALBEDO = color_deep;
 	}
+
+	// 4. Color Gradient (Shallow vs Deep) based on depth
+	vec3 depth_color = mix(color_shallow, color_deep, alpha_depth);
+	ALBEDO = mix(ALBEDO, depth_color, 0.5); // Blend refraction with water color
+
+	// 5. Foam Logic
+	// Shoreline Foam (Depth based)
+	float shore_foam = smoothstep(0.5, 0.0, water_depth);
 	
-	// 3. Shading & Lighting (Soften contrast for smoother look)
-	NORMAL = face_normal;
-	vec3 light_dir = normalize(vec3(0.5, 1.0, 0.2)); 
-	float diff = max(dot(NORMAL, light_dir), 0.0);
-	// Reduced intensity (0.75 -> 0.6) and power (2.0 -> 1.5)
-	float shade = 0.3 + 0.7 * pow(diff, 1.5);
-	final_albedo *= shade;
+	// Crest Foam (Height based - "Jacobian-like")
+	// Using wave height relative to scale
+	float wave_factor = v_total_h / wave_height_scale;
+	float crest_foam = smoothstep(0.6, 0.9, wave_factor);
 	
+	// Interaction Foam (Ripple based)
+	float ripple_foam = smoothstep(0.05, 0.2, abs(v_ripple_h));
+
+	float total_foam = max(max(shore_foam, crest_foam), ripple_foam);
+	
+	// Apply Foam
+	vec3 foam_color = vec3(1.0);
+	ALBEDO = mix(ALBEDO, foam_color, total_foam * 0.9);
+
+	// 6. Lighting / Specular (PBR)
+	ROUGHNESS = 0.1;
+	SPECULAR = 0.5;
+	
+	// Debug
 	if (debug_wireframe) {
 		vec2 grid = fract(v_grid_uv * (grid_resolution - 1.0));
-		float edge = 0.1 * (1.0 + v_level); 
+		float edge = 0.05 * (1.0 + v_level); 
 		float wire = step(edge, grid.x) * step(edge, grid.y);
-		final_albedo = mix(vec3(0.0, 1.0, 1.0), final_albedo, wire);
-	}
-	
-	// 4. Final Color Output
-	float alpha = clamp(0.95 + depth_fade * 0.05, 0.0, 1.0); 
-	ALBEDO = final_albedo;
-	ALPHA = alpha;
-	
-	ROUGHNESS = 0.1;
-	SPECULAR = 0.8;
-	
-	float fresnel = pow(1.0 - dot(NORMAL, VIEW), 4.0);
-	EMISSION = color_ripple * ripple_intensity * 2.0 * fresnel;
-	
-	// Simple Specular Highlights
-	vec3 half_v = normalize(VIEW + light_dir);
-	float spec = pow(max(dot(NORMAL, half_v), 0.0), 32.0);
-	EMISSION += vec3(0.8, 0.9, 1.0) * spec * shade;
+		EMISSION = mix(vec3(0.0), vec3(0.0, 1.0, 1.0), wire);
 	}
 }

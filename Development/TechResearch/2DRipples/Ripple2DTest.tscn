@@ -1,0 +1,35 @@
+[gd_scene load_steps=5 format=3 uid="uid://ripple2dtest"]
+
+[ext_resource type="Shader" path="res://Development/TechResearch/2DRipples/ripple_2d.gdshader" id="1_shader"]
+[ext_resource type="Script" path="res://Development/TechResearch/2DRipples/RippleManager.gd" id="2_script"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_ripple"]
+shader = ExtResource("1_shader")
+shader_parameter/ripples = null
+shader_parameter/ripple_count = 0
+shader_parameter/time_scale = 1.0
+shader_parameter/game_time = 0.0
+shader_parameter/frequency = 20.0
+shader_parameter/wave_speed = 5.0
+shader_parameter/decay_factor = 3.0
+shader_parameter/duration = 2.0
+shader_parameter/amplitude_strength = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_bg"]
+width = 512
+height = 512
+
+[node name="Ripple2DTest" type="Node2D"]
+
+[node name="Background" type="Sprite2D" parent="."]
+material = SubResource("ShaderMaterial_ripple")
+position = Vector2(576, 324)
+texture = SubResource("NoiseTexture2D_bg")
+script = ExtResource("2_script")
+
+[node name="Label" type="Label" parent="."]
+offset_left = 22.0
+offset_top = 22.0
+offset_right = 346.0
+offset_bottom = 48.0
+text = "Click anywhere to create ripples."

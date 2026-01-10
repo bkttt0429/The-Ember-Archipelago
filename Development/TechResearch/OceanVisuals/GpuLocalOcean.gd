@@ -289,8 +289,9 @@ func _generate_empty_data(size: int) -> PackedByteArray:
 			var h = 0.0
 			
 			# Gaussian Splash
-			if dist < radius * 2.0:
-				h = 5.0 * exp(-(dist * dist) / (radius * radius))
+			# if dist < radius * 2.0:
+			# 	h = 5.0 * exp(-(dist * dist) / (radius * radius))
+			h = 0.0
 				
 			buffer.put_float(h)   # R: Height
 			buffer.put_float(0.0) # G: Vel X

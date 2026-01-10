@@ -63,15 +63,55 @@ void main() {
         float cos_wt = cos(w * t);
         float sin_wt = sin(w * t);
         
-        // Procedural Spectrum hack to make it more "ocean-like" if h0 is simple
-        // Using a much larger base multiplier to overcome 1/N^2 normalization
-        float amp = (20000.0 + params.wind_speed * 2000.0) / (k_len + 1.0);
+        // --- AAA STANDARD: PHILLIPS SPECTRUM IMPLEMENTATION ---
+        
+        // 1. Wind Direction Vector
+        float wind_angle = params.wind_dir; // Assumes radians
+        vec2 w_dir = vec2(cos(wind_angle), sin(wind_angle));
+        
+        // 2. Wave Vector k
+        // Avoid division by zero at k=0
+        if (k_len < 0.0001) k_len = 0.0001;
+        vec2 k_vec = vec2(kx, kz);
+        vec2 k_dir = normalize(k_vec);
+        
+        // 3. Phillips Spectrum Parameters
+        float L = (params.wind_speed * params.wind_speed) / 9.81; // Largest possible wave for wind speed
+        float L2 = L * L;
+        
+        float k2 = k_len * k_len;
+        float k4 = k2 * k2;
+        
+        // 4. Directional Factor |k . w|^2
+        float dot_k_w = dot(k_dir, w_dir);
+        // Suppress waves moving against wind (optional, often looks better for steady ocean)
+        // dot_k_w = max(dot_k_w, 0.0); 
+        float dir_factor = dot_k_w * dot_k_w;
+        
+        // 5. Phillips Amplitude P(k)
+        // P(k) = A * (exp(-1/(kL)^2) / k^4) * |k.w|^2
+        float A = 20000.0; // Alignment constant matching previous magnitude
+        float phillips = A * (exp(-1.0 / (k2 * L2)) / k4) * dir_factor;
+        
+        // Small waves damping (Suppress waves smaller than the grid spacing)
+        // L2 * 0.001 is a heuristic; adjusting to be based on grid resolution is better.
+        // Assuming params.texture_size matches the grid roughly.
+        // l2 damping factor removes high-frequency noise (The "Small Triangles")
+        float l2 = L2 * 0.0001; 
+        phillips *= exp(-k2 * l2); 
+        
+        // 6. Final Amplitude (Sqrt because P(k) is variance)
+        float amp = sqrt(phillips);
         
         // h(t) = h0 * exp(iwt)
+        // h0_val is our Gaussian Noise (xi_r, xi_i)
+        // We modulate the noise by the spectrum amplitude
+        vec2 h0 = h0_val.xy * amp;
+        
         vec2 h_t = vec2(
-            h0_val.x * cos_wt - h0_val.y * sin_wt,
-            h0_val.x * sin_wt + h0_val.y * cos_wt
-        ) * amp;
+            h0.x * cos_wt - h0.y * sin_wt,
+            h0.x * sin_wt + h0.y * cos_wt
+        );
         
         imageStore(output_image, pos, vec4(h_t, 0.0, 1.0));
         return;
