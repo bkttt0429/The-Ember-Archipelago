@@ -110,9 +110,10 @@ void vertex() {
     // Note: n_vec is NOT normalized at this point, but v_normal IS.
     
     // We can rotate the n_vec? No, just adding the tilt is sufficient for heightfield
-    n_vec += swe_normal_offset * 4.0; // Multiplier to emphasize ripple shape
+    n_vec += swe_normal_offset * 4.0;
     
 	v_normal = normalize(n_vec);
+}
 
 void fragment() {
 	float depth_raw = texture(depth_texture, SCREEN_UV).r;
