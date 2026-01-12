@@ -76,7 +76,7 @@ void main() {
                 float val = dist / radius;
                 // Reduced strength multiplier to prevent massive spikes
                 // The input strength should be higher in the manager, but the force application more controlled
-                float force = exp(-val * val * 4.0) * strength * 0.2;
+                float force = exp(-val * val * 4.0) * strength * 0.5;
                 next_h += force * params.dt;
             }
         }

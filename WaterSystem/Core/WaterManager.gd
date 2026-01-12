@@ -283,7 +283,7 @@ func _process(delta):
 	if not rd: return
 	
 	if has_submitted:
-		rd.sync ()
+		rd.sync()
 		has_submitted = false
 		var data = rd.texture_get_data(sim_texture, 0)
 		if not data.is_empty():
@@ -300,6 +300,10 @@ func trigger_ripple(world_pos: Vector3, strength: float = 1.0, radius: float = 0
 	interaction_points.append({"uv": uv, "strength": strength, "radius": radius})
 
 func _handle_input():
+	# 避免與相機捕獲模式衝突
+	if Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
+		return
+
 	var vp = get_viewport()
 	var cam = vp.get_camera_3d() if vp else null
 	if not cam: return
@@ -308,12 +312,16 @@ func _handle_input():
 	var from = cam.project_ray_origin(mpos)
 	var dir = cam.project_ray_normal(mpos)
 	var plane = Plane(Vector3.UP, global_position.y)
-	var hit = plane.intersects_ray(from, from + dir * 500.0)
+	
+	# 修正：傳入方向向量而不是終點
+	var hit = plane.intersects_ray(from, dir)
 	
 	if hit:
 		var lp = to_local(hit)
 		var uv = (Vector2(lp.x, lp.z) / sea_size) + Vector2(0.5, 0.5)
 		if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+			# 調試輸出
+			print("[WaterManager] Ripple at World:", hit, " Local:", lp, " UV:", uv)
 			trigger_ripple(hit, interact_strength, interact_radius)
 
 	if Input.is_key_pressed(KEY_R):
@@ -403,7 +411,7 @@ func _calc_gerstner_h(pos: Vector2, t: float, d: Vector2, l: float, s: float, sp
 
 func _cleanup():
 	if rd:
-		if has_submitted: rd.sync()
+		if has_submitted: rd.sync ()
 		if uniform_set.is_valid(): rd.free_rid(uniform_set)
 		if pipeline_rid.is_valid(): rd.free_rid(pipeline_rid)
 		if shader_rid.is_valid(): rd.free_rid(shader_rid)
