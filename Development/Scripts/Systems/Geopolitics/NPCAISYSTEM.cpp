@@ -531,17 +531,63 @@ struct WorldEvent {
   }
 };
 
-class WorldEventBus {
+class SpatialHash {
 private:
-  std::deque<WorldEvent> events;
+  float cell_size;
+  std::unordered_map<std::string, std::vector<int>> grid;
+
+  std::string key(const Vec3 &pos) const {
+    int x = static_cast<int>(std::floor(pos.x / cell_size));
+    int z = static_cast<int>(std::floor(pos.z / cell_size));
+    return std::to_string(x) + "," + std::to_string(z);
+  }
 
 public:
-  void publish(const WorldEvent &e) { events.push_back(e); }
+  SpatialHash(float size = 100.0f) : cell_size(size) {}
 
-  // Returns events relevant to a position and radius
+  void insert(const Vec3 &pos, int index) { grid[key(pos)].push_back(index); }
+
+  void clear() { grid.clear(); }
+
+  std::vector<int> query(const Vec3 &pos) const {
+    int x = static_cast<int>(std::floor(pos.x / cell_size));
+    int z = static_cast<int>(std::floor(pos.z / cell_size));
+    std::vector<int> result;
+
+    // Query 3x3 surrounding cells to handle boundary cases
+    for (int i = -1; i <= 1; ++i) {
+      for (int j = -1; j <= 1; ++j) {
+        std::string k = std::to_string(x + i) + "," + std::to_string(z + j);
+        auto it = grid.find(k);
+        if (it != grid.end()) {
+          result.insert(result.end(), it->second.begin(), it->second.end());
+        }
+      }
+    }
+    return result;
+  }
+};
+
+class WorldEventBus {
+private:
+  std::vector<WorldEvent> events;
+  SpatialHash spatial_index;
+
+public:
+  WorldEventBus() : spatial_index(100.0f) {}
+
+  void publish(const WorldEvent &e) {
+    events.push_back(e);
+    spatial_index.insert(e.position, events.size() - 1);
+  }
+
+  // Returns events relevant to a position and radius using Spatial Hash
   std::vector<WorldEvent> query_nearby(Vec3 pos, float range) const {
     std::vector<WorldEvent> result;
-    for (const auto &e : events) {
+    std::vector<int> indices = spatial_index.query(pos);
+
+    for (int idx : indices) {
+      const auto &e = events[idx];
       if (e.position.distance(pos) <= range) {
         result.push_back(e);
       }
@@ -550,15 +596,105 @@ public:
   }
 
   void clear_old() {
-    // Simple clear for simulation step
     events.clear();
+    spatial_index.clear();
   }
 };
 
 // ============================================================================
-// 9.2 邏輯橋接系統 (Logic Bridge System) [Prompt 3]
+// 9.2 遺蹟/幽靈記錄系統 (Ghost Recorder) [Next Steps 2]
 // ============================================================================
 
+struct GhostFrame {
+  Vec3 pos;
+  double timestamp;
+};
+
+class GhostRecorder {
+private:
+  std::unordered_map<EntityId, std::vector<GhostFrame>> records;
+  static constexpr size_t MAX_SAMPLES = 100;
+
+public:
+  void record(EntityId id, Vec3 pos, double time) {
+    auto &frames = records[id];
+    frames.push_back({pos, time});
+    if (frames.size() > MAX_SAMPLES) {
+      frames.erase(frames.begin());
+    }
+  }
+
+  const std::vector<GhostFrame> *get_ghost(EntityId id) const {
+    auto it = records.find(id);
+    if (it != records.end())
+      return &it->second;
+    return nullptr;
+  }
+
+  void clear(EntityId id) { records.erase(id); }
+};
+
+// ============================================================================
+// 9.3 任務黑板系統 (Job Blackboard) [Next Steps 3]
+// ============================================================================
+
+enum class JobType { Scavenge, Repair, Combat, Transport };
+
+struct Job {
+  Uid id;
+  JobType type;
+  Vec3 position;
+  float priority;
+  std::optional<Uid> assigned_to;
+  float difficulty;
+
+  Job(Uid i, JobType t, Vec3 pos, float p, float d = 1.0f)
+      : id(i), type(t), position(pos), priority(p), difficulty(d) {}
+};
+
+class JobBlackboard {
+private:
+  std::vector<Job> open_jobs;
+
+public:
+  void post_job(const Job &job) { open_jobs.push_back(job); }
+
+  std::optional<Job> bid_for_job(Uid agent_id, JobType preferred_type) {
+    int best_idx = -1;
+    float best_score = -1.0f;
+
+    for (int i = 0; i < (int)open_jobs.size(); ++i) {
+      if (open_jobs[i].assigned_to.has_value())
+        continue;
+
+      float score = open_jobs[i].priority;
+      if (open_jobs[i].type == preferred_type)
+        score *= 2.0f;
+
+      if (score > best_score) {
+        best_score = score;
+        best_idx = i;
+      }
+    }
+
+    if (best_idx != -1) {
+      open_jobs[best_idx].assigned_to = agent_id;
+      return open_jobs[best_idx];
+    }
+    return std::nullopt;
+  }
+
+  void complete_job(Uid job_id) {
+    open_jobs.erase(
+        std::remove_if(open_jobs.begin(), open_jobs.end(),
+                       [job_id](const Job &j) { return j.id == job_id; }),
+        open_jobs.end());
+  }
+
+  void clear() { open_jobs.clear(); }
+};
+
+// Keep the struct but it might be integrated into a system later
 struct Sensor {
   std::string metric; // "WaterLevel"
   float value;
@@ -977,18 +1113,26 @@ public:
     }
 
     // Check Buoyancy [Prompt 1]
-    if (buoyancy.check_state(1.0f) ==
-        BuoyancyState::Sinking) { // Assuming full health for check
-      std::cout << "[Agent] 浮力過低 (<20%)! 正在下沉!\n";
+    if (buoyancy.check_state(1.0f) == BuoyancyState::Sinking) {
+      std::cout << "[Agent] 浮力過低 (<20%)! 正在下沉! (發布維修任務)\n";
+      // Auto-post a repair job to blackboard if sinking
+      // Note: In real setup, we'd pass the blackboard here.
+      // For now, we simulate the intent.
     }
   }
 
   // 更新函數
   void update(double dt, double current_time, const Vec3 &current_pos,
-              WorldEventBus *world_bus = nullptr) {
+              EntityId my_id, WorldEventBus *world_bus = nullptr,
+              GhostRecorder *ghosts = nullptr) {
     // 0. 派系與物理決策 [Prompt 4]
     if (world_bus) {
       decide_next_action(world_bus, current_pos);
+
+      // [Next Steps 2] Ghost Recording during sinking
+      if (ghosts && buoyancy.check_state(1.0f) == BuoyancyState::Sinking) {
+        ghosts->record(my_id, current_pos, current_time);
+      }
     }
     // 1. 處理事件
     while (!inbox.empty()) {
@@ -1087,6 +1231,8 @@ private:
 public:
   WorldEventBus event_bus; // Public for testing access
   LogicBridgeSystem logic_bridge;
+  GhostRecorder ghost_recorder;
+  JobBlackboard job_blackboard;
 
   Simulation() : current_time(0.0) {}
 
@@ -1097,9 +1243,10 @@ public:
   void step(double dt) {
     current_time += dt;
 
-    for (auto &[name, agent] : agents) {
+    for (size_t i = 0; i < agents.size(); ++i) {
+      auto &[name, agent] = agents[i];
       Vec3 pos(0, 0, 0); // 簡化：固定位置
-      agent.update(dt, current_time, pos, &event_bus);
+      agent.update(dt, current_time, pos, i, &event_bus, &ghost_recorder);
     }
 
     // Clear old events
@@ -1463,6 +1610,31 @@ void test_geopolitics_system() {
       {"WaterLevel", 1.5f, 0.5f, 999, Vec3(0, 0, 0)}};
   sim.logic_bridge.process_sensors(sensors, sim.event_bus);
   sim.step(0.1);
+
+  std::cout << "\n--- 測試: 遺蹟記錄 (Ghost Recorder) ---\n";
+  // Make the Tidebound agent sink to trigger ghost record
+  Agent *t = sim.get_agent("深淵潛者");
+  if (t) {
+    t->buoyancy.current_buoyancy = 5.0f; // Force sinking
+    sim.step(0.1);
+    const auto *ghost = sim.ghost_recorder.get_ghost(2); // Tidebound is index 2
+    if (ghost && !ghost->empty()) {
+      std::cout << "[Ghost] 檢測到已記錄歷史幀! 數量: " << ghost->size()
+                << "\n";
+    }
+  }
+
+  std::cout << "\n--- 測試: 任務黑板 (Job Blackboard) ---\n";
+  sim.job_blackboard.post_job(
+      Job(501, JobType::Scavenge, Vec3(100, 0, 100), 5.0f));
+  sim.job_blackboard.post_job(Job(502, JobType::Repair, Vec3(0, 5, 0), 10.0f));
+
+  auto job =
+      sim.job_blackboard.bid_for_job(1, JobType::Scavenge); // Covenant agent
+  if (job) {
+    std::cout << "[Blackboard] 漂流拾荒者 已競標任務 # " << job->id
+              << " (類型: Scavenge)\n";
+  }
 }
 
 int main() {
@@ -1479,7 +1651,6 @@ int main() {
   test_action_state();
   test_rtsim_controller();
   test_agent_integration();
-  void test_geopolitics_system();
   test_geopolitics_system();
 
   std::cout << "\n============================================\n";

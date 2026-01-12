@@ -50,7 +50,7 @@ class_name PlanarOceanVisualizer
 	set(v):
 		color_shallow = v
 		_update_materials()
-@export var color_ripple: Color = Color(1.0, 1.0, 1.0):
+@export var color_ripple: Color = Color(1.0, 0.0, 0.0):
 	set(v):
 		color_ripple = v
 		_update_materials()
@@ -107,7 +107,34 @@ func _input(event):
 		if event.keycode == KEY_T:
 			test_wave = !test_wave
 			print("Ocean Test Wave: ", test_wave)
+		if event.keycode == KEY_C:
+			trigger_collision_waves()
+			print("Triggered Collision Waves Debug")
+			trigger_collision_waves()
+			print("Triggered Collision Waves Debug")
 		_update_materials()
+
+@export var force_trigger_waves: bool = false:
+	set(v):
+		if v:
+			trigger_collision_waves()
+			print("Manual Force Trigger: Collision Waves dispatched!")
+		force_trigger_waves = false # Reset immediately logic button behavior
+
+func trigger_collision_waves():
+	if not gpu_local_ocean: return
+	
+	var base_pos = Vector3.ZERO
+	if follow_target: base_pos = follow_target.global_position
+	
+	# Spawn two opposing waves
+	var pos_left = base_pos + Vector3(-20, 0, 0)
+	var pos_right = base_pos + Vector3(20, 0, 0)
+	
+	# Add interaction (Massive strength 200, radius 10)
+	gpu_local_ocean.add_interaction_world(pos_left, 10.0, 200.0)
+	gpu_local_ocean.add_interaction_world(pos_right, 10.0, 200.0)
+	print("PlanarOceanVisualizer: Dispatched Massive Collision Waves at ", base_pos)
 
 func _rebuild_all():
 	if not is_inside_tree(): return
@@ -179,7 +206,19 @@ func _rebuild_all():
 
 	_update_materials()
 
-func _process(_delta):
+var _auto_fire_timer = 0.0
+
+func _process(delta):
+	# Tool script hot-reload safety
+	if _auto_fire_timer == null: 
+		_auto_fire_timer = 0.0
+		
+	_auto_fire_timer += delta
+	if _auto_fire_timer > 2.0:
+		_auto_fire_timer = 0.0
+		trigger_collision_waves()
+		print("Auto-Triggering Collision Waves...")
+		
 	_update_materials()
 
 func _update_materials():
@@ -220,7 +259,6 @@ func _update_materials():
 
 	if gpu_local_ocean:
 		gpu_local_ocean.material_to_update = _shader_mat
-		if "grid_size" in gpu_local_ocean:
-			var half_size = gpu_local_ocean.grid_size * 0.5
-			var area = Vector4(-half_size, -half_size, gpu_local_ocean.grid_size, gpu_local_ocean.grid_size)
-			_shader_mat.set_shader_parameter("swe_area", area)
+		_shader_mat.set_shader_parameter("swe_height_scale", 1.0)
+		_shader_mat.set_shader_parameter("swe_color_strength", 3.0) # Force high visibility for debug
+		# swe_area is managed by GpuLocalOcean itself (handles snapping)

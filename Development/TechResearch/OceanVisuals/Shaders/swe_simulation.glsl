@@ -60,11 +60,10 @@ void main() {
         vec4 t = texture(tex_in, sample_uv - vec2(0.0, texel.y));
         vec4 b = texture(tex_in, sample_uv + vec2(0.0, texel.y));
         
+        float dx = params.grid_size / float(params.texture_size_x);
+        
         // Force from interactions
         float force = 0.0;
-        // Interaction pos is local to the grid center. 
-        // We need to account for the current uv_offset if we want interactions to stick to world.
-        // But interactions are usually instant. Let's just use current pos.
         vec2 world_pos_local = (uv - 0.5) * params.grid_size; 
         
         for (int i=0; i<interactions.count; i++) {
@@ -74,8 +73,9 @@ void main() {
             }
         }
 
-        float dh_dx = (r.r - l.r) * 0.5;
-        float dh_dz = (b.r - t.r) * 0.5;
+        // Correct derivatives: dh/dx
+        float dh_dx = (r.r - l.r) / (2.0 * dx);
+        float dh_dz = (b.r - t.r) / (2.0 * dx);
         
         float vx = c.g - dh_dx * params.gravity * params.dt;
         float vz = c.b - dh_dz * params.gravity * params.dt;
@@ -84,7 +84,7 @@ void main() {
         vx *= params.drag;
         vz *= params.drag;
         
-        // Height stays same in this pass, but we add force here
+        // Height update with interaction force
         float h = c.r + force * params.dt;
         
         imageStore(img_out, id, vec4(h, vx, vz, c.a));
@@ -92,20 +92,21 @@ void main() {
     } else {
         // --- PASS 2: UPDATE HEIGHT ---
         vec2 texel = 1.0 / vec2(size);
-        // Note: NO SHIFT in Pass 2 because Pass 1 already shifted it into T1
         vec4 c = texture(tex_in, uv);
         vec4 l = texture(tex_in, uv - vec2(texel.x, 0.0));
         vec4 r = texture(tex_in, uv + vec2(texel.x, 0.0));
         vec4 t = texture(tex_in, uv - vec2(0.0, texel.y));
         vec4 b = texture(tex_in, uv + vec2(0.0, texel.y));
         
-        // Use updated divergence from tex_in
-        float div_v = (r.g - l.g + b.b - t.b) * 0.5;
-        float h = c.r - div_v * 10.0 * params.dt; // depth=10
+        float dx = params.grid_size / float(params.texture_size_x);
         
-        // Damping and clamp
-        h *= (1.0 - 0.02 * params.dt); // Lower decay
-        h = clamp(h, -10.0, 10.0);
+        // Correct divergence: div(v)
+        float div_v = (r.g - l.g + b.b - t.b) / (2.0 * dx);
+        float h = c.r - div_v * 20.0 * params.dt; // Increased depth to 20.0
+        
+        // Damping and safety clamp
+        h *= (1.0 - 0.05 * params.dt); // Slightly faster decay for stability
+        h = clamp(h, -20.0, 20.0);
         
         imageStore(img_out, id, vec4(h, c.g, c.b, c.a));
     }

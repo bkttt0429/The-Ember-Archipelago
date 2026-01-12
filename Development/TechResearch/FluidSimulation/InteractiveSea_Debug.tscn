@@ -1,0 +1,92 @@
+[gd_scene load_steps=12 format=3 uid="uid://dcg815bdhl26d"]
+
+[ext_resource type="Script" uid="uid://dfbgrqdfu3aan" path="res://Development/TechResearch/FluidSimulation/SeaController.gd" id="1"]
+[ext_resource type="Script" uid="uid://76y7q4orwxmy" path="res://Development/TechResearch/FluidSimulation/BuoyancyObject.gd" id="2"]
+
+[sub_resource type="ProceduralSkyMaterial" id="1"]
+sky_top_color = Color(0.1, 0.4, 0.7, 1)
+
+[sub_resource type="Sky" id="2"]
+sky_material = SubResource("1")
+
+[sub_resource type="Environment" id="3"]
+background_mode = 2
+sky = SubResource("2")
+tonemap_mode = 2
+glow_enabled = true
+
+[sub_resource type="BoxMesh" id="4"]
+size = Vector3(10, 5, 10)
+
+[sub_resource type="StandardMaterial3D" id="5"]
+albedo_color = Color(0.4, 0.3, 0.2, 1)
+
+[sub_resource type="BoxShape3D" id="6"]
+size = Vector3(10, 5, 10)
+
+[sub_resource type="PrismMesh" id="PrismMesh_seabed"]
+left_to_right = 0.0
+size = Vector3(40, 10, 40)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_seabed"]
+albedo_color = Color(0.15, 0.1, 0.05, 1)
+
+[sub_resource type="BoxMesh" id="BoxMesh_boat"]
+size = Vector3(4, 1, 8)
+
+[node name="SeaTestDebug" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("3")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866025, -0.433013, 0.25, 0, 0.5, 0.866025, -0.5, -0.75, 0.433013, 0, 10, 0)
+shadow_enabled = true
+
+[node name="SeaController" type="Node3D" parent="."]
+script = ExtResource("1")
+sea_size = Vector2(80, 80)
+absorb_dist = null
+wave_steepness = 0.25
+wave_length = 20.0
+wave_chaos = 0.8
+swe_strength = 3.0
+debug_show_markers = true
+
+[node name="IslandLand" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -15, -2, -10)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="IslandLand"]
+mesh = SubResource("4")
+surface_material_override/0 = SubResource("5")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="IslandLand"]
+shape = SubResource("6")
+
+[node name="Seabed_Slope" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, -5, 0)
+mesh = SubResource("PrismMesh_seabed")
+surface_material_override/0 = SubResource("StandardMaterial3D_seabed")
+
+[node name="FloatingBox" type="RigidBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 2, 5)
+mass = 10.0
+center_of_mass_mode = 1
+center_of_mass = Vector3(0, -0.5, 0)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="FloatingBox"]
+mesh = SubResource("BoxMesh_boat")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="FloatingBox"]
+shape = SubResource("6")
+
+[node name="BuoyancyObject" type="Node3D" parent="FloatingBox"]
+script = ExtResource("2")
+sea_controller_path = NodePath("../../SeaController")
+buoyancy_force = 150.0
+linear_damping = 1.0
+angular_damping = 1.0
+probe_points = Array[Vector3]([Vector3(-2, 0, -4), Vector3(2, 0, -4), Vector3(-2, 0, 4), Vector3(2, 0, 4), Vector3(0, -0.5, 0)])
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(0.8660253, -0.2500003, 0.43301278, 0, 0.8660252, 0.50000036, -0.50000024, -0.433013, 0.7499997, 15.742127, 45.44373, 34.22451)

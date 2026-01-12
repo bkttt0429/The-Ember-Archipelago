@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://duwxha8eqqs6x"
+path="res://.godot/imported/flip_fluid.glsl-3fa8f3bfb4e34dff58d2fe382b363506.res"
+
+[deps]
+
+source_file="res://Development/TechResearch/FluidSimulation/Shaders/flip_fluid.glsl"
+dest_files=["res://.godot/imported/flip_fluid.glsl-3fa8f3bfb4e34dff58d2fe382b363506.res"]
+
+[params]
+

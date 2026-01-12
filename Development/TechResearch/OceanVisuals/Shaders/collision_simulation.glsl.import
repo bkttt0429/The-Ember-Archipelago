@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://b30r6fmhf3bry"
+path="res://.godot/imported/collision_simulation.glsl-8e44bc9ad62b5cc2b582b796004ebda2.res"
+
+[deps]
+
+source_file="res://Development/TechResearch/OceanVisuals/Shaders/collision_simulation.glsl"
+dest_files=["res://.godot/imported/collision_simulation.glsl-8e44bc9ad62b5cc2b582b796004ebda2.res"]
+
+[params]
+

@@ -1,0 +1,19 @@
+[gd_scene load_steps=3 format=3 uid="uid://fluid_sim_test"]
+
+[ext_resource type="Script" path="res://Development/TechResearch/FluidSimulation/FluidController.gd" id="1_controller"]
+[ext_resource type="RDShaderFile" path="res://Development/TechResearch/FluidSimulation/Shaders/flip_fluid.glsl" id="2_shader"]
+
+[node name="FluidTest" type="Node3D"]
+
+[node name="FluidController" type="Node3D" parent="."]
+script = ExtResource("1_controller")
+shader_file = ExtResource("2_shader")
+grid_res = Vector3i(64, 64, 64)
+box_size = Vector3(5, 5, 5)
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.866025, 0.5, 0, -0.5, 0.866025, 2.5, 6, 8)
+current = true
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.707107, -0.5, 0.5, 0, 0.707107, 0.707107, -0.707107, -0.5, 0.5, 0, 10, 0)

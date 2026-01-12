@@ -1,0 +1,101 @@
+[gd_scene load_steps=18 format=3 uid="uid://bv5x7j2m6q7w"]
+
+[ext_resource type="Script" path="res://Development/TechResearch/OceanVisuals/GpuCollisionSimulation.gd" id="1_sim"]
+[ext_resource type="RDShaderFile" path="res://Development/TechResearch/OceanVisuals/Shaders/collision_simulation.glsl" id="2_glsl"]
+[ext_resource type="Shader" path="res://Development/TechResearch/OceanVisuals/Shaders/color_mixing_spheres.gdshader" id="3_shader"]
+[ext_resource type="Script" path="res://Development/TechResearch/OceanVisuals/SphereGridVisualizer.gd" id="4_sphere_vis"]
+[ext_resource type="Script" path="res://Development/TechResearch/OceanVisuals/FluidCollisionDemo.gd" id="5_demo"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_mix"]
+render_priority = 0
+shader = ExtResource("3_shader")
+shader_parameter/grid_size = 40.0
+shader_parameter/uv_offset = Vector2(0, 0)
+shader_parameter/wave_height_scale = 5.0
+shader_parameter/color_a = Color(1, 0.1, 0.1, 1)
+shader_parameter/color_b = Color(0.1, 0.1, 1, 1)
+shader_parameter/color_mixed = Color(0.8, 0.1, 0.9, 1)
+
+[sub_resource type="SphereMesh" id="SphereMesh_vis"]
+radius = 0.15
+height = 0.3
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
+sky_top_color = Color(0.1, 0.1, 0.1, 1)
+sky_horizon_color = Color(0.2, 0.2, 0.2, 1)
+
+[sub_resource type="Sky" id="Sky_mix"]
+sky_material = SubResource("ProceduralSkyMaterial_sky")
+
+[sub_resource type="Environment" id="Environment_mix"]
+background_mode = 2
+sky = SubResource("Sky_mix")
+tonemap_mode = 2
+glow_enabled = true
+glow_intensity = 1.0
+glow_bloom = 0.5
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_floor"]
+size = Vector2(200, 200)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_floor"]
+albedo_color = Color(0.02, 0.02, 0.02, 1)
+metallic = 0.5
+roughness = 0.2
+
+[sub_resource type="BoxMesh" id="BoxMesh_origin"]
+size = Vector3(1, 1, 1)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_origin"]
+albedo_color = Color(1, 0, 0, 1)
+emission_enabled = true
+emission = Color(1, 0, 0, 1)
+
+[node name="FluidCollisionTest" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_mix")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(-0.866025, -0.433013, 0.25, 0, 0.5, 0.866025, -0.5, 0.75, -0.433013, 0, 10, 0)
+shadow_enabled = true
+
+[node name="Floor" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -2, 0)
+mesh = SubResource("PlaneMesh_floor")
+surface_material_override/0 = SubResource("StandardMaterial3D_floor")
+
+[node name="OriginMarker" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
+mesh = SubResource("BoxMesh_origin")
+surface_material_override/0 = SubResource("StandardMaterial3D_origin")
+
+[node name="GpuSimulation" type="Node3D" parent="." node_paths=PackedStringArray("material_to_update")]
+script = ExtResource("1_sim")
+compute_shader = ExtResource("2_glsl")
+texture_size = 256
+grid_size = 40.0
+sub_steps = 4
+material_to_update = SubResource("ShaderMaterial_mix")
+trigger_pulse = true
+
+[node name="SpheresVisualizer" type="Node3D" parent="."]
+script = ExtResource("4_sphere_vis")
+grid_resolution = 64
+grid_size = 40.0
+sphere_mesh = SubResource("SphereMesh_vis")
+visual_material = SubResource("ShaderMaterial_mix")
+
+[node name="CollisionDemo" type="Node3D" parent="." node_paths=PackedStringArray("gpu_sim")]
+script = ExtResource("5_demo")
+gpu_sim = NodePath("../GpuSimulation")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.573576, 0.819152, 0, -0.819152, 0.573576, 0, 18, 12)
+fov = 45.0
+
+[node name="Label3D" type="Label3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 5, -15)
+pixel_size = 0.05
+text = "FLUID COLLISION TEST
+IF YOU SEE THE RED BOX, RENDERING IS OK"

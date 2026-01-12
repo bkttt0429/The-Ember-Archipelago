@@ -76,41 +76,7 @@ func _process(delta):
 		
 		# Sync Waterspout
 		mat.set_shader_parameter("waterspout_pos", WaterManager.waterspout_pos)
-		# Note: N64 shader might not have waterspout support built-in unless I check the code again.
-		# Checking Step 76: 64-water-intense.gdshader...
-		# It DOES NOT seem to have specific waterspout uniforms like 'waterspout_pos'.
-		# It has 'flow_direction' maybe? No.
-		# If the N64 shader lacks waterspout, this part will do nothing or error. 
-		# I should remove calls to non-existent params to avoid error spam.
-		# I will comment them out for safety.
-		
-		# Sync Waterspout
-		mat.set_shader_parameter("waterspout_pos", WaterManager.waterspout_pos)
 		mat.set_shader_parameter("waterspout_radius", WaterManager.waterspout_radius)
 		mat.set_shader_parameter("waterspout_strength", WaterManager.waterspout_strength)
-		# N64 shader uses 'waterspout_spiral_strength'
-		# We need to make sure WaterManager HAS this property. 
-		# Checking Step 161 (WaterManager.gd): It DOES NOT have 'waterspout_spiral_strength' variable!
-		# I must verify if WaterManager has it or not. 
-		# Wait, Step 161 output shows it DOES NOT. 
-		# But the task lists Step 158/161 checked WaterManager and I might have missed it?
-		# Step 161 content: 
-		# 14: @export_group("Waterspout Buoyancy Sync")
-		# 15: @export var waterspout_pos: Vector3 = Vector3(0, -100, 0)
-		# 16: @export var waterspout_radius: float = 5.0
-		# 17: @export var waterspout_strength: float = 0.0
-		# 
-		# It is MISSING spiral strength!
-		# I need to add it to WaterManager first or just set it manually on material?
-		# Better to add to WaterManager for consistency.
-		# But for now, let's just add the sync line assuming I will fix WaterManager next.
-		# Actually, I should check if I can just add it to WaterManager now.
-		# I will add it to WaterManager in the next step.
-		
-		# mat.set_shader_parameter("waterspout_spiral_strength", 8.0) # Placeholder or from Manager?
-		# Let's assume I will add 'waterspout_spiral_strength' to Manager.
-		if "waterspout_spiral_strength" in WaterManager:
-			mat.set_shader_parameter("waterspout_spiral_strength", WaterManager.waterspout_spiral_strength)
-		
-		if "waterspout_darkness_factor" in WaterManager:
-			mat.set_shader_parameter("waterspout_darkness_factor", WaterManager.waterspout_darkness_factor)
+		mat.set_shader_parameter("waterspout_spiral_strength", WaterManager.waterspout_spiral_strength)
+		mat.set_shader_parameter("waterspout_darkness_factor", WaterManager.waterspout_darkness_factor)

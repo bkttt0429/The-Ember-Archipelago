@@ -38,7 +38,7 @@ size = Vector2(1000, 1000)
 render_priority = 0
 shader = ExtResource("3_epyd5")
 shader_parameter/grid_resolution = 64.0
-shader_parameter/player_pos = Vector3(-3.8147e-06, 123.59989, 325.14777)
+shader_parameter/player_pos = Vector3(-3.8147e-06, 95.46043, 332.72058)
 shader_parameter/radial_bias = 2.0
 shader_parameter/base_spacing = 2.0317460317460316
 shader_parameter/swe_simulation_map = SubResource("Texture2DRD_bnxqd")
@@ -46,7 +46,7 @@ shader_parameter/swe_area = Vector4(-32, -32, 64, 64)
 shader_parameter/swe_height_scale = 1.0
 shader_parameter/displacement_map = SubResource("Texture2DRD_sq3ny")
 shader_parameter/texture_scale = 64.0
-shader_parameter/height_scale = 13.04
+shader_parameter/height_scale = 6.0
 shader_parameter/wave_height_scale = 5.0
 shader_parameter/crest_softness = 0.5
 shader_parameter/color_deep = Color(0, 0.27, 0.73, 1)
@@ -111,17 +111,16 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.67267, 0, 51.7399)
 script = ExtResource("1_fft")
 compute_shader = ExtResource("2_fft_glsl")
 material_to_update = SubResource("ShaderMaterial_ak2pw")
-wind_speed = 12.015
 choppiness = 1.0
 time_scale = 1.2650000000000001
-height_scale = 13.04
+height_scale = 6.0
 
 [node name="GpuLocalOcean_SWE" type="Node3D" parent="." node_paths=PackedStringArray("follow_target")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 123.59989, 325.25)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 95.46043, 332.75)
 script = ExtResource("4_swe")
 compute_shader = ExtResource("5_swe_glsl")
 material_to_update = SubResource("ShaderMaterial_ak2pw")
-follow_target = NodePath("../Camera3D")
+follow_target = NodePath("../Boat")
 
 [node name="SpheresVisualizer" type="Node3D" parent="." node_paths=PackedStringArray("follow_target", "gpu_ocean", "gpu_local_ocean")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 0)
@@ -131,9 +130,9 @@ sphere_radius = 0.2
 sphere_mesh = SubResource("SphereMesh_stylized")
 visual_material = SubResource("ShaderMaterial_spheres")
 wave_height_scale = 5.0
-follow_target = NodePath("../Camera3D")
+follow_target = NodePath("../Boat")
 gpu_ocean = NodePath("../GpuOcean_FFT")
 gpu_local_ocean = NodePath("../GpuLocalOcean_SWE")
 
 [node name="Camera3D" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0.86602485, 0.50000095, 0, -0.50000095, 0.86602485, -3.8147e-06, 123.59989, 325.14777)
+transform = Transform3D(1, 0, 0, 0, 0.86602485, 0.50000095, 0, -0.50000095, 0.86602485, -3.8147e-06, 95.46043, 332.72058)

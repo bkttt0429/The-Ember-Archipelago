@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://dleuq3g25ticj"
+path="res://.godot/imported/sea_swe_solver.glsl-8f67062b29d21bd91b46051d195988d7.res"
+
+[deps]
+
+source_file="res://Development/TechResearch/FluidSimulation/Shaders/sea_swe_solver.glsl"
+dest_files=["res://.godot/imported/sea_swe_solver.glsl-8f67062b29d21bd91b46051d195988d7.res"]
+
+[params]
+

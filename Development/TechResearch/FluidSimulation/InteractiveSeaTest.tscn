@@ -1,0 +1,97 @@
+[gd_scene load_steps=12 format=3]
+
+[ext_resource type="Script" path="res://Development/TechResearch/FluidSimulation/SeaController.gd" id="1_controller"]
+[ext_resource type="Script" path="res://Development/TechResearch/FluidSimulation/BuoyancyObject.gd" id="2_buoyancy"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
+sky_top_color = Color(0.1, 0.4, 0.7, 1)
+
+[sub_resource type="Sky" id="Sky_env"]
+sky_material = SubResource("ProceduralSkyMaterial_sky")
+
+[sub_resource type="Environment" id="Environment_main"]
+background_mode = 2
+sky = SubResource("Sky_env")
+tonemap_mode = 2
+glow_enabled = true
+
+[sub_resource type="BoxMesh" id="BoxMesh_island"]
+size = Vector3(10, 5, 10)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_island"]
+albedo_color = Color(0.4, 0.3, 0.2, 1)
+
+[sub_resource type="BoxShape3D" id="BoxShape_island"]
+size = Vector3(10, 5, 10)
+
+[sub_resource type="BoxMesh" id="BoxMesh_crate"]
+size = Vector3(1.5, 1.5, 1.5)
+
+[sub_resource type="SphereMesh" id="SphereMesh_ball"]
+radius = 1.0
+height = 2.0
+
+[sub_resource type="BoxShape3D" id="BoxShape_crate"]
+size = Vector3(1.5, 1.5, 1.5)
+
+[sub_resource type="SphereShape3D" id="SphereShape_ball"]
+radius = 1.0
+
+[node name="InteractiveSeaTest" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_main")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866025, -0.433013, 0.25, 0, 0.5, 0.866025, -0.5, -0.75, 0.433013, 0, 10, 0)
+shadow_enabled = true
+
+[node name="SeaController" type="Node3D" parent="."]
+script = ExtResource("1_controller")
+grid_res = 128
+sea_size = Vector2(100, 100)
+wind_strength = 1.2
+interact_strength = 10.0
+
+[node name="IslandLand" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -25, -2, -20)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="IslandLand"]
+mesh = SubResource("BoxMesh_island")
+surface_material_override/0 = SubResource("StandardMaterial3D_island")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="IslandLand"]
+shape = SubResource("BoxShape_island")
+
+[node name="FloatingCrate" type="RigidBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 5, 0)
+mass = 2.0
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="FloatingCrate"]
+mesh = SubResource("BoxMesh_crate")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="FloatingCrate"]
+shape = SubResource("BoxShape_crate")
+
+[node name="Buoyancy" type="Node3D" parent="FloatingCrate"]
+script = ExtResource("2_buoyancy")
+sea_controller_path = NodePath("../../SeaController")
+buoyancy_force = 30.0
+
+[node name="FloatingBall" type="RigidBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 5, 10)
+mass = 5.0
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="FloatingBall"]
+mesh = SubResource("SphereMesh_ball")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="FloatingBall"]
+shape = SubResource("SphereShape_ball")
+
+[node name="Buoyancy" type="Node3D" parent="FloatingBall"]
+script = ExtResource("2_buoyancy")
+sea_controller_path = NodePath("../../SeaController")
+buoyancy_force = 45.0
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(0.866025, -0.25, 0.433013, 0, 0.866025, 0.5, -0.5, -0.433013, 0.75, 15, 15, 25)

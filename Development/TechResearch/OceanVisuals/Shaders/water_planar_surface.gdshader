@@ -17,6 +17,7 @@ uniform float base_spacing = 1.0;
 uniform sampler2D swe_simulation_map : filter_linear;
 uniform vec4 swe_area; // xy: min, zw: size
 uniform float swe_height_scale = 1.0;
+uniform float swe_color_strength = 1.0;
 
 // Integration with GpuOcean (FFT)
 uniform sampler2D displacement_map : repeat_enable, filter_linear;
@@ -88,12 +89,10 @@ void vertex() {
 	float h_swe = 0.0;
 	float h_fft = 0.0;
 	
-	// Sample SWE (only for near levels)
-	if (level_index < 2.5) {
-		vec2 swe_uv = (v_world_pos.xz - swe_area.xy) / swe_area.zw;
-		if (swe_uv.x >= 0.0 && swe_uv.x <= 1.0 && swe_uv.y >= 0.0 && swe_uv.y <= 1.0) {
-			h_swe = textureLod(swe_simulation_map, swe_uv, 0.0).r * swe_height_scale;
-		}
+	// Sample SWE (Absolute visibility - No LOD cutoff)
+	vec2 swe_uv = (v_world_pos.xz - swe_area.xy) / swe_area.zw;
+	if (swe_uv.x >= 0.0 && swe_uv.x <= 1.0 && swe_uv.y >= 0.0 && swe_uv.y <= 1.0) {
+		h_swe = textureLod(swe_simulation_map, swe_uv, 0.0).r * swe_height_scale;
 	}
 	
 	// Sample FFT
@@ -110,7 +109,6 @@ void vertex() {
 	float raw_h = h_swe + h_fft + h_test;
 	
 	// Soften Peaks: Apply non-linear scaling to high values
-	// If crest_softness is > 0, it will 'round' the peaks
 	float soften = 1.0 / (1.0 + crest_softness * max(0.0, raw_h));
 	v_total_h = raw_h * soften * wave_height_scale;
 	
@@ -138,15 +136,11 @@ void fragment() {
 	float alpha_depth = 1.0 - exp(-water_depth * 0.5);
 	ALPHA = clamp(alpha_depth + 0.2, 0.0, 1.0); // Baseline opacity
 	
-	// 3. Screen Space Refraction (SSA)
-	if (depth_raw < 1.0) { // Only refracting if there is something behind
+	if (depth_raw < 1.0) {
+		// Screen-space refraction
 		vec2 ref_uv = SCREEN_UV + (NORMAL.xz * refraction_strength * alpha_depth);
-		// Check depth at refracted sample to prevent "leaking" objects in front
 		float depth_ref = texture(depth_texture, ref_uv).r;
-		// If refracted depth is further than surface, use it. Else stick to original.
-		// (Simple approximation)
 		vec3 ref_color = texture(screen_texture, ref_uv).rgb;
-		// Mix refraction with deep color
 		ALBEDO = mix(ref_color, color_deep, alpha_depth * 0.8);
 	} else {
 		ALBEDO = color_deep;
@@ -156,23 +150,21 @@ void fragment() {
 	vec3 depth_color = mix(color_shallow, color_deep, alpha_depth);
 	ALBEDO = mix(ALBEDO, depth_color, 0.5); // Blend refraction with water color
 
-	// 5. Foam Logic
-	// Shoreline Foam (Depth based)
+	// 6. Foam Logic
 	float shore_foam = smoothstep(0.5, 0.0, water_depth);
-	
-	// Crest Foam (Height based - "Jacobian-like")
-	// Using wave height relative to scale
 	float wave_factor = v_total_h / wave_height_scale;
 	float crest_foam = smoothstep(0.6, 0.9, wave_factor);
 	
-	// Interaction Foam (Ripple based)
-	float ripple_foam = smoothstep(0.05, 0.2, abs(v_ripple_h));
-
-	float total_foam = max(max(shore_foam, crest_foam), ripple_foam);
+	// Interaction Foam (Ripple based) - Extreme sensitivity for debug
+	float ripple_mask = clamp(smoothstep(0.001, 0.01, abs(v_ripple_h)) * swe_color_strength, 0.0, 1.0); 
 	
-	// Apply Foam
+	float total_foam = max(shore_foam, crest_foam);
 	vec3 foam_color = vec3(1.0);
 	ALBEDO = mix(ALBEDO, foam_color, total_foam * 0.9);
+	
+	// Apply DEBUG Ripple Color (Overlay & Emission)
+	ALBEDO = mix(ALBEDO, color_ripple, ripple_mask * 0.95);
+	EMISSION = color_ripple * ripple_mask * 2.0; // Glow intense!
 
 	// 6. Lighting / Specular (PBR)
 	ROUGHNESS = 0.1;
