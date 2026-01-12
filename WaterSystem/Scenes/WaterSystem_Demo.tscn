@@ -92,9 +92,9 @@ shadow_enabled = true
 [node name="WaterManager" type="Node3D" parent="." groups=["WaterSystem_Managers"]]
 script = ExtResource("1_manager")
 sea_size = Vector2(100, 100)
-propagation_speed = 250.0
+propagation_speed = 20.0
 damping = 0.97
-interact_strength = 8.0
+interact_strength = 200.0
 foam_noise_tex = SubResource("NoiseTexture2D_mtqsu")
 caustics_texture = SubResource("NoiseTexture2D_7s3q1")
 

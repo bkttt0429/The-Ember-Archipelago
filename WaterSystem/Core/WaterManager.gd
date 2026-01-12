@@ -319,7 +319,7 @@ func _process(delta):
 	if not rd: return
 	
 	if has_submitted:
-		rd.sync ()
+		rd.sync()
 		has_submitted = false
 		var data = rd.texture_get_data(sim_texture, 0)
 		if not data.is_empty():
@@ -343,11 +343,12 @@ func trigger_ripple(world_pos: Vector3, strength: float = 1.0, radius: float = 0
 	
 	interaction_points.append({"uv": uv, "strength": strength, "radius": uv_radius})
 
-func _unhandled_input(event):
+func _input(event):
 	# Allow interaction if mouse is visible or if we want to allow blind clicking
 	# But generally, if mouse is captured, we probably don't want to click water unless it's a specific game mechanic
 	# User requested removing the strict block, but we should still respect if the camera consumes the input first
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		print("[DEBUG] Left click detected!")
 		var vp = get_viewport()
 		var cam = vp.get_camera_3d() if vp else null
 		if not cam: return
@@ -455,7 +456,7 @@ func _calc_gerstner_h(pos: Vector2, t: float, d: Vector2, l: float, s: float, sp
 
 func _cleanup():
 	if rd:
-		if has_submitted: rd.sync()
+		if has_submitted: rd.sync ()
 		if uniform_set.is_valid(): rd.free_rid(uniform_set)
 		if pipeline_rid.is_valid(): rd.free_rid(pipeline_rid)
 		if shader_rid.is_valid(): rd.free_rid(shader_rid)
