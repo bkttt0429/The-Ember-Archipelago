@@ -1,4 +1,4 @@
-ㄇ@tool
+@tool
 class_name WaterSystemManager
 extends Node3D
 
