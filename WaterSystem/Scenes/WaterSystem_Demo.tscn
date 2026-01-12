@@ -1,4 +1,4 @@
-[gd_scene load_steps=19 format=3 uid="uid://di63xvgmuad5c"]
+[gd_scene load_steps=21 format=3 uid="uid://di63xvgmuad5c"]
 
 [ext_resource type="Script" uid="uid://b3ia51513jvcl" path="res://WaterSystem/Core/WaterManager.gd" id="1_manager"]
 [ext_resource type="Script" uid="uid://bqc6df7l6f037" path="res://WaterSystem/Components/BuoyancyProvider.gd" id="2_buoyancy"]
@@ -30,6 +30,16 @@ frequency = 0.02
 width = 256
 height = 256
 noise = SubResource("FastNoiseLite_6q4a7")
+seamless = true
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_o4hkl"]
+noise_type = 2
+seed = -293989521
+frequency = 0.05
+fractal_type = 0
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_7s3q1"]
+noise = SubResource("FastNoiseLite_o4hkl")
 seamless = true
 
 [sub_resource type="BoxMesh" id="BoxMesh_land"]
@@ -86,6 +96,7 @@ propagation_speed = 250.0
 damping = 0.97
 interact_strength = 8.0
 foam_noise_tex = SubResource("NoiseTexture2D_mtqsu")
+caustics_texture = SubResource("NoiseTexture2D_7s3q1")
 
 [node name="DemoIsland" type="StaticBody3D" parent="." groups=["WaterObstacles"]]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 15, -1, 0)

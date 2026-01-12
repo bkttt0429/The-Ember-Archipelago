@@ -1,4 +1,4 @@
-@tool
+ㄇ@tool
 class_name WaterSystemManager
 extends Node3D
 
@@ -19,7 +19,7 @@ extends Node3D
 @export var damping: float = 0.93 # Reduced from 0.96 for faster decay
  
 @export_group("Physical Interaction")
-@export var interact_strength: float = 5.0 # Reduced from 25.0 to prevent wide whiteout
+@export var interact_strength: float = 50.0 # Increased for visibility
 @export var interact_radius: float = 0.5 # Increased radius for smoother waves
 @export var swe_strength: float = 1.0
 
@@ -326,7 +326,8 @@ func _process(delta):
 			sim_image.set_data(grid_res, grid_res, false, Image.FORMAT_RGBAF, data)
 			visual_texture.update(sim_image)
 	
-	_handle_input()
+	# Input handling moved to _unhandled_input
+	# _handle_input() 
 	_run_compute(delta)
 	interaction_points.clear() # Clear for next frame
 
@@ -342,34 +343,32 @@ func trigger_ripple(world_pos: Vector3, strength: float = 1.0, radius: float = 0
 	
 	interaction_points.append({"uv": uv, "strength": strength, "radius": uv_radius})
 
-func _handle_input():
-	# 避免與相機捕獲模式衝突
-	if Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
-		# print_rich("[color=yellow]Mouse captured, skipping water input[/color]")
-		return
-
-	var vp = get_viewport()
-	var cam = vp.get_camera_3d() if vp else null
-	if not cam: return
-	
-	var mpos = vp.get_mouse_position()
-	var from = cam.project_ray_origin(mpos)
-	var dir = cam.project_ray_normal(mpos)
-	
-	# Create plane at water height
-	var plane = Plane(Vector3.UP, global_position.y)
-	var hit = plane.intersects_ray(from, dir)
-	
-	if hit:
-		var lp = to_local(hit)
-		var uv = (Vector2(lp.x, lp.z) / sea_size) + Vector2(0.5, 0.5)
+func _unhandled_input(event):
+	# Allow interaction if mouse is visible or if we want to allow blind clicking
+	# But generally, if mouse is captured, we probably don't want to click water unless it's a specific game mechanic
+	# User requested removing the strict block, but we should still respect if the camera consumes the input first
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		var vp = get_viewport()
+		var cam = vp.get_camera_3d() if vp else null
+		if not cam: return
 		
-		# Debug click
-		if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+		# Use position from event, not get_mouse_position(), for accuracy
+		var mpos = event.position
+		var from = cam.project_ray_origin(mpos)
+		var dir = cam.project_ray_normal(mpos)
+		
+		# Create plane at water height
+		var plane = Plane(Vector3.UP, global_position.y)
+		var hit = plane.intersects_ray(from, dir)
+		
+		if hit:
+			var lp = to_local(hit)
+			var uv = (Vector2(lp.x, lp.z) / sea_size) + Vector2(0.5, 0.5)
+			
 			print("Water Hit at: ", hit, " UV: ", uv)
 			trigger_ripple(hit, interact_strength, interact_radius)
 
-	if Input.is_key_pressed(KEY_R):
+	if event is InputEventKey and event.pressed and event.keycode == KEY_R:
 		_request_restart()
 
 

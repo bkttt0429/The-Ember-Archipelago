@@ -199,8 +199,9 @@ void fragment() {
 	// Color modulation by wave height (simpler than mix)
 	// Color modulation by wave height (simpler than mix)
 	// Reduced intensity and threshold to avoid whole-surface teal flash
-	if (abs(ripple_h) > 0.2) {
-		color += vec3(0.05, 0.1, 0.15) * (abs(ripple_h) - 0.2) * swe_mask;
+	// Color modulation by wave height (Visual Debugging)
+	if (abs(ripple_h) > 0.01) {
+		color += vec3(0.0, 1.0, 1.0) * abs(ripple_h) * 2.0 * swe_mask; // Strong Cyan for debug
 	}
 	
 	// Caustics Integration
