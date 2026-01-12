@@ -86,8 +86,6 @@ propagation_speed = 250.0
 damping = 0.97
 interact_strength = 8.0
 foam_noise_tex = SubResource("NoiseTexture2D_mtqsu")
-normal_map1 = null
-normal_map2 = null
 
 [node name="DemoIsland" type="StaticBody3D" parent="." groups=["WaterObstacles"]]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 15, -1, 0)

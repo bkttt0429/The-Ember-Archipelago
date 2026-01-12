@@ -108,7 +108,40 @@ func _ready():
 	
 	_init_foam_noise()
 	_init_caustics_noise()
+	_init_default_normals()
+	
+	# 等待所有噪聲紋理生成完成，防止 Shader 採樣空數據
+	if foam_noise_tex: await foam_noise_tex.changed
+	if caustics_texture and caustics_texture is NoiseTexture2D: await caustics_texture.changed
+	if normal_map1 and normal_map1 is NoiseTexture2D: await normal_map1.changed
+	if normal_map2 and normal_map2 is NoiseTexture2D: await normal_map2.changed
+	
 	_update_shader_parameters()
+
+func _init_default_normals():
+	if not normal_map1:
+		var noise1 = FastNoiseLite.new()
+		noise1.seed = 12345
+		noise1.frequency = 0.05
+		var tex1 = NoiseTexture2D.new()
+		tex1.width = 512
+		tex1.height = 512
+		tex1.seamless = true
+		tex1.as_normal_map = true
+		tex1.noise = noise1
+		normal_map1 = tex1
+
+	if not normal_map2:
+		var noise2 = FastNoiseLite.new()
+		noise2.seed = 67890
+		noise2.frequency = 0.08
+		var tex2 = NoiseTexture2D.new()
+		tex2.width = 512
+		tex2.height = 512
+		tex2.seamless = true
+		tex2.as_normal_map = true
+		tex2.noise = noise2
+		normal_map2 = tex2
 
 func _init_caustics_noise():
 	if not caustics_texture:
@@ -149,6 +182,9 @@ func _setup_simulation():
 	var shader_src = RDShaderSource.new()
 	shader_src.set_stage_source(RenderingDevice.SHADER_STAGE_COMPUTE, shader_file.get_as_text())
 	var shader_spirv = rd.shader_compile_spirv_from_source(shader_src)
+	if shader_spirv.compile_error_compute != "":
+		push_error("[WaterManager] Shader Compile Error: " + shader_spirv.compile_error_compute)
+		return
 	shader_rid = rd.shader_create_from_spirv(shader_spirv)
 	pipeline_rid = rd.compute_pipeline_create(shader_rid)
 	
@@ -283,7 +319,7 @@ func _process(delta):
 	if not rd: return
 	
 	if has_submitted:
-		rd.sync()
+		rd.sync ()
 		has_submitted = false
 		var data = rd.texture_get_data(sim_texture, 0)
 		if not data.is_empty():
@@ -297,11 +333,19 @@ func _process(delta):
 func trigger_ripple(world_pos: Vector3, strength: float = 1.0, radius: float = 0.05):
 	var lp = to_local(world_pos)
 	var uv = (Vector2(lp.x, lp.z) / sea_size) + Vector2(0.5, 0.5)
-	interaction_points.append({"uv": uv, "strength": strength, "radius": radius})
+	# Fix: Convert world radius to UV space radius (assuming square sea or using X)
+	var uv_radius = radius / max(sea_size.x, 1.0)
+	
+	# Fix: Ensure radius covers at least 2 pixels to avoid sampling misses
+	var min_radius = 2.0 / float(grid_res)
+	uv_radius = max(uv_radius, min_radius)
+	
+	interaction_points.append({"uv": uv, "strength": strength, "radius": uv_radius})
 
 func _handle_input():
 	# 避免與相機捕獲模式衝突
 	if Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
+		# print_rich("[color=yellow]Mouse captured, skipping water input[/color]")
 		return
 
 	var vp = get_viewport()
@@ -311,17 +355,18 @@ func _handle_input():
 	var mpos = vp.get_mouse_position()
 	var from = cam.project_ray_origin(mpos)
 	var dir = cam.project_ray_normal(mpos)
-	var plane = Plane(Vector3.UP, global_position.y)
 	
-	# 修正：傳入方向向量而不是終點
+	# Create plane at water height
+	var plane = Plane(Vector3.UP, global_position.y)
 	var hit = plane.intersects_ray(from, dir)
 	
 	if hit:
 		var lp = to_local(hit)
 		var uv = (Vector2(lp.x, lp.z) / sea_size) + Vector2(0.5, 0.5)
+		
+		# Debug click
 		if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
-			# 調試輸出
-			print("[WaterManager] Ripple at World:", hit, " Local:", lp, " UV:", uv)
+			print("Water Hit at: ", hit, " UV: ", uv)
 			trigger_ripple(hit, interact_strength, interact_radius)
 
 	if Input.is_key_pressed(KEY_R):
@@ -411,7 +456,7 @@ func _calc_gerstner_h(pos: Vector2, t: float, d: Vector2, l: float, s: float, sp
 
 func _cleanup():
 	if rd:
-		if has_submitted: rd.sync ()
+		if has_submitted: rd.sync()
 		if uniform_set.is_valid(): rd.free_rid(uniform_set)
 		if pipeline_rid.is_valid(): rd.free_rid(pipeline_rid)
 		if shader_rid.is_valid(): rd.free_rid(shader_rid)

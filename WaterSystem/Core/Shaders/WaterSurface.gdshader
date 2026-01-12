@@ -128,20 +128,30 @@ void fragment() {
 	float absorption = exp(-water_depth * absorption_coeff);
 	vec3 sea_color = mix(color_deep.rgb, color_shallow.rgb, absorption);
 	
-	// Detail Normals
+	// Detail Normals (Added safety)
 	vec2 normal_uv = v_world_pos.xz * normal_tile * 0.1;
-	vec3 n1_tex = texture(normal_map1, normal_uv + TIME * normal_speed).rgb * 2.0 - 1.0;
-	vec3 n2_tex = texture(normal_map2, normal_uv * 1.2 - TIME * normal_speed * 1.5).rgb * 2.0 - 1.0;
-	vec3 detail_normal = normalize(n1_tex + n2_tex);
+	vec4 n1_sample = texture(normal_map1, normal_uv + TIME * normal_speed);
+	vec4 n2_sample = texture(normal_map2, normal_uv * 1.2 - TIME * normal_speed * 1.5);
+	
+	vec3 detail_normal = vec3(0.0, 1.0, 0.0);
+	if (n1_sample.a + n2_sample.a > 0.001) {
+		vec3 n1_tex = n1_sample.rgb * 2.0 - 1.0;
+		vec3 n2_tex = n2_sample.rgb * 2.0 - 1.0;
+		detail_normal = normalize(n1_tex + n2_tex);
+	}
 	
 	vec3 normal = normalize(v_normal + detail_normal * normal_scale);
 	float fresnel = pow(1.0 - clamp(dot(normal, VIEW), 0.0, 1.0), 4.0);
 	
 	// --- Foam System (Jacobian Based) ---
 	vec2 foam_uv = v_world_pos.xz * 0.4;
-	float n1 = texture(foam_noise, foam_uv + TIME * 0.02).r;
-	float n2 = texture(foam_noise, foam_uv * 2.5 - TIME * 0.05).r;
-	float combined_noise = (n1 + n2) * 0.5;
+	vec4 f_n1 = texture(foam_noise, foam_uv + TIME * 0.02);
+	vec4 f_n2 = texture(foam_noise, foam_uv * 2.5 - TIME * 0.05);
+	
+	float combined_noise = 0.5;
+	if (f_n1.a + f_n2.a > 0.001) {
+		combined_noise = (f_n1.r + f_n2.r) * 0.5;
+	}
 
 	// Shore Foam
 	float shore_mask = clamp(1.0 - water_depth / max(foam_shore_spread, 0.01), 0.0, 1.0);
@@ -193,12 +203,30 @@ void fragment() {
 		color += vec3(0.05, 0.1, 0.15) * (abs(ripple_h) - 0.2) * swe_mask;
 	}
 	
-	// Caustics (Disabled for debug)
-	/*
-	if (water_depth > 0.1) {
-		...
+	// Caustics Integration
+	if (water_depth > 0.01 && caustics_strength > 0.0) {
+		// Reconstruct world position of the sea floor
+		vec3 floor_world_pos = (INV_VIEW_MATRIX * vec4(view_pos_raw.xyz, 1.0)).xyz;
+		
+		vec2 caustics_uv = floor_world_pos.xz * caustics_scale;
+		float speed_val = TIME * caustics_speed;
+		
+		vec4 c1 = texture(caustics_texture, caustics_uv + vec2(speed_val, speed_val * 0.8));
+		vec4 c2 = texture(caustics_texture, caustics_uv * 1.3 - vec2(speed_val, -speed_val * 0.3));
+		
+		float caustic_val = min(c1.r, c2.r) * 2.0; // Sharpen caustics
+		
+		// Masking
+		// 1. Fade near surface (don't show caustics instantly at water line)
+		float depth_mask = smoothstep(0.0, 0.5, water_depth);
+		// 2. Fade at extreme depth (light attenuation)
+		float attenuation = exp(-water_depth * 0.2);
+		
+		vec3 caustic_light = vec3(1.0) * caustic_val * caustics_strength * depth_mask * attenuation;
+		
+		// Add caustics to the background color (refraction color)
+		ref_color += caustic_light * 0.8;
 	}
-	*/
 	
 	color = mix(color, color_foam.rgb, final_foam);
 	
