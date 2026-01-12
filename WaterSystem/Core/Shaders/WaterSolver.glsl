@@ -74,7 +74,9 @@ void main() {
                 // Gaussian Impulse: exp(-dist^2 / (radius^2))
                 // Smoother than linear, no sharp derivative spikes
                 float val = dist / radius;
-                float force = exp(-val * val * 4.0) * strength;
+                // Reduced strength multiplier to prevent massive spikes
+                // The input strength should be higher in the manager, but the force application more controlled
+                float force = exp(-val * val * 4.0) * strength * 0.2;
                 next_h += force * params.dt;
             }
         }

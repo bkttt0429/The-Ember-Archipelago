@@ -16,10 +16,10 @@ extends Node3D
 		sea_size = v
 		if has_node("WaterPlane"): $WaterPlane.mesh.size = sea_size
 @export var propagation_speed: float = 20.0 # Reduced from 200 for stability
-@export var damping: float = 0.96
-
+@export var damping: float = 0.93 # Reduced from 0.96 for faster decay
+ 
 @export_group("Physical Interaction")
-@export var interact_strength: float = 1.0 # Reduced from 5.0
+@export var interact_strength: float = 5.0 # Reduced from 25.0 to prevent wide whiteout
 @export var interact_radius: float = 0.5 # Increased radius for smoother waves
 @export var swe_strength: float = 1.0
 
@@ -134,7 +134,9 @@ func _init_foam_noise():
 		foam_noise_tex.seamless = true
 		var noise = FastNoiseLite.new()
 		noise.seed = randi()
-		noise.frequency = 0.02
+		noise.frequency = 0.05
+		noise.fractal_type = FastNoiseLite.FRACTAL_FBM
+		noise.fractal_octaves = 3
 		foam_noise_tex.noise = noise
 
 func _setup_simulation():

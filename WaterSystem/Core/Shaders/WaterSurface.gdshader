@@ -3,7 +3,7 @@ render_mode blend_mix, depth_draw_always, cull_disabled, diffuse_burley, specula
 
 #include "res://WaterSystem/Core/Shaders/WaterWaves.gdshaderinc"
 
-uniform sampler2D swe_texture; 
+uniform sampler2D swe_texture : hint_default_black, filter_linear; 
 uniform float swe_strength = 2.0;
 uniform vec2 sea_size = vec2(40.0, 40.0);
 
@@ -82,7 +82,37 @@ void vertex() {
 	// Jacobian = Vertical component of un-normalized normal (area expansion factor)
 	// Lower value = more compression (crests)
 	v_jacobian = n_vec.y;
-}
+    
+    // Calculate SWE Normals via finite difference
+    // We utilize the same uv coordinates
+    float texel_size = 1.0 / 128.0; // Estimate, or use textureSize
+    // Ideally pass grid_res, but hardcoding for safety if uniform missing
+    
+    float h_r = texture(swe_texture, uv + vec2(texel_size, 0.0)).r;
+    float h_l = texture(swe_texture, uv - vec2(texel_size, 0.0)).r;
+    float h_d = texture(swe_texture, uv + vec2(0.0, texel_size)).r;
+    float h_u = texture(swe_texture, uv - vec2(0.0, texel_size)).r;
+    
+    // Scale by strength
+    float dHx = (h_r - h_l) * swe_strength * 0.5;
+    float dHz = (h_d - h_u) * swe_strength * 0.5;
+    
+    // Perturb existing normal
+    // Assuming original normal is roughly (0,1,0), the perturbation is (-dHx, 1, -dHz)
+    // We add this perturbation to the wave normal
+    vec3 swe_normal_offset = vec3(-dHx, 0.0, -dHz);
+    
+    // Apply wave weight (obstacles shouldn't have ripples)
+    swe_normal_offset *= wave_weight;
+    
+    // Combine method: distinct separation or direct addition. 
+    // Direct addition to n_vec (which is cross product of waves) works well.
+    // Note: n_vec is NOT normalized at this point, but v_normal IS.
+    
+    // We can rotate the n_vec? No, just adding the tilt is sufficient for heightfield
+    n_vec += swe_normal_offset * 4.0; // Multiplier to emphasize ripple shape
+    
+	v_normal = normalize(n_vec);
 
 void fragment() {
 	float depth_raw = texture(depth_texture, SCREEN_UV).r;
@@ -116,43 +146,58 @@ void fragment() {
 	float shore_mask = clamp(1.0 - water_depth / max(foam_shore_spread, 0.01), 0.0, 1.0);
 	float shore_foam = smoothstep(0.4, 0.7, shore_mask + combined_noise * 0.5) * shore_mask * foam_shore_strength;
 	
-	// Crest Foam (Jacobian)
-	// Ideally Jacobian is near 1.0 for flat, < 1.0 for crests.
-	// We use (1.0 - v_jacobian) to get positive value at crests.
-	float j_foam = clamp(1.0 - v_jacobian - (1.0 - foam_jacobian_bias), 0.0, 1.0) * 3.0;
-	float crest_foam = smoothstep(0.5, 1.0, j_foam + combined_noise * 0.3) * foam_crest_strength;
+	// Crest Foam (Simplified for Stability)
+	// Crest Foam (Jacobian Based - Improved)
+	// v_jacobian < 1.0 means compression (crest), > 1.0 means expansion (trough)
+	// We want foam when compression is high (jacobian is low)
+	float jacobian_signal = 1.0 - v_jacobian; // Positive at crests
+	
+	// Bias allows shifting the "foam line" up/down the wave
+	// foam_jacobian_bias: 0.0 = only very sharp crests, 1.0 = more foam
+	float j_threshold = 0.6 - (foam_jacobian_bias * 0.4); 
+	
+	float crest_base = smoothstep(j_threshold, j_threshold + 0.3, jacobian_signal + combined_noise * 0.3);
+	float crest_foam = crest_base * foam_crest_strength;
 	
 	// Wake Foam (from SWE simulation)
 	vec2 swe_uv = (v_world_pos.xz / sea_size) + 0.5;
 	float ripple_h = texture(swe_texture, swe_uv).r;
-	float wake_foam = smoothstep(0.05, 0.3, abs(ripple_h) + combined_noise * 0.1) * foam_wake_strength;
+	if (isnan(ripple_h) || isinf(ripple_h)) ripple_h = 0.0;
+
+	// Determine if ripple is significant (signed)
+	// Bias foam towards negative height (troughs) or strong turbulence
+	// But usually wake foam is visually nice on crests too.
+	// We use abs() but with a much higher threshold to avoid "entire surface white"
+	float wake_signal = abs(ripple_h);
 	
-	float final_foam = clamp(shore_foam + crest_foam + wake_foam, 0.0, 1.0);
+	// Distance mask for SWE to prevent tiling artifacts
+	vec2 center_dist_uv = abs(swe_uv - 0.5);
+	float swe_mask = 1.0 - smoothstep(0.45, 0.5, max(center_dist_uv.x, center_dist_uv.y));
+	
+	float wake_foam = smoothstep(0.5, 1.5, wake_signal * swe_mask + combined_noise * 0.2) * foam_wake_strength;
+	
+	// Better Foam Blending (Control saturation)
+	float foam_base = max(shore_foam, max(crest_foam, wake_foam));
+	float final_foam = clamp(foam_base, 0.0, 1.0);
 	
 	vec2 ref_uv = SCREEN_UV + normal.xz * refraction_strength * clamp(water_depth, 0.0, 0.3);
 	vec3 ref_color = texture(screen_texture, ref_uv).rgb;
 	
 	vec3 color = mix(ref_color, sea_color, 1.0 - absorption * 0.4);
-	if (abs(ripple_h) > 0.1) {
-		color = mix(color, vec3(0.6, 1.0, 1.0), abs(ripple_h) * 5.0); 
+	
+	// Color modulation by wave height (simpler than mix)
+	// Color modulation by wave height (simpler than mix)
+	// Reduced intensity and threshold to avoid whole-surface teal flash
+	if (abs(ripple_h) > 0.2) {
+		color += vec3(0.05, 0.1, 0.15) * (abs(ripple_h) - 0.2) * swe_mask;
 	}
 	
-	// Caustics (Simple Projection)
-	// Project based on world pos XZ and Time
+	// Caustics (Disabled for debug)
+	/*
 	if (water_depth > 0.1) {
-		vec2 caus_uv = v_world_pos.xz * caustics_scale;
-		float c1 = texture(caustics_texture, caus_uv + TIME * caustics_speed).r;
-		float c2 = texture(caustics_texture, caus_uv * 0.8 - TIME * caustics_speed * 0.8 + 0.5).r;
-		float caus_sig = min(c1, c2) * 2.0; // Multiplying creates sharper lines
-		
-		// Mask by depth (fade deep) and normal (align with light)
-		float caus_fade = clamp(1.0 - water_depth / 10.0, 0.0, 1.0);
-		// Simple fake lighting alignment
-		float light_align = dot(normal, vec3(0.0, 1.0, 0.0));
-		
-		vec3 caus_col = vec3(1.0) * caus_sig * caustics_strength * caus_fade * light_align;
-		color += caus_col * 0.2; // Add to albedo
+		...
 	}
+	*/
 	
 	color = mix(color, color_foam.rgb, final_foam);
 	
