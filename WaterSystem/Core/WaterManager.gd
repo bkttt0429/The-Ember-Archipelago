@@ -2,7 +2,7 @@
 class_name WaterSystemManager
 extends Node3D
 
-## WaterManager - Modular Interactive Water System
+## WaterManager - Modular Interactive Water System (SWE + Legacy Compatibility)
 ## Manages GPU-based SWE simulation and provides height queries for buoyancy.
 ## Objects to be detected as obstacles should be in the "WaterObstacles" group.
 
@@ -15,6 +15,7 @@ extends Node3D
 	set(v):
 		sea_size = v
 		if has_node("WaterPlane"): $WaterPlane.mesh.size = sea_size
+		_update_shader_params_deferred()
 @export var propagation_speed: float = 20.0 # Reduced from 200 for stability
 @export var damping: float = 0.93 # Reduced from 0.96 for faster decay
  
@@ -23,61 +24,119 @@ extends Node3D
 @export var interact_radius: float = 0.5 # Increased radius for smoother waves
 @export var swe_strength: float = 1.0
 
+@export_group("Environmental Effects")
+@export var rain_intensity: float = 0.0: # 0.0 to 1.0
+	set(v): rain_intensity = clamp(v, 0.0, 1.0)
+
 @export_group("Wind & Wave Properties")
-@export var wind_strength: float = 1.0: set = _set_shader_param
-@export var wind_direction: Vector2 = Vector2(1.0, 0.5): set = _set_shader_param
-@export var wave_steepness: float = 0.25: set = _set_shader_param
-@export var wave_length: float = 20.0: set = _set_shader_param
-@export var wave_chaos: float = 0.8: set = _set_shader_param
+@export var wind_strength: float = 1.0:
+	set(v): wind_strength = v; _update_shader_params_deferred()
+@export var wind_direction: Vector2 = Vector2(1.0, 0.5):
+	set(v): wind_direction = v; _update_shader_params_deferred()
+@export var wave_steepness: float = 0.25:
+	set(v): wave_steepness = v; _update_shader_params_deferred()
+@export var wave_length: float = 20.0:
+	set(v): wave_length = v; _update_shader_params_deferred()
+@export var wave_chaos: float = 0.8:
+	set(v): wave_chaos = v; _update_shader_params_deferred()
 
 @export_group("Visual Style")
-@export var color_deep: Color = Color(0.05, 0.15, 0.3)
-@export var color_shallow: Color = Color(0.2, 0.6, 0.8)
-@export var color_foam: Color = Color(1.0, 1.0, 1.0)
-@export var foam_noise_tex: NoiseTexture2D
+@export var color_deep: Color = Color(0.05, 0.25, 0.45): # More vibrant default
+	set(v): color_deep = v; _update_shader_params_deferred()
+@export var color_shallow: Color = Color(0.3, 0.7, 0.9):
+	set(v): color_shallow = v; _update_shader_params_deferred()
+@export var color_foam: Color = Color(1.0, 1.0, 1.0):
+	set(v): color_foam = v; _update_shader_params_deferred()
+@export var foam_noise_tex: NoiseTexture2D:
+	set(v): foam_noise_tex = v; _update_shader_params_deferred()
 
 @export_subgroup("Reflections & PBR")
-@export var metallic: float = 0.0: set = _set_shader_param
-@export var roughness: float = 0.05: set = _set_shader_param
-@export var specular: float = 0.5: set = _set_shader_param
-@export var fresnel_strength: float = 1.0: set = _set_shader_param
+@export var metallic: float = 0.0:
+	set(v): metallic = v; _update_shader_params_deferred()
+@export var roughness: float = 0.05:
+	set(v): roughness = v; _update_shader_params_deferred()
+@export var specular: float = 0.5:
+	set(v): specular = v; _update_shader_params_deferred()
+@export var fresnel_strength: float = 1.0:
+	set(v): fresnel_strength = v; _update_shader_params_deferred()
 
 @export_subgroup("Foam Settings")
-@export var foam_shore_spread: float = 0.5: set = _set_shader_param
-@export var foam_shore_strength: float = 1.0: set = _set_shader_param
-@export var foam_crest_spread: float = 0.2: set = _set_shader_param
-@export var foam_crest_strength: float = 0.8: set = _set_shader_param
-@export var foam_wake_strength: float = 1.5: set = _set_shader_param
-@export var foam_jacobian_bias: float = 0.3: set = _set_shader_param
+@export var foam_shore_spread: float = 0.5:
+	set(v): foam_shore_spread = v; _update_shader_params_deferred()
+@export var foam_shore_strength: float = 1.0:
+	set(v): foam_shore_strength = v; _update_shader_params_deferred()
+@export var foam_crest_spread: float = 0.2:
+	set(v): foam_crest_spread = v; _update_shader_params_deferred()
+@export var foam_crest_strength: float = 0.8:
+	set(v): foam_crest_strength = v; _update_shader_params_deferred()
+@export var foam_wake_strength: float = 1.5:
+	set(v): foam_wake_strength = v; _update_shader_params_deferred()
+@export var foam_jacobian_bias: float = 0.3:
+	set(v): foam_jacobian_bias = v; _update_shader_params_deferred()
 
 @export_subgroup("Caustics")
-@export var caustics_texture: Texture2D
-@export var caustics_strength: float = 1.0: set = _set_shader_param
-@export var caustics_scale: float = 0.5: set = _set_shader_param
-@export var caustics_speed: float = 0.1: set = _set_shader_param
+@export var caustics_texture: Texture2D:
+	set(v): caustics_texture = v; _update_shader_params_deferred()
+@export var caustics_strength: float = 1.0:
+	set(v): caustics_strength = v; _update_shader_params_deferred()
+@export var caustics_scale: float = 0.5:
+	set(v): caustics_scale = v; _update_shader_params_deferred()
+@export var caustics_speed: float = 0.1:
+	set(v): caustics_speed = v; _update_shader_params_deferred()
 
 @export_subgroup("Detail Normals")
-@export var normal_map1: Texture2D = preload("res://WaterSystem/VFX/textures/n_noise_1.tres")
-@export var normal_map2: Texture2D = preload("res://WaterSystem/VFX/textures/n_noise_2.tres")
-@export var normal_scale: float = 0.5: set = _set_shader_param
-@export var normal_speed: float = 0.1: set = _set_shader_param
-@export var normal_tile: float = 20.0: set = _set_shader_param
-@export var debug_show_markers: bool = false: set = _set_shader_param
+@export var normal_map1: Texture2D:
+	set(v): normal_map1 = v; _update_shader_params_deferred()
+@export var normal_map2: Texture2D:
+	set(v): normal_map2 = v; _update_shader_params_deferred()
+@export var normal_scale: float = 0.5:
+	set(v): normal_scale = v; _update_shader_params_deferred()
+@export var normal_speed: float = 0.1:
+	set(v): normal_speed = v; _update_shader_params_deferred()
+@export var normal_tile: float = 20.0:
+	set(v): normal_tile = v; _update_shader_params_deferred()
+@export var debug_show_markers: bool = false:
+	set(v): debug_show_markers = v; _update_shader_params_deferred()
+
+@export_group("Debug Tools")
+@export var spawn_test_mover: bool = false:
+	set(v):
+		if v: spawn_debug_test_mover()
+
+enum TestMoveMode {CIRCLE, LINEAR}
+@export var test_movement_mode: TestMoveMode = TestMoveMode.LINEAR
+@export var test_object_radius: float = 12.0
+@export var test_object_speed: float = 2.0
+
+@export_group("Debug Actions")
+@export var restart_simulation: bool = false:
+	set(v): _request_restart()
+
+# Legacy & Global Compatibility
+var _time: float = 0.0
+@export var height_scale: float = 1.0
+@export_group("Waterspout (Legacy)")
+@export var waterspout_pos: Vector3 = Vector3.ZERO
+@export var waterspout_radius: float = 1.0
+@export var waterspout_strength: float = 1.0
+@export var waterspout_spiral_strength: float = 1.0
+@export var waterspout_darkness_factor: float = 1.0
 
 # Internal State
 var rd: RenderingDevice
 var shader_rid: RID
 var pipeline_rid: RID
-var sim_texture: RID
+var sim_texture_A: RID
+var sim_texture_B: RID
 var interaction_buffer: RID
-var uniform_set: RID
-
-const MAX_INTERACTIONS = 64
-
-
+var uniform_set_A: RID
+var uniform_set_B: RID
+var current_sim_idx: int = 0
+var has_submitted: bool = false
 var sim_image: Image
 var visual_texture: ImageTexture
-var has_submitted: bool = false
+
+const MAX_INTERACTIONS = 128
 
 # External Interactions (List of dictionaries: {uv, strength, radius})
 var interaction_points: Array = []
@@ -85,16 +144,20 @@ var interaction_points: Array = []
 const SOLVER_PATH = "res://WaterSystem/Core/Shaders/WaterSolver.glsl"
 const SURFACE_SHADER_PATH = "res://WaterSystem/Core/Shaders/WaterSurface.gdshader"
 
-func _set_shader_param(_v):
-	# Delay update to next frame to avoid setter recursion issues
-	call_deferred("_update_shader_parameters")
+func _update_shader_params_deferred():
+	# Use call_deferred to avoid potential setter recursion
+	if is_inside_tree():
+		call_deferred("_update_shader_parameters")
 
 func _request_restart():
-	if is_inside_tree():
-		_cleanup()
-		_setup_simulation()
-		_bake_obstacles()
-		_setup_visuals()
+	print("[WaterManager] Requesting simulation restart...")
+	_cleanup()
+	_setup_simulation()
+	_bake_obstacles()
+	_setup_visuals() # Ensure mesh and material are still valid
+	_update_shader_parameters()
+	interaction_points.clear()
+	print("[WaterManager] Restart complete.")
 
 func _ready():
 	add_to_group("WaterSystem_Managers")
@@ -197,28 +260,50 @@ func _setup_simulation():
 	var data = PackedByteArray()
 	data.resize(grid_res * grid_res * 16)
 	data.fill(0)
-	sim_texture = rd.texture_create(fmt, RDTextureView.new(), [data])
-	
-	var uniform = RDUniform.new()
-	uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
-	uniform.binding = 0
-	uniform.add_id(sim_texture)
+	sim_texture_A = rd.texture_create(fmt, RDTextureView.new(), [data])
+	sim_texture_B = rd.texture_create(fmt, RDTextureView.new(), [data])
 	
 	# Create Interaction Buffer
-	var buffer_size = MAX_INTERACTIONS * 16 # 16 bytes per interaction (vec4)
+	var buffer_size = MAX_INTERACTIONS * 16
 	interaction_buffer = rd.storage_buffer_create(buffer_size)
+
+	# Setup Uniform Sets for Ping-Pong
+	# Set A: A (in) -> B (out)
+	var u_in_A = RDUniform.new()
+	u_in_A.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
+	u_in_A.binding = 0
+	u_in_A.add_id(sim_texture_A)
 	
-	var uniform_interact = RDUniform.new()
-	uniform_interact.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	uniform_interact.binding = 1
-	uniform_interact.add_id(interaction_buffer)
+	var u_out_B = RDUniform.new()
+	u_out_B.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
+	u_out_B.binding = 1
+	u_out_B.add_id(sim_texture_B)
 	
-	uniform_set = rd.uniform_set_create([uniform, uniform_interact], shader_rid, 0)
+	var u_buffer = RDUniform.new()
+	u_buffer.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	u_buffer.binding = 2
+	u_buffer.add_id(interaction_buffer)
+	
+	uniform_set_A = rd.uniform_set_create([u_in_A, u_out_B, u_buffer], shader_rid, 0)
+	
+	# Set B: B (in) -> A (out)
+	var u_in_B = RDUniform.new()
+	u_in_B.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
+	u_in_B.binding = 0
+	u_in_B.add_id(sim_texture_B)
+	
+	var u_out_A = RDUniform.new()
+	u_out_A.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
+	u_out_A.binding = 1
+	u_out_A.add_id(sim_texture_A)
+	
+	uniform_set_B = rd.uniform_set_create([u_in_B, u_out_A, u_buffer], shader_rid, 0)
 	
 	sim_image = Image.create(grid_res, grid_res, false, Image.FORMAT_RGBAF)
 	sim_image.fill(Color(0, 0, 0, 1))
 	visual_texture = ImageTexture.create_from_image(sim_image)
-	rd.texture_update(sim_texture, 0, sim_image.get_data())
+	rd.texture_update(sim_texture_A, 0, sim_image.get_data())
+	rd.texture_update(sim_texture_B, 0, sim_image.get_data())
 
 func _bake_obstacles():
 	var space_state = get_world_3d().direct_space_state
@@ -250,7 +335,8 @@ func _bake_obstacles():
 					sim_image.set_pixel(x, y, col)
 					obstacles_hit += 1
 	
-	rd.texture_update(sim_texture, 0, sim_image.get_data())
+	rd.texture_update(sim_texture_A, 0, sim_image.get_data())
+	rd.texture_update(sim_texture_B, 0, sim_image.get_data())
 	visual_texture.update(sim_image)
 	print("[WaterManager] Obstacles baked: ", obstacles_hit)
 
@@ -261,8 +347,8 @@ func _setup_visuals():
 		mesh_inst.name = "WaterPlane"
 		var mesh = PlaneMesh.new()
 		mesh.size = sea_size
-		mesh.subdivide_depth = grid_res / 2.0
-		mesh.subdivide_width = grid_res / 2.0
+		mesh.subdivide_depth = grid_res - 1
+		mesh.subdivide_width = grid_res - 1
 		mesh_inst.mesh = mesh
 		add_child(mesh_inst)
 		
@@ -280,6 +366,7 @@ func _update_shader_parameters():
 	
 	mat.set_shader_parameter("swe_texture", visual_texture)
 	mat.set_shader_parameter("sea_size", sea_size)
+	mat.set_shader_parameter("manager_world_pos", global_position)
 	mat.set_shader_parameter("wind_strength", wind_strength)
 	mat.set_shader_parameter("wind_dir", wind_direction)
 	mat.set_shader_parameter("wave_steepness", wave_steepness)
@@ -317,18 +404,34 @@ func _update_shader_parameters():
 
 func _process(delta):
 	if not rd: return
+	_time = Time.get_ticks_msec() / 1000.0
+	
+	# Real-time sync of world position for shader UVs (essential for editor movement)
+	var plane = get_node_or_null("WaterPlane")
+	if plane:
+		var mat = plane.get_surface_override_material(0)
+		if mat:
+			mat.set_shader_parameter("manager_world_pos", global_position)
 	
 	if has_submitted:
-		rd.sync()
+		rd.sync ()
 		has_submitted = false
-		var data = rd.texture_get_data(sim_texture, 0)
+		# The result of the LAST dispatch is in the texture that was NEW in that dispatch
+		# i.e. if current_sim_idx was 0, it wrote to B.
+		# But since we increment/swap at the end of run_compute, 
+		# the result is in the texture currently pointed to by current_sim_idx (as input).
+		var result_texture = sim_texture_A if current_sim_idx == 0 else sim_texture_B
+		var data = rd.texture_get_data(result_texture, 0)
 		if not data.is_empty():
 			sim_image.set_data(grid_res, grid_res, false, Image.FORMAT_RGBAF, data)
 			visual_texture.update(sim_image)
 	
 	# Input handling moved to _unhandled_input
 	# _handle_input() 
-	_run_compute(delta)
+	
+	# Safety: Cap delta to prevent SWE explosion during frame spikes
+	var sim_delta = min(delta, 0.033)
+	_run_compute(sim_delta)
 	interaction_points.clear() # Clear for next frame
 
 func trigger_ripple(world_pos: Vector3, strength: float = 1.0, radius: float = 0.05):
@@ -341,7 +444,17 @@ func trigger_ripple(world_pos: Vector3, strength: float = 1.0, radius: float = 0
 	var min_radius = 2.0 / float(grid_res)
 	uv_radius = max(uv_radius, min_radius)
 	
+	# Optional: print only in debug or throttled
+	# print("[DEBUG] Triggering Ripple at UV: ", uv, " Strength: ", strength, " Radius: ", uv_radius)
 	interaction_points.append({"uv": uv, "strength": strength, "radius": uv_radius})
+
+func trigger_vortex(world_pos: Vector3, strength: float = 10.0, radius: float = 1.0):
+	# Encode Vortex as strength + 2000
+	trigger_ripple(world_pos, strength + 2000.0, radius)
+
+func trigger_suction(world_pos: Vector3, strength: float = 10.0, radius: float = 1.0):
+	# Encode Suction as -strength - 2000 (negative values)
+	trigger_ripple(world_pos, -strength - 2000.0, radius)
 
 func _input(event):
 	# Allow interaction if mouse is visible or if we want to allow blind clicking
@@ -351,7 +464,9 @@ func _input(event):
 		print("[DEBUG] Left click detected!")
 		var vp = get_viewport()
 		var cam = vp.get_camera_3d() if vp else null
-		if not cam: return
+		if not cam:
+			print("[DEBUG] No camera found in viewport!")
+			return
 		
 		# Use position from event, not get_mouse_position(), for accuracy
 		var mpos = event.position
@@ -401,15 +516,63 @@ func _run_compute(dt):
 	pc.put_float(damping)
 	pc.put_float(propagation_speed)
 	pc.put_32(interact_count)
+	pc.put_float(rain_intensity)
+	pc.put_float(Time.get_ticks_msec() / 1000.0) # Time for rain seed
+	pc.put_float(sea_size.x)
+	pc.put_float(sea_size.y)
 	
 	var cl = rd.compute_list_begin()
 	rd.compute_list_bind_compute_pipeline(cl, pipeline_rid)
-	rd.compute_list_bind_uniform_set(cl, uniform_set, 0)
+	
+	# Select uniform set based on current index
+	var active_set = uniform_set_A if current_sim_idx == 0 else uniform_set_B
+	
+	rd.compute_list_bind_uniform_set(cl, active_set, 0)
 	rd.compute_list_set_push_constant(cl, pc.data_array, pc.data_array.size())
-	rd.compute_list_dispatch(cl, grid_res / 8.0, grid_res / 8.0, 1)
+	rd.compute_list_dispatch(cl, int(grid_res / 8.0), int(grid_res / 8.0), 1)
 	rd.compute_list_end()
 	rd.submit()
 	has_submitted = true
+	
+	# Swap for next frame
+	current_sim_idx = 1 - current_sim_idx
+
+# Test Helpers
+func spawn_debug_test_mover():
+	# Check if already exists to prevent duplicate spam, but update parameters
+	var existing = get_node_or_null("WaterTestSpawner_Instance")
+	if existing:
+		# Ensure settings are synced
+		existing.movement_mode = int(test_movement_mode)
+		existing.test_object_radius = test_object_radius
+		existing.test_object_speed = test_object_speed
+		
+		# If we already have a child object, just update its properties
+		var mover = existing.get_node_or_null("WaterTestObject")
+		if mover:
+			mover.mode = int(test_movement_mode)
+			mover.radius = test_object_radius
+			mover.speed = test_object_speed
+			print("[DEBUG] Updated existing Water Test Mover")
+		elif existing.has_method("spawn_test_object"):
+			existing.spawn_test_object()
+		return
+
+	var spawner_script = load("res://WaterSystem/Core/WaterTestSpawner.gd")
+	if spawner_script:
+		var spawner = Node3D.new()
+		spawner.name = "WaterTestSpawner_Instance"
+		spawner.set_script(spawner_script)
+		spawner.movement_mode = int(test_movement_mode)
+		spawner.test_object_radius = test_object_radius
+		spawner.test_object_speed = test_object_speed
+		add_child(spawner)
+		
+		# VERY IMPORTANT for @tool: Setting owner makes it visible in tree and viewport
+		if Engine.is_editor_hint():
+			spawner.owner = get_tree().edited_scene_root
+			
+		print("[DEBUG] Initialized Water Test Spawner at: ", global_position)
 
 # Height Queries
 func get_water_height_at(world_pos: Vector3) -> float:
@@ -456,15 +619,23 @@ func _calc_gerstner_h(pos: Vector2, t: float, d: Vector2, l: float, s: float, sp
 
 func _cleanup():
 	if rd:
-		if has_submitted: rd.sync ()
-		if uniform_set.is_valid(): rd.free_rid(uniform_set)
+		if has_submitted:
+			rd.sync()
+		if uniform_set_A.is_valid(): rd.free_rid(uniform_set_A)
+		if uniform_set_B.is_valid(): rd.free_rid(uniform_set_B)
 		if pipeline_rid.is_valid(): rd.free_rid(pipeline_rid)
 		if shader_rid.is_valid(): rd.free_rid(shader_rid)
-		if sim_texture.is_valid(): rd.free_rid(sim_texture)
+		if sim_texture_A.is_valid(): rd.free_rid(sim_texture_A)
+		if sim_texture_B.is_valid(): rd.free_rid(sim_texture_B)
 		if interaction_buffer.is_valid(): rd.free_rid(interaction_buffer)
 		rd.free()
 		rd = null
-	uniform_set = RID(); pipeline_rid = RID(); shader_rid = RID(); sim_texture = RID(); interaction_buffer = RID()
+	
+	# Reset state to prevent cross-instance sync errors
+	has_submitted = false
+	current_sim_idx = 0
+	uniform_set_A = RID(); uniform_set_B = RID(); pipeline_rid = RID(); shader_rid = RID()
+	sim_texture_A = RID(); sim_texture_B = RID(); interaction_buffer = RID()
 
 func _notification(what):
 	if what == NOTIFICATION_PREDELETE: _cleanup()
