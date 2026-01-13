@@ -207,7 +207,7 @@ void fragment() {
 	
 	// Normalize and filter combined noise to avoid noise floor triggering foam
 	float combined_noise = (f_n1 * 0.5 + f_n2 * 0.5);
-	combined_noise = smoothstep(0.4, 0.6, combined_noise);
+	combined_noise = smoothstep(0.5, 0.7, combined_noise);
 
 	// Shore Foam
 	float shore_mask = clamp(1.0 - water_depth / max(foam_shore_spread, 0.01), 0.0, 1.0);
@@ -224,8 +224,14 @@ void fragment() {
 	float ripple_h = texture(swe_texture, v_swe_uv).r;
 	float wake_signal = max(abs(ripple_h) * swe_strength, 0.0) + weather_danger * 2.0;
 	float wake_foam = 0.0;
-	if (wake_signal > 0.2) {
-		wake_foam = smoothstep(0.2, 1.0, wake_signal + combined_noise * 0.1) * foam_wake_strength;
+	if (wake_signal > 0.3 && abs(ripple_h) > 0.1) {
+		wake_foam = smoothstep(0.3, 1.2, wake_signal + combined_noise * 0.05) * foam_wake_strength;
+	}
+	
+	// Complete Stillness Mode: Wind=0, No SWE Ripple, No Weather
+	if (wind_strength < 0.01 && abs(ripple_h) < 0.05 && weather_danger < 0.01) {
+		crest_foam = 0.0;
+		wake_foam = 0.0;
 	}
 	
 	float final_foam = clamp(max(shore_foam, max(crest_foam, wake_foam)), 0.0, 1.0);

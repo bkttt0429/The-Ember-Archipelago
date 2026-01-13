@@ -16,7 +16,7 @@ extends Node3D
 		if has_node("WaterPlane"): $WaterPlane.mesh.size = sea_size
 		_update_shader_params_deferred()
 @export var propagation_speed: float = 20.0
-@export var damping: float = 0.90
+@export var damping: float = 0.85
  
 @export_group("Physical Interaction")
 @export var interact_strength: float = 50.0
@@ -165,6 +165,7 @@ var active_waterspout = null # {position: Vector2, radius: float, intensity: flo
 
 var _is_initialized: bool = false
 var active_weather_events = [] # Placeholder for future weather system
+var _idle_timer: float = 0.0
 
 func _update_shader_params_deferred():
 	if is_inside_tree():
@@ -379,6 +380,7 @@ func _setup_weather_pipeline():
 	weather_texture = rd.texture_create(fmt, RDTextureView.new(), [data])
 	
 	weather_image = Image.create(grid_res, grid_res, false, Image.FORMAT_RGBAH)
+	weather_image.fill(Color(0, 0, 0, 0))
 	weather_visual_tex = ImageTexture.create_from_image(weather_image)
 	
 	# 2. Compile Vortex Shader
@@ -476,6 +478,14 @@ func _update_shader_parameters():
 func _process(delta):
 	if not rd or not _is_initialized: return
 	
+	if interaction_points.is_empty() and active_vortex == null and active_waterspout == null:
+		_idle_timer += delta
+		if _idle_timer > 2.0:
+			_reset_swe_texture()
+			_idle_timer = 0.0
+	else:
+		_idle_timer = 0.0
+	
 	_time = Time.get_ticks_msec() / 1000.0
 	
 	var plane = get_node_or_null("WaterPlane")
@@ -485,7 +495,7 @@ func _process(delta):
 			mat.set_shader_parameter("manager_world_pos", global_position)
 	
 	if has_submitted:
-		rd.sync ()
+		rd.sync()
 		has_submitted = false
 		
 		# Update SWE Texture
@@ -723,10 +733,23 @@ func get_wave_height_at(world_pos: Vector3) -> float:
 	
 	return global_position.y + swe_h * swe_strength + wave_h
 
+func _reset_swe_texture():
+	if not rd or not sim_image: return
+	for y in range(grid_res):
+		for x in range(grid_res):
+			var col = sim_image.get_pixel(x, y)
+			col.r = 0.0 # Height clear
+			col.g = 0.0 # Velocity clear
+			# col.b keep (obstacles)
+			sim_image.set_pixel(x, y, col)
+	rd.texture_update(sim_texture_A, 0, sim_image.get_data())
+	rd.texture_update(sim_texture_B, 0, sim_image.get_data())
+	visual_texture.update(sim_image)
+
 func _cleanup():
 	if rd:
 		if has_submitted:
-			rd.sync ()
+			rd.sync()
 		if uniform_set_A.is_valid(): rd.free_rid(uniform_set_A)
 		if uniform_set_B.is_valid(): rd.free_rid(uniform_set_B)
 		if pipeline_rid.is_valid(): rd.free_rid(pipeline_rid)
