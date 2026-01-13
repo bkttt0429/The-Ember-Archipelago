@@ -66,8 +66,11 @@ vec3 get_waves_displacement(vec3 pos, float t, float wind_strength, vec2 wind_di
         disp += gerstner_wave(pos, t, d, w_len, w_steep, w_speed, tangent, binormal);
     }
     
-    float noise = sin(pos.x * 2.0 + t) * cos(pos.z * 2.0 - t * 0.5) * 0.2;
-    disp.y += noise * wind_strength * wave_chaos;
+    // Fix: Ensure noise is also suppressed when wind is 0
+    if (wind_strength > 0.001) {
+        float noise = sin(pos.x * 2.0 + t) * cos(pos.z * 2.0 - t * 0.5) * 0.2;
+        disp.y += noise * wind_strength * wave_chaos;
+    }
     
     return disp;
 }
@@ -146,14 +149,17 @@ void vertex() {
 	
 	if (wind_strength > 0.001) {
 		wave_disp = get_waves_displacement(world_pos, TIME, wind_strength, wind_dir, wave_length, wave_steepness, wave_chaos, tangent, binormal);
+		v_wave_normal = normalize(cross(binormal, tangent));
+		v_jacobian_proxy = cross(binormal, tangent).y;
+	} else {
+		v_wave_normal = vec3(0.0, 1.0, 0.0);
+		v_jacobian_proxy = 1.0;
 	}
 	
 	VERTEX.xyz += wave_disp; 
 	VERTEX.y += swe_h * swe_strength * wave_weight;
 	
 	v_world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-	v_wave_normal = normalize(cross(binormal, tangent));
-	v_jacobian_proxy = cross(binormal, tangent).y; // used as a signal for crests
 }
 
 void fragment() {
@@ -198,7 +204,10 @@ void fragment() {
 	vec2 foam_uv = v_world_pos.xz * 0.4;
 	float f_n1 = texture(foam_noise, foam_uv + TIME * 0.02).r;
 	float f_n2 = texture(foam_noise, foam_uv * 2.5 - TIME * 0.05).r;
-	float combined_noise = (f_n1 + f_n2) * 0.5;
+	
+	// Normalize and filter combined noise to avoid noise floor triggering foam
+	float combined_noise = (f_n1 * 0.5 + f_n2 * 0.5);
+	combined_noise = smoothstep(0.4, 0.6, combined_noise);
 
 	// Shore Foam
 	float shore_mask = clamp(1.0 - water_depth / max(foam_shore_spread, 0.01), 0.0, 1.0);
@@ -208,15 +217,15 @@ void fragment() {
 	float jacobian_signal = clamp(1.0 - v_jacobian_proxy, 0.0, 1.0); 
 	float j_threshold = 0.6 - (foam_jacobian_bias * 0.4); 
 	float crest_foam = 0.0;
-	if (jacobian_signal > 0.05) {
-		crest_foam = smoothstep(j_threshold, j_threshold + 0.3, jacobian_signal + combined_noise * 0.4) * foam_crest_strength;
+	if (jacobian_signal > 0.05 && wind_strength > 0.1) {
+		crest_foam = smoothstep(j_threshold, j_threshold + 0.3, jacobian_signal * (0.6 + combined_noise * 0.4)) * foam_crest_strength;
 	}
 	
 	float ripple_h = texture(swe_texture, v_swe_uv).r;
-	float wake_signal = abs(ripple_h) * swe_strength + weather_danger * 2.0;
+	float wake_signal = max(abs(ripple_h) * swe_strength, 0.0) + weather_danger * 2.0;
 	float wake_foam = 0.0;
-	if (wake_signal > 0.05) {
-		wake_foam = smoothstep(0.2, 1.0, wake_signal + combined_noise * 0.3) * foam_wake_strength;
+	if (wake_signal > 0.2) {
+		wake_foam = smoothstep(0.2, 1.0, wake_signal + combined_noise * 0.1) * foam_wake_strength;
 	}
 	
 	float final_foam = clamp(max(shore_foam, max(crest_foam, wake_foam)), 0.0, 1.0);
