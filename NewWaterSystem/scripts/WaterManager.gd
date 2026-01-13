@@ -16,7 +16,7 @@ extends Node3D
 		if has_node("WaterPlane"): $WaterPlane.mesh.size = sea_size
 		_update_shader_params_deferred()
 @export var propagation_speed: float = 20.0
-@export var damping: float = 0.93
+@export var damping: float = 0.90
  
 @export_group("Physical Interaction")
 @export var interact_strength: float = 50.0
@@ -485,7 +485,7 @@ func _process(delta):
 			mat.set_shader_parameter("manager_world_pos", global_position)
 	
 	if has_submitted:
-		rd.sync()
+		rd.sync ()
 		has_submitted = false
 		
 		# Update SWE Texture
@@ -726,7 +726,7 @@ func get_wave_height_at(world_pos: Vector3) -> float:
 func _cleanup():
 	if rd:
 		if has_submitted:
-			rd.sync()
+			rd.sync ()
 		if uniform_set_A.is_valid(): rd.free_rid(uniform_set_A)
 		if uniform_set_B.is_valid(): rd.free_rid(uniform_set_B)
 		if pipeline_rid.is_valid(): rd.free_rid(pipeline_rid)

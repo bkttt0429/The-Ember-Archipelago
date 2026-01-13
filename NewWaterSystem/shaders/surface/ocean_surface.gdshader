@@ -230,11 +230,14 @@ void fragment() {
 	
 	float final_foam = clamp(max(shore_foam, max(crest_foam, wake_foam)), 0.0, 1.0);
 	
-	// 5. Shading
-	vec2 ref_uv = SCREEN_UV + normal.xz * refraction_strength * clamp(water_depth, 0.0, 0.3);
+	// 5. Shading & Visibility
+	vec2 ref_uv = SCREEN_UV + normal.xz * refraction_strength * clamp(water_depth, 0.0, 0.5);
 	vec3 ref_color = texture(screen_texture, ref_uv).rgb;
 	
-	vec3 color = mix(ref_color, sea_color, 1.0 - absorption * 0.4);
+	// Fix: Allow refraction/ripples to be visible even in deep water (absorption=0)
+	// Shallow water (absorption=1) relies more on refraction; Deep water (absorption=0) keeps ~20% for ripple detail
+	float refraction_visibility = mix(0.2, 0.6, absorption);
+	vec3 color = mix(sea_color, ref_color, refraction_visibility);
 	
 	// Caustics
 	if (water_depth > 0.01 && caustics_strength > 0.0) {
@@ -255,7 +258,8 @@ void fragment() {
 	ROUGHNESS = roughness;
 	SPECULAR = specular;
 	
-	vec3 fresnel_color = vec3(0.1, 0.2, 0.3) * fresnel_strength;
+	// Enhanced Specular & Fresnel Highlights to show surface shape on dark water
+	vec3 fresnel_color = vec3(0.2, 0.4, 0.6) * fresnel_strength;
 	EMISSION = fresnel_color * fresnel * (1.0 - final_foam); 
-	EMISSION += vec3(1.0) * pow(fresnel, 16.0) * 0.8 * fresnel_strength; 
+	EMISSION += vec3(1.0) * pow(fresnel, 32.0) * 1.2 * fresnel_strength * (1.0 - final_foam); 
 }
