@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://bfltlr6rx8lwq"
+path="res://.godot/imported/water_interaction.glsl-9ee8bd2d52d98f7ca6fda736f8aafe4b.res"
+
+[deps]
+
+source_file="res://NewWaterSystem/shaders/compute/water_interaction.glsl"
+dest_files=["res://.godot/imported/water_interaction.glsl-9ee8bd2d52d98f7ca6fda736f8aafe4b.res"]
+
+[params]
+

@@ -70,16 +70,28 @@ void vertex() {
 	// 1. Sample SWE Simulation Data
 	vec4 swe_sample = texture(swe_texture, uv);
 	float swe_h = swe_sample.r;
+	
+	// CRITICAL SAFETY: Prevent NaN/Inf from blowing up the vertex
+	if (isnan(swe_h) || isinf(swe_h)) {
+		swe_h = 0.0;
+	}
+	
 	float is_obstacle = swe_sample.b;
 	float wave_weight = 1.0 - is_obstacle;
 	
 	// 2. Calculate Gerstner Waves
 	vec3 tangent = vec3(1.0, 0.0, 0.0);
 	vec3 binormal = vec3(0.0, 0.0, 1.0);
-	vec3 wave_disp = get_waves_displacement(world_pos, TIME, wind_strength, wind_dir, wave_length, wave_steepness, wave_chaos, tangent, binormal);
+	vec3 wave_disp = vec3(0.0);
+	
+	if (wind_strength > 0.001) {
+		wave_disp = get_waves_displacement(world_pos, TIME, wind_strength, wind_dir, wave_length, wave_steepness, wave_chaos, tangent, binormal);
+	}
 	
 	// 3. Combine Displacements
-	VERTEX.xyz += wave_disp * wave_weight;
+	// Disable wave_weight on Gerstner waves to prevent mesh tearing at obstacle boundaries
+	// We allow waves to clip into obstacles visually for smoothness.
+	VERTEX.xyz += wave_disp; // * wave_weight;
 	VERTEX.y += swe_h * swe_strength * wave_weight;
 	
 	// Update final state for fragment

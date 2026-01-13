@@ -8,7 +8,7 @@ export_presets.cfg
 Reference/
 addons/
 Assets/
-
+Sound/
 # Imported translations (automatically generated from CSV files)
 *.translation
 

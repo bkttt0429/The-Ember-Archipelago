@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://cr066vmg5qpd7"
+path="res://.godot/imported/Vortex.glsl-04c76cf4fc3467b590faf42a0e574b2b.res"
+
+[deps]
+
+source_file="res://NewWaterSystem/shaders/compute/Vortex.glsl"
+dest_files=["res://.godot/imported/Vortex.glsl-04c76cf4fc3467b590faf42a0e574b2b.res"]
+
+[params]
+

@@ -11,6 +11,7 @@ config_version=5
 [application]
 
 config/name="星海餘燼：漂浮群島"
+run/main_scene="uid://di63xvgmuad5c"
 config/features=PackedStringArray("4.5")
 config/icon="res://icon.svg"
 

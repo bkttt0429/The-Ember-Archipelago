@@ -1,6 +1,6 @@
 #version 450
 
-// WaterSystem/Core/Shaders/WaterSolver.glsl
+// NewWaterSystem/shaders/compute/water_interaction.glsl
 // Shallow Water Equation (SWE) Solver
 // R = Height, G = Velocity, B = Obstacle, A = Alpha (fixed 1.0)
 
@@ -48,11 +48,9 @@ void main() {
     if (isnan(vC) || isinf(vC)) vC = 0.0;
     
     // Safe Neighbor Sampling (Clamp to Edge)
-    // We clamp the COORDINATES, then read. This prevents reading from (-1, -1) which is undefined.
     int sx = size.x - 1;
     int sy = size.y - 1;
     
-    // Clamp neighbor coords
     ivec2 posL = ivec2(max(uv.x - 1, 0), uv.y);
     ivec2 posR = ivec2(min(uv.x + 1, sx), uv.y);
     ivec2 posU = ivec2(uv.x, max(uv.y - 1, 0));
@@ -76,17 +74,15 @@ void main() {
         next_v = 0.0;
     }
 
-    // 3. Rain System (Pseudo-Random points)
+    // 3. Rain System
     if (params.rain_intensity > 0.0) {
-        // High frequency check
         float r = hash(vec2(uv) + floor(params.time * 60.0));
         if (r < params.rain_intensity * 0.05) {
             next_h += 0.5 * params.dt;
         }
     }
 
-
-    // 3. User Interaction (Multi-Point)
+    // 4. User Interaction (Multi-Point)
     if (params.interact_count > 0) {
         vec2 my_pos = vec2(uv) / vec2(size);
         for (int i = 0; i < params.interact_count; i++) {
@@ -94,12 +90,6 @@ void main() {
             vec2 pos = it.xy;
             float strength = it.z;
             float radius = it.w;
-            
-            // it.w usually stores radius, but we can encode type in strength or a separate buffer.
-            // For now, let's use a simple convention:
-            // strength > 0 and < 1000: IMPACT
-            // strength > 1000: VORTEX (strength - 2000)
-            // strength < -1000: SUCTION (abs(strength) - 2000)
             
             float dist = distance(my_pos, pos);
             if (dist < radius && radius > 0.001) {
@@ -109,16 +99,13 @@ void main() {
                 if (strength > 1000.0) {
                     // VORTEX MODE
                     float s = strength - 2000.0;
-                    vec2 dir = my_pos - pos;
-                    vec2 tangent = vec2(-dir.y, dir.x); // Rotation
-                    // Apply velocity directly to G channel
                     next_v += s * gauss * params.dt * 10.0; 
                 } else if (strength < -1000.0) {
                     // SUCTION MODE
                     float s = abs(strength) - 2000.0;
                     next_h += s * gauss * params.dt;
                 } else {
-                    // IMPACT MODE (Standard Ripple)
+                    // IMPACT MODE
                     next_h += strength * gauss * params.dt;
                 }
             }

@@ -1,10 +1,9 @@
 @tool
-class_name WaterSystemManager
+class_name OceanWaterManager
 extends Node3D
 
-## WaterManager - Modular Interactive Water System (SWE + Legacy Compatibility)
-## Manages GPU-based SWE simulation and provides height queries for buoyancy.
-## Objects to be detected as obstacles should be in the "WaterObstacles" group.
+## WaterManager - Modular Interactive Water System (SWE + Gerstner)
+## Manages GPU-based SWE simulation and provides height queries.
 
 @export_group("Simulation Grid")
 @export var grid_res: int = 128:
@@ -16,16 +15,16 @@ extends Node3D
 		sea_size = v
 		if has_node("WaterPlane"): $WaterPlane.mesh.size = sea_size
 		_update_shader_params_deferred()
-@export var propagation_speed: float = 20.0 # Reduced from 200 for stability
-@export var damping: float = 0.93 # Reduced from 0.96 for faster decay
+@export var propagation_speed: float = 20.0
+@export var damping: float = 0.93
  
 @export_group("Physical Interaction")
-@export var interact_strength: float = 50.0 # Increased for visibility
-@export var interact_radius: float = 0.5 # Increased radius for smoother waves
+@export var interact_strength: float = 50.0
+@export var interact_radius: float = 0.5
 @export var swe_strength: float = 1.0
 
 @export_group("Environmental Effects")
-@export var rain_intensity: float = 0.0: # 0.0 to 1.0
+@export var rain_intensity: float = 0.0:
 	set(v): rain_intensity = clamp(v, 0.0, 1.0)
 
 @export_group("Wind & Wave Properties")
@@ -41,9 +40,9 @@ extends Node3D
 	set(v): wave_chaos = v; _update_shader_params_deferred()
 
 @export_group("Visual Style")
-@export var color_deep: Color = Color(0.05, 0.25, 0.45): # More vibrant default
+@export var color_deep: Color = Color(0.004, 0.016, 0.047): # Reference: godot4-oceanfft
 	set(v): color_deep = v; _update_shader_params_deferred()
-@export var color_shallow: Color = Color(0.3, 0.7, 0.9):
+@export var color_shallow: Color = Color(0.0, 0.73, 0.99): # Reference: godot4-oceanfft
 	set(v): color_shallow = v; _update_shader_params_deferred()
 @export var color_foam: Color = Color(1.0, 1.0, 1.0):
 	set(v): color_foam = v; _update_shader_params_deferred()
@@ -141,13 +140,33 @@ const MAX_INTERACTIONS = 128
 # External Interactions (List of dictionaries: {uv, strength, radius})
 var interaction_points: Array = []
 
-const SOLVER_PATH = "res://WaterSystem/Core/Shaders/WaterSolver.glsl"
-const SURFACE_SHADER_PATH = "res://WaterSystem/Core/Shaders/WaterSurface.gdshader"
+# Updated Paths for NewStructure
+# Updated Paths for NewStructure
+const SOLVER_PATH = "res://NewWaterSystem/shaders/compute/water_interaction.glsl"
+const SURFACE_SHADER_PATH = "res://NewWaterSystem/shaders/surface/ocean_surface.gdshader"
+const VORTEX_SHADER_PATH = "res://NewWaterSystem/shaders/compute/Vortex.glsl"
+const WATERSPOUT_SHADER_PATH = "res://NewWaterSystem/shaders/compute/Waterspout.glsl"
+
+# Weather System RIDs
+var weather_texture: RID
+var weather_image: Image
+var weather_visual_tex: ImageTexture
+var vortex_shader_rid: RID
+var vortex_pipeline_rid: RID
+var waterspout_shader_rid: RID
+var waterspout_pipeline_rid: RID
+var vortex_params_buffer: RID
+var waterspout_params_buffer: RID
+var weather_uniform_set: RID
+
+# Active Skills State
+var active_vortex = null # {position: Vector2, radius: float, intensity: float, speed: float, depth: float}
+var active_waterspout = null # {position: Vector2, radius: float, intensity: float, speed: float}
 
 var _is_initialized: bool = false
+var active_weather_events = [] # Placeholder for future weather system
 
 func _update_shader_params_deferred():
-	# Use call_deferred to avoid potential setter recursion
 	if is_inside_tree():
 		call_deferred("_update_shader_parameters")
 
@@ -156,7 +175,7 @@ func _request_restart():
 	_cleanup()
 	_setup_simulation()
 	_bake_obstacles()
-	_setup_visuals() # Ensure mesh and material are still valid
+	_setup_visuals()
 	_update_shader_parameters()
 	interaction_points.clear()
 	print("[WaterManager] Restart complete.")
@@ -167,7 +186,6 @@ func _ready():
 	_cleanup()
 	_setup_simulation()
 	
-	# Wait for objects in "WaterObstacles" group to be ready
 	await get_tree().process_frame
 	_bake_obstacles()
 	_setup_visuals()
@@ -176,7 +194,6 @@ func _ready():
 	_init_caustics_noise()
 	_init_default_normals()
 	
-	# Wait for noise generation to complete
 	if foam_noise_tex: await foam_noise_tex.changed
 	if caustics_texture and caustics_texture is NoiseTexture2D: await caustics_texture.changed
 	if normal_map1 and normal_map1 is NoiseTexture2D: await normal_map1.changed
@@ -243,6 +260,10 @@ func _setup_simulation():
 	rd = RenderingServer.create_local_rendering_device()
 	if not rd: return
 	
+	if not FileAccess.file_exists(SOLVER_PATH):
+		print("[WaterManager] Warning: Compute shader not found at ", SOLVER_PATH)
+		return
+		
 	var shader_file = FileAccess.open(SOLVER_PATH, FileAccess.READ)
 	if not shader_file: return
 	
@@ -267,12 +288,9 @@ func _setup_simulation():
 	sim_texture_A = rd.texture_create(fmt, RDTextureView.new(), [data])
 	sim_texture_B = rd.texture_create(fmt, RDTextureView.new(), [data])
 	
-	# Create Interaction Buffer
 	var buffer_size = MAX_INTERACTIONS * 16
 	interaction_buffer = rd.storage_buffer_create(buffer_size)
 
-	# Setup Uniform Sets for Ping-Pong
-	# Set A: A (in) -> B (out)
 	var u_in_A = RDUniform.new()
 	u_in_A.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
 	u_in_A.binding = 0
@@ -290,7 +308,6 @@ func _setup_simulation():
 	
 	uniform_set_A = rd.uniform_set_create([u_in_A, u_out_B, u_buffer], shader_rid, 0)
 	
-	# Set B: B (in) -> A (out)
 	var u_in_B = RDUniform.new()
 	u_in_B.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
 	u_in_B.binding = 0
@@ -313,14 +330,12 @@ func _bake_obstacles():
 	var space_state = get_world_3d().direct_space_state
 	var obstacles_hit = 0
 	
-	# Clear previous obstacle flags
 	for y in range(grid_res):
 		for x in range(grid_res):
 			var col = sim_image.get_pixel(x, y)
 			col.b = 0.0
 			sim_image.set_pixel(x, y, col)
 	
-	# Raycast baking
 	for y in range(grid_res):
 		for x in range(grid_res):
 			var uv = Vector2(x, y) / float(grid_res)
@@ -335,14 +350,61 @@ func _bake_obstacles():
 			if result:
 				if result.position.y > global_position.y - 2.0:
 					var col = sim_image.get_pixel(x, y)
-					col.b = 1.0 # Obstacle
+					col.b = 1.0
 					sim_image.set_pixel(x, y, col)
 					obstacles_hit += 1
 	
-	rd.texture_update(sim_texture_A, 0, sim_image.get_data())
-	rd.texture_update(sim_texture_B, 0, sim_image.get_data())
+	if rd:
+		rd.texture_update(sim_texture_A, 0, sim_image.get_data())
+		rd.texture_update(sim_texture_B, 0, sim_image.get_data())
 	visual_texture.update(sim_image)
+	
+	_setup_weather_pipeline()
+	
 	print("[WaterManager] Obstacles baked: ", obstacles_hit)
+
+func _setup_weather_pipeline():
+	if not rd: return
+	
+	# 1. Weather Influence Texture (RGBA16F)
+	var fmt = RDTextureFormat.new()
+	fmt.width = grid_res
+	fmt.height = grid_res
+	fmt.format = RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT
+	fmt.usage_bits = RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT | RenderingDevice.TEXTURE_USAGE_STORAGE_BIT | RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT | RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT
+	
+	var data = PackedByteArray()
+	data.resize(grid_res * grid_res * 8) # 2 bytes per channel * 4 channels
+	data.fill(0)
+	weather_texture = rd.texture_create(fmt, RDTextureView.new(), [data])
+	
+	weather_image = Image.create(grid_res, grid_res, false, Image.FORMAT_RGBAH)
+	weather_visual_tex = ImageTexture.create_from_image(weather_image)
+	
+	# 2. Compile Vortex Shader
+	if FileAccess.file_exists(VORTEX_SHADER_PATH):
+		vortex_shader_rid = _load_compute_shader(VORTEX_SHADER_PATH)
+		if vortex_shader_rid.is_valid():
+			vortex_pipeline_rid = rd.compute_pipeline_create(vortex_shader_rid)
+			vortex_params_buffer = rd.storage_buffer_create(64) # Buffer for VortexParams
+			
+	# 3. Compile Waterspout Shader
+	if FileAccess.file_exists(WATERSPOUT_SHADER_PATH):
+		waterspout_shader_rid = _load_compute_shader(WATERSPOUT_SHADER_PATH)
+		if waterspout_shader_rid.is_valid():
+			waterspout_pipeline_rid = rd.compute_pipeline_create(waterspout_shader_rid)
+			waterspout_params_buffer = rd.storage_buffer_create(64) # Buffer for WaterspoutParams
+
+func _load_compute_shader(path: String) -> RID:
+	var f = FileAccess.open(path, FileAccess.READ)
+	if not f: return RID()
+	var src = RDShaderSource.new()
+	src.set_stage_source(RenderingDevice.SHADER_STAGE_COMPUTE, f.get_as_text())
+	var spirv = rd.shader_compile_spirv_from_source(src)
+	if spirv.compile_error_compute != "":
+		push_error("[WaterManager] Shader Error (%s): %s" % [path, spirv.compile_error_compute])
+		return RID()
+	return rd.shader_create_from_spirv(spirv)
 
 func _setup_visuals():
 	var mesh_inst = get_node_or_null("WaterPlane")
@@ -351,15 +413,18 @@ func _setup_visuals():
 		mesh_inst.name = "WaterPlane"
 		var mesh = PlaneMesh.new()
 		mesh.size = sea_size
-		mesh.subdivide_depth = grid_res - 1
-		mesh.subdivide_width = grid_res - 1
+		mesh.subdivide_depth = grid_res * 2 - 1
+		mesh.subdivide_width = grid_res * 2 - 1
 		mesh_inst.mesh = mesh
 		add_child(mesh_inst)
 		
 	var mat = mesh_inst.get_surface_override_material(0)
 	if not mat or not mat is ShaderMaterial:
 		mat = ShaderMaterial.new()
-		mat.shader = load(SURFACE_SHADER_PATH)
+		if FileAccess.file_exists(SURFACE_SHADER_PATH):
+			mat.shader = load(SURFACE_SHADER_PATH)
+		else:
+			print("[WaterManager] Warning: Surface shader not found at ", SURFACE_SHADER_PATH)
 		mesh_inst.set_surface_override_material(0, mat)
 
 func _update_shader_parameters():
@@ -369,10 +434,9 @@ func _update_shader_parameters():
 	if not mat: return
 	
 	mat.set_shader_parameter("swe_texture", visual_texture)
+	mat.set_shader_parameter("weather_influence", weather_visual_tex)
 	mat.set_shader_parameter("sea_size", sea_size)
 	mat.set_shader_parameter("manager_world_pos", global_position)
-	
-	print("[WaterManager] Update Params - WindStr: ", wind_strength, " Steep: ", wave_steepness, " NormScale: ", normal_scale)
 	
 	mat.set_shader_parameter("wind_strength", wind_strength)
 	mat.set_shader_parameter("wind_dir", wind_direction)
@@ -410,12 +474,10 @@ func _update_shader_parameters():
 	mat.set_shader_parameter("normal_tile", normal_tile)
 
 func _process(delta):
-	# Prevent running before full initialization (fixes startup artifacts)
 	if not rd or not _is_initialized: return
 	
 	_time = Time.get_ticks_msec() / 1000.0
 	
-	# Real-time sync of world position for shader UVs (essential for editor movement)
 	var plane = get_node_or_null("WaterPlane")
 	if plane:
 		var mat = plane.get_surface_override_material(0)
@@ -423,98 +485,88 @@ func _process(delta):
 			mat.set_shader_parameter("manager_world_pos", global_position)
 	
 	if has_submitted:
-		rd.sync ()
+		rd.sync()
 		has_submitted = false
-		# The result of the LAST dispatch is in the texture that was NEW in that dispatch
-		# i.e. if current_sim_idx was 0, it wrote to B.
-		# But since we increment/swap at the end of run_compute, 
-		# the result is in the texture currently pointed to by current_sim_idx (as input).
-		# Logic Re-Verification:
-		# Frame N: idx=0. Run Set A (In A -> Out B). Swap idx -> 1.
-		# Frame N+1: idx=1. We want result of Frame N (which was B).
-		# So if idx is 1, we read B.
-		# Original logic: "sim_texture_A if current_sim_idx == 0 else sim_texture_B"
-		# If idx=1, returns B. This is CORRECT.
-		# Reverting to original logic to potentially fix 1-frame desync tearing.
+		
+		# Update SWE Texture
 		var result_texture = sim_texture_A if current_sim_idx == 0 else sim_texture_B
 		var data = rd.texture_get_data(result_texture, 0)
 		if not data.is_empty():
 			sim_image.set_data(grid_res, grid_res, false, Image.FORMAT_RGBAF, data)
 			visual_texture.update(sim_image)
+			
+		# Update Weather Texture (Visual only for foam/color modulation)
+		var w_data = rd.texture_get_data(weather_texture, 0)
+		if not w_data.is_empty():
+			weather_image.set_data(grid_res, grid_res, false, Image.FORMAT_RGBAH, w_data)
+			weather_visual_tex.update(weather_image)
 	
-	# Input handling moved to _unhandled_input
-	# _handle_input() 
-	
-	# Safety: Cap delta to prevent SWE explosion during frame spikes
 	var sim_delta = min(delta, 0.033)
 	_run_compute(sim_delta)
-	interaction_points.clear() # Clear for next frame
+	interaction_points.clear()
 
 func trigger_ripple(world_pos: Vector3, strength: float = 1.0, radius: float = 0.05):
 	var lp = to_local(world_pos)
 	var uv = (Vector2(lp.x, lp.z) / sea_size) + Vector2(0.5, 0.5)
-	# Fix: Convert world radius to UV space radius (assuming square sea or using X)
 	var uv_radius = radius / max(sea_size.x, 1.0)
-	
-	# Fix: Ensure radius covers at least 2 pixels to avoid sampling misses
 	var min_radius = 2.0 / float(grid_res)
 	uv_radius = max(uv_radius, min_radius)
-	
-	# Optional: print only in debug or throttled
-	# print("[DEBUG] Triggering Ripple at UV: ", uv, " Strength: ", strength, " Radius: ", uv_radius)
 	interaction_points.append({"uv": uv, "strength": strength, "radius": uv_radius})
 
-func trigger_vortex(world_pos: Vector3, strength: float = 10.0, radius: float = 1.0):
-	# Encode Vortex as strength + 2000
-	trigger_ripple(world_pos, strength + 2000.0, radius)
+func trigger_vortex(world_pos: Vector3, radius: float = 10.0, intensity: float = 1.0, speed: float = 2.0, depth: float = 5.0):
+	var lp = to_local(world_pos)
+	active_vortex = {
+		"position": Vector2(lp.x, lp.z),
+		"radius": radius,
+		"intensity": intensity,
+		"speed": speed,
+		"depth": depth
+	}
 
-func trigger_suction(world_pos: Vector3, strength: float = 10.0, radius: float = 1.0):
-	# Encode Suction as -strength - 2000 (negative values)
-	trigger_ripple(world_pos, -strength - 2000.0, radius)
+func trigger_waterspout(world_pos: Vector3, radius: float = 8.0, intensity: float = 1.0, speed: float = 5.0):
+	var lp = to_local(world_pos)
+	active_waterspout = {
+		"position": Vector2(lp.x, lp.z),
+		"radius": radius,
+		"intensity": intensity,
+		"speed": speed
+	}
+
+func clear_skills():
+	active_vortex = null
+	active_waterspout = null
+	# Reset weather texture
+	if rd and weather_texture.is_valid():
+		var data = PackedByteArray()
+		data.resize(grid_res * grid_res * 8)
+		data.fill(0)
+		rd.texture_update(weather_texture, 0, data)
 
 func _input(event):
-	# Allow interaction if mouse is visible or if we want to allow blind clicking
-	# But generally, if mouse is captured, we probably don't want to click water unless it's a specific game mechanic
-	# User requested removing the strict block, but we should still respect if the camera consumes the input first
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
-		print("[DEBUG] Left click detected!")
 		var vp = get_viewport()
 		var cam = vp.get_camera_3d() if vp else null
-		if not cam:
-			print("[DEBUG] No camera found in viewport!")
-			return
+		if not cam: return
 		
-		# Use position from event, not get_mouse_position(), for accuracy
 		var mpos = event.position
 		var from = cam.project_ray_origin(mpos)
 		var dir = cam.project_ray_normal(mpos)
 		
-		# Create plane at water height
 		var plane = Plane(Vector3.UP, global_position.y)
 		var hit = plane.intersects_ray(from, dir)
 		
 		if hit:
-			var lp = to_local(hit)
-			var uv = (Vector2(lp.x, lp.z) / sea_size) + Vector2(0.5, 0.5)
-			
-			print("Water Hit at: ", hit, " UV: ", uv)
 			trigger_ripple(hit, interact_strength, interact_radius)
 
 	if event is InputEventKey and event.pressed and event.keycode == KEY_R:
 		_request_restart()
 
-
 func _run_compute(dt):
+	# 1. SWE Solver (Standard Interactions & Rain)
 	var interact_count = min(interaction_points.size(), MAX_INTERACTIONS)
-	
 	if interact_count > 0:
-		var buffer_data = PackedByteArray()
-		buffer_data.resize(MAX_INTERACTIONS * 16)
-		# Use StreamPeerBuffer for safety, or direct PackedFloat32Array
 		var floats = PackedFloat32Array()
 		floats.resize(MAX_INTERACTIONS * 4)
-		
-		# Fill buffer
 		for i in range(interact_count):
 			var p = interaction_points[i]
 			var idx = i * 4
@@ -522,76 +574,119 @@ func _run_compute(dt):
 			floats[idx + 1] = p.uv.y
 			floats[idx + 2] = p.strength
 			floats[idx + 3] = p.radius
-			
 		var data_bytes = floats.to_byte_array()
 		rd.buffer_update(interaction_buffer, 0, data_bytes.size(), data_bytes)
 	
-	var safe_dt = min(dt, 0.02) # Stricter clamp to ensure stability with higher speeds
+	var safe_dt = min(dt, 0.02)
 	var pc = StreamPeerBuffer.new()
 	pc.put_float(safe_dt)
 	pc.put_float(damping)
 	pc.put_float(propagation_speed)
 	pc.put_32(interact_count)
 	pc.put_float(rain_intensity)
-	pc.put_float(Time.get_ticks_msec() / 1000.0) # Time for rain seed
+	pc.put_float(_time)
 	pc.put_float(sea_size.x)
 	pc.put_float(sea_size.y)
 	
 	var cl = rd.compute_list_begin()
 	rd.compute_list_bind_compute_pipeline(cl, pipeline_rid)
-	
-	# Select uniform set based on current index
 	var active_set = uniform_set_A if current_sim_idx == 0 else uniform_set_B
-	
 	rd.compute_list_bind_uniform_set(cl, active_set, 0)
 	rd.compute_list_set_push_constant(cl, pc.data_array, pc.data_array.size())
 	rd.compute_list_dispatch(cl, int(grid_res / 8.0), int(grid_res / 8.0), 1)
 	rd.compute_list_end()
+	
+	# 2. Specialized Skills (Vortex/Waterspout)
+	var current_swe = sim_texture_B if current_sim_idx == 0 else sim_texture_A # The one just written by SWE
+	
+	if active_vortex:
+		_dispatch_vortex(current_swe)
+	
+	if active_waterspout:
+		_dispatch_waterspout(current_swe)
+		
 	rd.submit()
 	has_submitted = true
-	
-	# Swap for next frame
 	current_sim_idx = 1 - current_sim_idx
 
-# Test Helpers
+func _dispatch_vortex(swe_tex: RID):
+	if not vortex_pipeline_rid.is_valid(): return
+	
+	# Update Params
+	var params = PackedFloat32Array([
+		active_vortex.position.x, active_vortex.position.y,
+		active_vortex.radius, active_vortex.intensity,
+		active_vortex.speed, active_vortex.depth,
+		_time, sea_size.x
+	])
+	rd.buffer_update(vortex_params_buffer, 0, params.size() * 4, params.to_byte_array())
+	
+	var u_swe = RDUniform.new()
+	u_swe.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
+	u_swe.binding = 0
+	u_swe.add_id(swe_tex)
+	
+	var u_weather = RDUniform.new()
+	u_weather.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
+	u_weather.binding = 1
+	u_weather.add_id(weather_texture)
+	
+	var u_params = RDUniform.new()
+	u_params.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	u_params.binding = 2
+	u_params.add_id(vortex_params_buffer)
+	
+	var uniform_set = rd.uniform_set_create([u_swe, u_weather, u_params], vortex_shader_rid, 0)
+	
+	var cl = rd.compute_list_begin()
+	rd.compute_list_bind_compute_pipeline(cl, vortex_pipeline_rid)
+	rd.compute_list_bind_uniform_set(cl, uniform_set, 0)
+	rd.compute_list_dispatch(cl, int(grid_res / 8.0), int(grid_res / 8.0), 1)
+	rd.compute_list_end()
+	# Note: Uniform set will be freed by Godot's internal tracking if not stored, 
+	# but for compute it's better to keep it or free it properly.
+	# rd.free_rid(set) # Can't free immediately if submitted
+
+func _dispatch_waterspout(swe_tex: RID):
+	if not waterspout_pipeline_rid.is_valid(): return
+	
+	# Update Params
+	var params = PackedFloat32Array([
+		active_waterspout.position.x, active_waterspout.position.y,
+		active_waterspout.radius, active_waterspout.intensity,
+		active_waterspout.speed, _time,
+		sea_size.x, 0.0 # Padding
+	])
+	rd.buffer_update(waterspout_params_buffer, 0, params.size() * 4, params.to_byte_array())
+	
+	var u_swe = RDUniform.new()
+	u_swe.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
+	u_swe.binding = 0
+	u_swe.add_id(swe_tex)
+	
+	var u_weather = RDUniform.new()
+	u_weather.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
+	u_weather.binding = 1
+	u_weather.add_id(weather_texture)
+	
+	var u_params = RDUniform.new()
+	u_params.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	u_params.binding = 2
+	u_params.add_id(waterspout_params_buffer)
+	
+	var uniform_set = rd.uniform_set_create([u_swe, u_weather, u_params], waterspout_shader_rid, 0)
+	
+	var cl = rd.compute_list_begin()
+	rd.compute_list_bind_compute_pipeline(cl, waterspout_pipeline_rid)
+	rd.compute_list_bind_uniform_set(cl, uniform_set, 0)
+	rd.compute_list_dispatch(cl, int(grid_res / 8.0), int(grid_res / 8.0), 1)
+	rd.compute_list_end()
+
 func spawn_debug_test_mover():
-	# Check if already exists to prevent duplicate spam, but update parameters
-	var existing = get_node_or_null("WaterTestSpawner_Instance")
-	if existing:
-		# Ensure settings are synced
-		existing.movement_mode = int(test_movement_mode)
-		existing.test_object_radius = test_object_radius
-		existing.test_object_speed = test_object_speed
-		
-		# If we already have a child object, just update its properties
-		var mover = existing.get_node_or_null("WaterTestObject")
-		if mover:
-			mover.mode = int(test_movement_mode)
-			mover.radius = test_object_radius
-			mover.speed = test_object_speed
-			print("[DEBUG] Updated existing Water Test Mover")
-		elif existing.has_method("spawn_test_object"):
-			existing.spawn_test_object()
-		return
+	# Placeholder for debug spawning if needed, stripped of old implementation
+	pass
 
-	var spawner_script = load("res://WaterSystem/Core/WaterTestSpawner.gd")
-	if spawner_script:
-		var spawner = Node3D.new()
-		spawner.name = "WaterTestSpawner_Instance"
-		spawner.set_script(spawner_script)
-		spawner.movement_mode = int(test_movement_mode)
-		spawner.test_object_radius = test_object_radius
-		spawner.test_object_speed = test_object_speed
-		add_child(spawner)
-		
-		# VERY IMPORTANT for @tool: Setting owner makes it visible in tree and viewport
-		if Engine.is_editor_hint():
-			spawner.owner = get_tree().edited_scene_root
-			
-		print("[DEBUG] Initialized Water Test Spawner at: ", global_position)
-
-# Height Queries
-func get_water_height_at(world_pos: Vector3) -> float:
+func get_wave_height_at(world_pos: Vector3) -> float:
 	var lp = to_local(world_pos)
 	var uv = (Vector2(lp.x, lp.z) / sea_size) + Vector2(0.5, 0.5)
 	
@@ -601,7 +696,6 @@ func get_water_height_at(world_pos: Vector3) -> float:
 		var py = clamp(int(uv.y * grid_res), 0, grid_res - 1)
 		swe_h = sim_image.get_pixel(px, py).r
 	
-	# CPU Wave Logic (Must match WaterWaves.gdshaderinc)
 	var t = Time.get_ticks_msec() / 1000.0
 	var pos_xz = Vector2(lp.x, lp.z)
 	var base_angle = atan2(wind_direction.y, wind_direction.x)
@@ -619,19 +713,15 @@ func get_water_height_at(world_pos: Vector3) -> float:
 		var w_angle = base_angle + angles[i] * wave_chaos
 		
 		var d = Vector2(cos(w_angle), sin(w_angle))
-		wave_h += _calc_gerstner_h(pos_xz, t, d, w_len, w_steep, w_speed)
+		var k = 2.0 * PI / w_len
+		var c = sqrt(9.81 / k) * w_speed
+		var f = k * (d.dot(pos_xz) - c * t)
+		wave_h += (w_steep / k) * sin(f)
 	
-	# Noise
 	var noise = sin(pos_xz.x * 2.0 + t) * cos(pos_xz.y * 2.0 - t * 0.5) * 0.2
 	wave_h += noise * wind_strength * wave_chaos
 	
 	return global_position.y + swe_h * swe_strength + wave_h
-
-func _calc_gerstner_h(pos: Vector2, t: float, d: Vector2, l: float, s: float, speed: float) -> float:
-	var k = 2.0 * PI / l
-	var c = sqrt(9.81 / k) * speed
-	var f = k * (d.dot(pos) - c * t)
-	return (s / k) * sin(f)
 
 func _cleanup():
 	if rd:
@@ -641,17 +731,27 @@ func _cleanup():
 		if uniform_set_B.is_valid(): rd.free_rid(uniform_set_B)
 		if pipeline_rid.is_valid(): rd.free_rid(pipeline_rid)
 		if shader_rid.is_valid(): rd.free_rid(shader_rid)
+		if vortex_pipeline_rid.is_valid(): rd.free_rid(vortex_pipeline_rid)
+		if vortex_shader_rid.is_valid(): rd.free_rid(vortex_shader_rid)
+		if waterspout_pipeline_rid.is_valid(): rd.free_rid(waterspout_pipeline_rid)
+		if waterspout_shader_rid.is_valid(): rd.free_rid(waterspout_shader_rid)
 		if sim_texture_A.is_valid(): rd.free_rid(sim_texture_A)
 		if sim_texture_B.is_valid(): rd.free_rid(sim_texture_B)
+		if weather_texture.is_valid(): rd.free_rid(weather_texture)
+		if vortex_params_buffer.is_valid(): rd.free_rid(vortex_params_buffer)
+		if waterspout_params_buffer.is_valid(): rd.free_rid(waterspout_params_buffer)
 		if interaction_buffer.is_valid(): rd.free_rid(interaction_buffer)
 		rd.free()
 		rd = null
 	
-	# Reset state to prevent cross-instance sync errors
 	has_submitted = false
 	current_sim_idx = 0
 	uniform_set_A = RID(); uniform_set_B = RID(); pipeline_rid = RID(); shader_rid = RID()
-	sim_texture_A = RID(); sim_texture_B = RID(); interaction_buffer = RID()
+	vortex_shader_rid = RID(); vortex_pipeline_rid = RID()
+	waterspout_shader_rid = RID(); waterspout_pipeline_rid = RID()
+	sim_texture_A = RID(); sim_texture_B = RID(); weather_texture = RID()
+	vortex_params_buffer = RID(); waterspout_params_buffer = RID()
+	interaction_buffer = RID()
 
 func _notification(what):
 	if what == NOTIFICATION_PREDELETE: _cleanup()

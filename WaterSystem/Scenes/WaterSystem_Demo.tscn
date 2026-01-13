@@ -1,8 +1,11 @@
-[gd_scene load_steps=21 format=3 uid="uid://di63xvgmuad5c"]
+[gd_scene load_steps=26 format=3 uid="uid://di63xvgmuad5c"]
 
 [ext_resource type="Script" uid="uid://b3ia51513jvcl" path="res://WaterSystem/Core/WaterManager.gd" id="1_manager"]
+[ext_resource type="Script" uid="uid://cyg2vtwqa7k7v" path="res://WaterSystem/Core/WaterTestSpawner.gd" id="2_7s3q1"]
 [ext_resource type="Script" uid="uid://bqc6df7l6f037" path="res://WaterSystem/Components/BuoyancyProvider.gd" id="2_buoyancy"]
 [ext_resource type="Script" uid="uid://dndxysi04qdw" path="res://WaterSystem/Core/FreeLookCamera.gd" id="3_camera"]
+[ext_resource type="Script" uid="uid://c3kmsvmxnjef1" path="res://WaterSystem/Core/WaterTestMover.gd" id="3_cp44o"]
+[ext_resource type="Script" uid="uid://mshs5803cuhv" path="res://WaterSystem/Components/WaterInteractor3D.gd" id="4_q3oqb"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_demo"]
 sky_horizon_color = Color(0.64625, 0.65575, 0.67075, 1)
@@ -58,6 +61,11 @@ noise = SubResource("FastNoiseLite_q3oqb")
 seamless = true
 as_normal_map = true
 
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_n4pnq"]
+albedo_color = Color(1, 0.5, 0, 1)
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_ci6bx"]
+
 [sub_resource type="BoxMesh" id="BoxMesh_land"]
 size = Vector3(10, 5, 10)
 
@@ -91,10 +99,32 @@ sea_size = Vector2(100, 100)
 damping = 0.97
 interact_strength = 200.0
 interact_radius = 5.0
+wind_strength = 0.0
+wave_steepness = 0.0
+wave_length = 0.0
+wave_chaos = 0.0
 foam_noise_tex = SubResource("NoiseTexture2D_mtqsu")
 caustics_texture = SubResource("NoiseTexture2D_7s3q1")
 normal_map1 = SubResource("NoiseTexture2D_cp44o")
 normal_map2 = SubResource("NoiseTexture2D_n4pnq")
+
+[node name="WaterTestSpawner_Instance" type="Node3D" parent="WaterManager"]
+script = ExtResource("2_7s3q1")
+movement_mode = 1
+test_object_speed = 2.0
+
+[node name="WaterTestObject" type="Node3D" parent="WaterManager/WaterTestSpawner_Instance"]
+script = ExtResource("3_cp44o")
+mode = 1
+radius = 12.0
+
+[node name="@MeshInstance3D@26054" type="MeshInstance3D" parent="WaterManager/WaterTestSpawner_Instance/WaterTestObject"]
+material_override = SubResource("StandardMaterial3D_n4pnq")
+mesh = SubResource("CapsuleMesh_ci6bx")
+
+[node name="WaterInteractor3D" type="Node3D" parent="WaterManager/WaterTestSpawner_Instance/WaterTestObject" node_paths=PackedStringArray("water_manager")]
+script = ExtResource("4_q3oqb")
+water_manager = NodePath("../../..")
 
 [node name="DemoIsland" type="StaticBody3D" parent="." groups=["WaterObstacles"]]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 15, -1, 0)
