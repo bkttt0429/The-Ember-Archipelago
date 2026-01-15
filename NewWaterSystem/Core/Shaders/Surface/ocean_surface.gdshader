@@ -144,15 +144,23 @@ vec3 get_gerstner_normal_analytical(vec3 pos, float t, float wind_strength, vec2
         float dh_df = cos(f);
         if (peak_sharpness != 1.0) {
             float s = h_raw * 0.5 + 0.5;
-            dh_df = peak_sharpness * pow(max(s, 0.001), max(peak_sharpness - 1.0, 0.0)) * cos(f);
+            // Robust non-linearity using smoothstep power approximation
+            // dh_df = peak_sharpness * pow(max(s, 0.001), max(peak_sharpness - 1.0, 0.0)) * cos(f);
+             s = smoothstep(0.0, 1.0, s); // First softening
+             dh_df = peak_sharpness * s * cos(f); 
         }
         
-        normal.x -= d.x * (w_steep * dh_df);
-        normal.y -= w_steep * h_raw; // Corrected Gerstner contribution
-        normal.z -= d.y * (w_steep * dh_df);
+        // Clamp gradients to prevent explosions
+        float grad_x = clamp(d.x * (w_steep * dh_df), -1.0, 1.0);
+        float grad_z = clamp(d.y * (w_steep * dh_df), -1.0, 1.0);
+        
+        normal.x -= grad_x;
+        normal.y -= w_steep * h_raw; 
+        normal.z -= grad_z;
     }
     
-    return normalize(vec3(normal.x, 1.0 - normal.y * 0.5, normal.z));
+    // Stabilize Y and clamping
+    return normalize(vec3(normal.x, max(1.0 - normal.y * 0.3, 0.2), normal.z));
 }
 // End of inlined logic
 
@@ -423,19 +431,27 @@ void fragment() {
 	vec3 weather_n_offset = vec3(w_l - w_r, 0.0, w_u - w_d) * 2.0;
 
 	// Normal System - Hybrid Analytical + Textures
+	// ✅ Normal System - 多層次平滑策略
 	vec3 base_normal = v_wave_normal;
 	
-	// Analytical Normal Injection for High Waves or Storms
+	// 🔧 Analytical Normal - 漸進式混合
 	float wave_height_factor = clamp(v_world_pos.y / max(wave_length * 0.2, 0.5), 0.0, 1.0);
 	if (wave_height_factor > 0.1 || storm_mode) {
 		float interpolated_time = physics_time + render_alpha * (1.0 / 60.0);
 		vec3 analytical_n = get_gerstner_normal_analytical(v_world_pos, interpolated_time, wind_strength, wind_dir, wave_length, wave_steepness, wave_chaos);
-		// Increase base normal smoothing to hide grid
-		float mix_weight = 0.9; // More analytical, less vertex interpolation
+		
+		// ✅ 使用 smoothstep 漸進混合，而非固定權重
+		float smooth_transition = smoothstep(0.1, 0.5, wave_height_factor);
+		float mix_weight = mix(0.5, 0.85, smooth_transition); // 動態權重
+		
 		base_normal = normalize(mix(base_normal, analytical_n, mix_weight));
 	}
 
-	vec3 normal = normalize(base_normal + ripple_n_offset + weather_n_offset * 1.5);
+	// ✅ Ripple/Weather - 限制振幅避免過度貢獻
+	vec3 controlled_ripple = ripple_n_offset * clamp(swe_strength * 0.5, 0.0, 1.5);
+	vec3 controlled_weather = weather_n_offset * clamp(weather_danger * 1.5, 0.0, 2.0);
+	
+	vec3 normal = normalize(base_normal + controlled_ripple + controlled_weather);
 	
 	// Detail Normals - Dual Sampling Anti-Tiling OR Flow Mapping
 	vec3 detail_normal;
@@ -475,7 +491,9 @@ void fragment() {
     	}
 	
 	// ✅ 減弱 detail_normal 的混合強度
-	detail_normal = mix(vec3(0.0, 0.0, 1.0), detail_normal, normal_scale * 0.5);
+	// ✅ 減弱 detail_normal 的混合強度 (30% + Adaptive)
+	float detail_fade = 1.0 - smoothstep(0.2, 0.8, wave_height_factor);
+	detail_normal = mix(vec3(0.0, 0.0, 1.0), detail_normal, normal_scale * 0.3 * detail_fade);
 	// Use safer blending (Whiteout Blend)
 	normal = normalize(blend_normals(normal, detail_normal));
 	
@@ -485,7 +503,8 @@ void fragment() {
 	vec3 fft_normal = normalize(vec3(-fft_grad.x, 1.0, -fft_grad.y));
 	// Unsuppressed FFT influence for more detail
 	// ✅ 降低 FFT 法線的影響（從 1.5 降到 0.8）
-	float fft_norm_strength = wind_strength * fft_scale * 0.8;
+	// ✅ 降低 FFT 法線的影響（從 1.5 降到 0.6）
+	float fft_norm_strength = wind_strength * fft_scale * 0.6 * smoothstep(0.0, 5.0, TIME); // Progressive start
 	normal = normalize(mix(normal, blend_normals(normal, fft_normal), fft_norm_strength));
 	
 	// CRITICAL: Set the fragment normal in VIEW SPACE for correct PBR shading and reflections

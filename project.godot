@@ -18,8 +18,3 @@ config/icon="res://icon.svg"
 [autoload]
 
 GlobalWind="*res://WeatherSystem/Core/GlobalWind.gd"
-PhantomCameraManager="*res://addons/phantom_camera/scripts/managers/phantom_camera_manager.gd"
-
-[editor_plugins]
-
-enabled=PackedStringArray("res://addons/phantom_camera/plugin.cfg")
