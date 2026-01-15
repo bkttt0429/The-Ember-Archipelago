@@ -21,8 +21,8 @@ extends Node3D
 		if is_node_ready() and has_node("WaterPlane"): $WaterPlane.mesh.size = sea_size
 		_update_shader_params_deferred()
 @export var propagation_speed: float = 20.0
-@export var damping: float = 0.8
- 
+@export var damping: float = 0.9 # Increased stability
+
 @export_group("Physical Interaction")
 @export var interact_strength: float = 50.0
 @export var interact_radius: float = 0.5
@@ -41,7 +41,7 @@ extends Node3D
 	set(v): wave_steepness = v; _update_shader_params_deferred()
 @export var wave_length: float = 20.0:
 	set(v): wave_length = v; _update_shader_params_deferred()
-@export var horizontal_displacement_scale: float = 0.8:
+@export var horizontal_displacement_scale: float = 0.5:
 	set(v): horizontal_displacement_scale = v; _update_shader_params_deferred()
 @export var wave_chaos: float = 1.0:
 	set(v):
@@ -166,13 +166,13 @@ func apply_surfing_barrel_preset():
 		sss_color = v
 		_update_shader_params_deferred()
 		
-@export var edge_fade: float = 2.0:
+@export var edge_fade: float = 3.0:
 	set(v):
 		edge_fade = v
 		_update_shader_params_deferred()
 
 @export_subgroup("Horizon Damping")
-@export var far_fade_start: float = 60.0:
+@export var far_fade_start: float = 80.0:
 	set(v): far_fade_start = v; _update_shader_params_deferred()
 @export var far_fade_max: float = 120.0:
 	set(v): far_fade_max = v; _update_shader_params_deferred()

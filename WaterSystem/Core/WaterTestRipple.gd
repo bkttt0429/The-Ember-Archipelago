@@ -1,6 +1,6 @@
 extends Node
 
-@export var water_manager: WaterManager
+@export var water_manager: WaterSystemManager
 @export var ripple_count: int = 5
 @export var spawn_radius: float = 10.0
 

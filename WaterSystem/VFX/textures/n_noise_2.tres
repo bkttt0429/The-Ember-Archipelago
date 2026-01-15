@@ -6,10 +6,6 @@
 fractal_type = 2
 
 [resource]
-width = 256
-height = 256
 noise = SubResource("FastNoiseLite_awcgr")
 color_ramp = SubResource("Gradient_6mikf")
-seamless = true
-as_normal_map = true
 seamless_blend_skirt = 0.295

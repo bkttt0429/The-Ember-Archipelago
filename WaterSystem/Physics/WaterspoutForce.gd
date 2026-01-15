@@ -21,13 +21,18 @@ extends Area3D
 
 var water_mesh: MeshInstance3D
 var vfx_instance: Node3D
+var water_manager: WaterSystemManager
 
 func _ready():
+	var managers = get_tree().get_nodes_in_group("WaterSystem_Managers")
+	if managers.size() > 0:
+		water_manager = managers[0]
+
 	if vfx_scene:
 		vfx_instance = vfx_scene.instantiate()
 		add_child(vfx_instance)
 		vfx_instance.position = Vector3.ZERO
-		vfx_instance.scale = Vector3.ONE * (attract_radius / 5.0) 
+		vfx_instance.scale = Vector3.ONE * (attract_radius / 5.0)
 	
 	body_entered.connect(_on_body_entered)
 	body_exited.connect(_on_body_exited)
@@ -41,12 +46,12 @@ func _process(_delta):
 	
 	# Push configuration to WaterManager (The Authority)
 	# This allows the visual system (Shader) and Buoyancy System to be in sync with this physical object
-	if WaterManager.instance:
-		WaterManager.instance.waterspout_pos = global_position
-		WaterManager.instance.waterspout_radius = effective_radius
-		WaterManager.instance.waterspout_strength = effective_spout_strength # Controls depth
-		WaterManager.instance.waterspout_spiral_strength = spiral_strength * strength_multiplier
-		WaterManager.instance.waterspout_darkness_factor = darkness_factor
+	if water_manager:
+		water_manager.waterspout_pos = global_position
+		water_manager.waterspout_radius = effective_radius
+		water_manager.waterspout_strength = effective_spout_strength # Controls depth
+		water_manager.waterspout_spiral_strength = spiral_strength * strength_multiplier
+		water_manager.waterspout_darkness_factor = darkness_factor
 	
 	if vfx_instance:
 		vfx_instance.scale = Vector3.ONE * (effective_radius / 5.0)
@@ -58,7 +63,7 @@ func _process(_delta):
 			var mat = funnel.mesh.surface_get_material(0)
 			if mat is ShaderMaterial:
 				# Use WaterManager time if available
-				var t = WaterManager.instance._time if WaterManager.instance else Time.get_ticks_msec() / 1000.0
+				var t = water_manager._time if water_manager else Time.get_ticks_msec() / 1000.0
 				mat.set_shader_parameter("sync_time", t)
 
 func _physics_process(delta):

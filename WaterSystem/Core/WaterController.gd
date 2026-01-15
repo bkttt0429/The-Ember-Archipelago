@@ -4,6 +4,8 @@ extends MeshInstance3D
 ## N64 Water Controller (WaterController.gd)
 ## This script drives the water visualization and synchronizes physics data with WaterManager.
 
+var water_manager: WaterSystemManager
+
 @export_group("Smooth Sync")
 ## How fast parameters interpolate towards the target physics values.
 @export var lerp_speed: float = 4.0
@@ -24,6 +26,11 @@ extends MeshInstance3D
 
 func _ready():
 	_update_colors()
+	
+	# Find Water Manager
+	var managers = get_tree().get_nodes_in_group("WaterSystem_Managers")
+	if managers.size() > 0:
+		water_manager = managers[0]
 	
 	var mat = get_surface_override_material(0)
 	if mat:
@@ -53,8 +60,8 @@ func _process(delta):
 
 	# 1. Drive Time in Shader
 	var current_time: float
-	if not Engine.is_editor_hint() and WaterManager and WaterManager._time != null:
-		current_time = WaterManager._time
+	if not Engine.is_editor_hint() and water_manager and water_manager._time != null:
+		current_time = water_manager._time
 	else:
 		current_time = Time.get_ticks_msec() / 1000.0
 	
@@ -62,12 +69,12 @@ func _process(delta):
 	mat.set_shader_parameter("sync_time", current_time)
 	
 	# 2. Sync to WaterManager
-	if WaterManager:
+	if water_manager:
 		# Read values from Manager (Authority) and apply to Shader
-		var h_scale = WaterManager.height_scale
-		# var w_speed = WaterManager.wave_speed
-		# var amp1 = WaterManager.amplitude1
-		# var amp2 = WaterManager.amplitude2
+		var h_scale = water_manager.height_scale
+		# var w_speed = water_manager.wave_speed
+		# var amp1 = water_manager.amplitude1
+		# var amp2 = water_manager.amplitude2
 		
 		mat.set_shader_parameter("height_scale", h_scale)
 		# mat.set_shader_parameter("wave_speed", w_speed)
@@ -75,8 +82,8 @@ func _process(delta):
 		# mat.set_shader_parameter("amplitude2", amp2)
 		
 		# Sync Waterspout
-		mat.set_shader_parameter("waterspout_pos", WaterManager.waterspout_pos)
-		mat.set_shader_parameter("waterspout_radius", WaterManager.waterspout_radius)
-		mat.set_shader_parameter("waterspout_strength", WaterManager.waterspout_strength)
-		mat.set_shader_parameter("waterspout_spiral_strength", WaterManager.waterspout_spiral_strength)
-		mat.set_shader_parameter("waterspout_darkness_factor", WaterManager.waterspout_darkness_factor)
+		mat.set_shader_parameter("waterspout_pos", water_manager.waterspout_pos)
+		mat.set_shader_parameter("waterspout_radius", water_manager.waterspout_radius)
+		mat.set_shader_parameter("waterspout_strength", water_manager.waterspout_strength)
+		mat.set_shader_parameter("waterspout_spiral_strength", water_manager.waterspout_spiral_strength)
+		mat.set_shader_parameter("waterspout_darkness_factor", water_manager.waterspout_darkness_factor)

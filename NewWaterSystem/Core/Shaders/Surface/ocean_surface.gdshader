@@ -228,6 +228,7 @@ uniform bool debug_mesh_only = false;
 varying vec2 v_swe_uv;
 varying vec3 v_wave_normal;
 varying vec3 v_world_pos;
+varying float v_edge_damp;
 
 // 1D Envelope Sampling for Rogue Wave
 float sample_envelope(float dist, float width) {
@@ -311,20 +312,43 @@ void vertex() {
 	vec3 binormal = vec3(0.0, 0.0, 1.0);
 	vec3 wave_disp = vec3(0.0);
 
+    // Calcluate world position early for damping
+    // Note: VERTEX is local. MODEL_MATRIX * VERTEX is world.
+    // We already have calculation: vec3 world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+    
     // Calculate Distance Damping for smooth horizon
     float dist = length(world_pos - CAMERA_POSITION_WORLD);
     float wave_damp = 1.0 - smoothstep(far_fade_start, far_fade_max, dist);
     
-    // Mesh Boundary Damping (Prevents wavy edge at the very boundary of the plane)
-    float edge_damp = smoothstep(0.0, 0.05, v_swe_uv.x) * smoothstep(1.0, 0.95, v_swe_uv.x);
-    edge_damp *= smoothstep(0.0, 0.05, v_swe_uv.y) * smoothstep(1.0, 0.95, v_swe_uv.y);
+    // World Space Edge Damping (Box Projection)
+    // Calculate dist from center (manager_world_pos) in XZ plane
+    vec2 dist_from_center = abs(world_pos.xz - manager_world_pos.xz);
+    vec2 half_size = sea_size * 0.5;
+    
+    // Fade starts at 80% of the way to edge (20% margin)
+    // Margin distance = sea_size * 0.2
+    // Smoothstep from (HalfSize - Margin) to HalfSize
+    vec2 edge_fade_range = half_size * 0.2; 
+    vec2 edge_factor = smoothstep(half_size - edge_fade_range, half_size, dist_from_center);
+    
+    // Invert so 1.0 is center, 0.0 is edge
+    float edge_damp = (1.0 - edge_factor.x) * (1.0 - edge_factor.y);
+    
+    // Extra suppression for horizontal specifically at the very edge (outer 5%)
+    vec2 harsh_edge_factor = smoothstep(half_size - half_size * 0.05, half_size, dist_from_center);
+    float h_damp = (1.0 - harsh_edge_factor.x) * (1.0 - harsh_edge_factor.y);
     
     float final_damp = wave_damp * edge_damp;
+    v_edge_damp = edge_damp; // Pass to fragment
     
 	if (wind_strength > 0.001) {
 		// INLINED get_waves_displacement to support LOD variable iterations
         // Using `iterations` variable from LOD logic
 		wave_disp = get_waves_displacement(world_pos, interpolated_time, wind_strength, wind_dir, wave_length, wave_steepness, wave_chaos, tangent, binormal, iterations);
+        
+        // Supress horizontal displacement at edges to prevent tearing
+        wave_disp.xz *= h_damp;
+        
         wave_disp *= final_damp; // Apply Damping
 		v_wave_normal = normalize(cross(binormal, tangent));
 	} else {
@@ -548,7 +572,9 @@ void fragment() {
 	ALBEDO = color;
 	// 5.5 Visual Edge Softening
 	// Replaces hard clamp with smooth proximity fade
+    // Combine depth fade with world-space edge fade
 	ALPHA = clamp(smoothstep(0.0, max(edge_scale, 0.01), water_depth), 0.0, 1.0);
+    ALPHA *= smoothstep(0.0, 0.2, v_edge_damp); // Extra smooth falloff at the very edge
 
 	// Deep water lowers metallic/specular to avoid plastic look
 	// Consistent PBR parameters

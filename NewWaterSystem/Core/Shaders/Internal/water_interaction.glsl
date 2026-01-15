@@ -129,6 +129,15 @@ void main() {
         }
     }
     
+    // 5. Boundary Absorption (Non-Reflecting Boundary)
+    int margin = int(float(size.x) * 0.05); // 5% border
+    if (global_id.x < margin || global_id.x > size.x - margin || 
+        global_id.y < margin || global_id.y > size.y - margin) {
+        // Strong damping at edges
+        next_v *= 0.5;
+        next_h *= 0.8;
+    }
+
     // Final Safety Clamp
     next_h = clamp(next_h, -10.0, 10.0);
     next_v = clamp(next_v, -20.0, 20.0);
