@@ -51,3 +51,19 @@ Desktop.ini
 # Temporary files
 *.tmp
 *~
+ 
+# GDExtension / C++ Build artifacts
+*.dll
+*.so
+*.dylib
+*.pdb
+*.obj
+*.o
+*.sconsign.dblite
+.sconsign.dblite
+bin/
+gen/
+
+# Temporary / Log files
+status.txt
+gd_files.txt
