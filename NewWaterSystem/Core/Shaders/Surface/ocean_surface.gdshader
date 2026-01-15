@@ -325,39 +325,46 @@ void vertex() {
     vec2 dist_from_center = abs(world_pos.xz - manager_world_pos.xz);
     vec2 half_size = sea_size * 0.5;
     
-    // Fade starts at 80% of the way to edge (20% margin)
-    // Margin distance = sea_size * 0.2
-    // Smoothstep from (HalfSize - Margin) to HalfSize
-    vec2 edge_fade_range = half_size * 0.2; 
-    vec2 edge_factor = smoothstep(half_size - edge_fade_range, half_size, dist_from_center);
+    // REFINED:
+    // 1. General Fade (Vertical Height + Alpha): 40% margin
+    vec2 margin_general = half_size * 0.4;
+    vec2 edge_t_gen = smoothstep(half_size - margin_general, half_size, dist_from_center);
+    // Cubic smoothing (SmootherStep)
+    edge_t_gen = smoothstep(0.0, 1.0, edge_t_gen);
     
-    // Invert so 1.0 is center, 0.0 is edge
-    float edge_damp = (1.0 - edge_factor.x) * (1.0 - edge_factor.y);
+    // 2. Horizontal Suppression (Prevent Tearing): 20% margin
+    vec2 margin_horizontal = half_size * 0.2;
+    vec2 edge_t_hor = smoothstep(half_size - margin_horizontal, half_size, dist_from_center);
+    // Cubic smoothing
+    edge_t_hor = smoothstep(0.0, 1.0, edge_t_hor);
     
-    // Extra suppression for horizontal specifically at the very edge (outer 5%)
-    vec2 harsh_edge_factor = smoothstep(half_size - half_size * 0.05, half_size, dist_from_center);
-    float h_damp = (1.0 - harsh_edge_factor.x) * (1.0 - harsh_edge_factor.y);
+    // Invert signal (1.0 = Center, 0.0 = Edge)
+    float edge_damp_gen = (1.0 - edge_t_gen.x) * (1.0 - edge_t_gen.y);
+    float edge_damp_hor = (1.0 - edge_t_hor.x) * (1.0 - edge_t_hor.y);
     
-    float final_damp = wave_damp * edge_damp;
-    v_edge_damp = edge_damp; // Pass to fragment
+    float final_damp = wave_damp * edge_damp_gen;
+    float h_damp = edge_damp_hor;
+    v_edge_damp = edge_damp_gen; // Pass to fragment for Alpha fade
     
 	if (wind_strength > 0.001) {
 		// INLINED get_waves_displacement to support LOD variable iterations
         // Using `iterations` variable from LOD logic
 		wave_disp = get_waves_displacement(world_pos, interpolated_time, wind_strength, wind_dir, wave_length, wave_steepness, wave_chaos, tangent, binormal, iterations);
         
-        // Supress horizontal displacement at edges to prevent tearing
-        wave_disp.xz *= h_damp;
-        
-        wave_disp *= final_damp; // Apply Damping
 		v_wave_normal = normalize(cross(binormal, tangent));
 	} else {
 		v_wave_normal = vec3(0.0, 1.0, 0.0);
 	}
     
-    // Add Rogue Wave (Also damped)
+    // Add Rogue Wave (Raw)
     vec3 rogue_disp = get_rogue_wave_displacement(world_pos, interpolated_time, tangent, binormal, tangent, binormal);
-    wave_disp += rogue_disp * final_damp;
+    wave_disp += rogue_disp;
+    
+    // FINAL DAMPING APPLICATION (Separated)
+    // 1. Horizontal: Aggressive suppression to prevent tearing
+    wave_disp.xz *= h_damp;
+    // 2. Vertical: Gentle fade for visual smoothnees
+    wave_disp.y *= final_damp;
 	
 	VERTEX.xyz += wave_disp; 
 	VERTEX.y += swe_h * swe_strength * wave_weight * final_damp;

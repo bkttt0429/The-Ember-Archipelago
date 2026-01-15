@@ -129,13 +129,28 @@ void main() {
         }
     }
     
-    // 5. Boundary Absorption (Non-Reflecting Boundary)
-    int margin = int(float(size.x) * 0.05); // 5% border
-    if (global_id.x < margin || global_id.x > size.x - margin || 
-        global_id.y < margin || global_id.y > size.y - margin) {
-        // Strong damping at edges
-        next_v *= 0.5;
-        next_h *= 0.8;
+    // 5. Boundary Absorption (Non-Reflecting Boundary) - REFINED
+    int margin_pixels = int(float(size.x) * 0.10); // 10% border (Aggressive)
+    
+    // Calculate distance to nearest edge in pixels
+    float dist_x = min(float(global_id.x), float(size.x - 1 - global_id.x));
+    float dist_y = min(float(global_id.y), float(size.y - 1 - global_id.y));
+    float dist_edge = min(dist_x, dist_y);
+    
+    if (dist_edge < float(margin_pixels)) {
+        // Normalized distance factor (0.0 at edge, 1.0 at margin start)
+        float edge_factor = dist_edge / float(margin_pixels);
+        
+        // Damping ramp: 1.0 (normal) -> 10.0 (edge)
+        float boundary_damping = 1.0 + (1.0 - edge_factor) * 10.0;
+        
+        next_v *= (1.0 / boundary_damping);
+        next_h *= (0.5 + 0.5 * edge_factor); // Reduce height but smoother
+        
+        // Absolute kill at very edge (2%)
+        if (edge_factor < 0.2) {
+            next_v *= 0.0;
+        }
     }
 
     // Final Safety Clamp

@@ -97,6 +97,9 @@ func apply_deep_ocean_barrel_preset():
 	roughness = 0.25
 	foam_jacobian_bias = 0.15
 	normal_speed = 0.25
+	
+	# Reset fluid simulation to prevent artifact explosion from sudden parameter changes
+	call_deferred("_reset_swe_texture")
 
 ## 應用衝浪巨浪預設
 func apply_surfing_barrel_preset():
@@ -125,6 +128,9 @@ func apply_surfing_barrel_preset():
 	roughness = 0.25
 	foam_jacobian_bias = 0.15
 	normal_speed = 0.25
+	
+	# Reset fluid simulation to prevent artifact explosion from sudden parameter changes
+	call_deferred("_reset_swe_texture")
 
 @export_group("Visual Style")
 @export var color_deep: Color = Color(0.01, 0.2, 0.4): # Clear Blue
@@ -166,7 +172,7 @@ func apply_surfing_barrel_preset():
 		sss_color = v
 		_update_shader_params_deferred()
 		
-@export var edge_fade: float = 3.0:
+@export var edge_fade: float = 4.0:
 	set(v):
 		edge_fade = v
 		_update_shader_params_deferred()
