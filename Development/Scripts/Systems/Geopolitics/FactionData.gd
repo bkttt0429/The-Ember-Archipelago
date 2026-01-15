@@ -10,10 +10,30 @@ extends Resource
 # 性格係數 (0.0 - 1.0)
 # 用於 AI 決策權重
 @export var personality_coefficients: Dictionary = {
-	"aggression": 0.5,   # 侵略性：高則傾向戰爭與擴張
-	"trade_focus": 0.5,  # 貿易傾向：高則傾向經濟手段
-	"loyalty": 0.5       # 忠誠/守信：影響結盟穩定度
+	"aggression": 0.5, # 侵略性：高則傾向戰爭與擴張
+	"trade_focus": 0.5, # 貿易傾向：高則傾向經濟手段
+	"loyalty": 0.5 # 忠誠/守信：影響結盟穩定度
 }
+
+# ==============================================================================
+# 社會-經濟-認知 (SEC) 檔案 (Social-Economic-Cognitive Profile)
+# ==============================================================================
+@export_group("SEC Profile")
+## 真相知曉度 (0.0 - 1.0)：對世界真相（如牆的本質）的了解程度
+@export_range(0.0, 1.0) var truth_awareness: float = 0.0
+
+## 苦難係數 (0.0 - 1.0)：派系成員普遍的痛苦程度（資源匱乏、疾病等）
+@export_range(0.0, 1.0) var suffering_coefficient: float = 0.0
+
+## 牆的不信任度 (0.0 - 1.0)：對「牆」維護者與現狀的懷疑程度
+@export_range(0.0, 1.0) var wall_distrust_index: float = 0.0
+
+## 服從度 (0.0 - 1.0)：對上級命令的服從傾向
+@export_range(0.0, 1.0) var obedience: float = 0.8
+
+## 恐懼閾值：累積多少創傷後會導致崩潰或逃跑
+@export var fear_threshold: float = 10.0
+
 
 # 擁有的節點 (MapNode/ResourceNode)
 # 暫時使用 Resource，待 MapNode 實作後可替換

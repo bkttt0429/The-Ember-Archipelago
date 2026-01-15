@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="WeatherState" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://WeatherSystem/Resources/WeatherState.gd" id="1_weather"]
+
+[resource]
+script = ExtResource("1_weather")
+name = "Storm"
+wind_strength = 3.5
+wind_direction = Vector2(1, 0.5)
+wave_steepness = 0.35
+sky_color = Color(0.15, 0.15, 0.2, 1)
+fog_density = 0.03
+rain_intensity = 0.8
+storm_mode = true

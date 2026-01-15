@@ -11,7 +11,7 @@ class_name BuoyantObject_Rectangular
 @export var angular_drag: float = 2.0 # 角速度阻尼
 
 @export_group("Dimensions")
-@export var width: float = 2.0  # 船寬
+@export var width: float = 2.0 # 船寬
 @export var length: float = 4.0 # 船長
 
 @export_group("Interaction")
@@ -20,6 +20,7 @@ class_name BuoyantObject_Rectangular
 
 var velocity: Vector3 = Vector3.ZERO
 var gpu_local_ocean: GpuLocalOcean
+var water_manager: WaterSystemManager
 
 # 4個採樣點相對於中心的偏移
 var _offsets: Array[Vector3] = []
@@ -29,13 +30,17 @@ func _ready():
 	
 	# 設定 4 個角落的偏移量 (本地空間)
 	# FL, FR, BL, BR
-	_offsets.append(Vector3(-width/2.0, 0, length/2.0))
-	_offsets.append(Vector3(width/2.0, 0, length/2.0))
-	_offsets.append(Vector3(-width/2.0, 0, -length/2.0))
-	_offsets.append(Vector3(width/2.0, 0, -length/2.0))
+	_offsets.append(Vector3(-width / 2.0, 0, length / 2.0))
+	_offsets.append(Vector3(width / 2.0, 0, length / 2.0))
+	_offsets.append(Vector3(-width / 2.0, 0, -length / 2.0))
+	_offsets.append(Vector3(width / 2.0, 0, -length / 2.0))
+	
+	var managers = get_tree().get_nodes_in_group("WaterSystem_Managers")
+	if managers.size() > 0:
+		water_manager = managers[0]
 
 func _physics_process(delta):
-	if not WaterManager: return
+	if not water_manager: return
 
 	var total_force_y = 0.0
 	var avg_wave_height = 0.0
@@ -54,7 +59,7 @@ func _physics_process(delta):
 		var sampling_pos = global_position + world_offset
 		
 		# 讀取波浪高度
-		var wave_h = WaterManager.get_wave_height(sampling_pos)
+		var wave_h = water_manager.get_water_height_at(sampling_pos)
 		
 		# 這裡的 Depth 計算要用「船身該點的世界高度」來比對
 		# 但為了更強的穩定性，我們假設這些點是「浮筒」，掛在船的水平面上
@@ -75,22 +80,22 @@ func _physics_process(delta):
 		if depth > 0:
 			points_underwater += 1
 			# 彈簧浮力： F = k * x
-			var buoyancy = float_force * depth * 0.25 
+			var buoyancy = float_force * depth * 0.25
 			total_force_y += buoyancy
 	
 	avg_wave_height /= 4.0
 	
 	# 2. 計算目標法線 (使用採樣點的波浪高度建構平面)
 	# Sampling Pos 即使在船傾斜時也是展開的，所以 wave_normal 永遠是正確的水面法線
-	var p_fl = global_position + (yaw_rotation * _offsets[0]); p_fl.y = WaterManager.get_wave_height(p_fl)
-	var p_br = global_position + (yaw_rotation * _offsets[3]); p_br.y = WaterManager.get_wave_height(p_br)
-	var p_fr = global_position + (yaw_rotation * _offsets[1]); p_fr.y = WaterManager.get_wave_height(p_fr)
-	var p_bl = global_position + (yaw_rotation * _offsets[2]); p_bl.y = WaterManager.get_wave_height(p_bl)
+	var p_fl = global_position + (yaw_rotation * _offsets[0]); p_fl.y = water_manager.get_water_height_at(p_fl)
+	var p_br = global_position + (yaw_rotation * _offsets[3]); p_br.y = water_manager.get_water_height_at(p_br)
+	var p_fr = global_position + (yaw_rotation * _offsets[1]); p_fr.y = water_manager.get_water_height_at(p_fr)
+	var p_bl = global_position + (yaw_rotation * _offsets[2]); p_bl.y = water_manager.get_water_height_at(p_bl)
 	
 	var diag1 = p_br - p_fl
 	var diag2 = p_bl - p_fr
 	var wave_normal = diag1.cross(diag2).normalized()
-	if wave_normal.y < 0: wave_normal = -wave_normal 
+	if wave_normal.y < 0: wave_normal = - wave_normal
 	
 	# 3. 穩定施力與移動
 	# 重力
@@ -164,7 +169,7 @@ func _draw_debug_points():
 	for offset in _offsets:
 		var p_local = yaw_rotation * offset
 		var p_world = global_position + p_local
-		var h = WaterManager.get_wave_height(p_world)
+		var h = water_manager.get_water_height_at(p_world)
 		var p_water = Vector3(p_world.x, h, p_world.z)
 		
 		# Draw Line from Boat Point to Water Surface

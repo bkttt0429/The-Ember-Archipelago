@@ -17,4 +17,4 @@ config/icon="res://icon.svg"
 
 [autoload]
 
-WaterManager="*res://WaterSystem/Core/WaterManager.gd"
+GlobalWind="*res://WeatherSystem/Core/GlobalWind.gd"

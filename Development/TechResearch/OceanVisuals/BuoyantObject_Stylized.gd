@@ -13,27 +13,31 @@ extends Node3D
 
 var velocity: Vector3 = Vector3.ZERO
 var gpu_local_ocean: GpuLocalOcean
+var water_manager: WaterSystemManager
 
 func _ready():
 	gpu_local_ocean = get_tree().root.find_child("GpuLocalOcean_SWE", true, false)
+	var managers = get_tree().get_nodes_in_group("WaterSystem_Managers")
+	if managers.size() > 0:
+		water_manager = managers[0]
 
 func _physics_process(delta):
-	if not WaterManager: return
+	if not water_manager: return
 
 	# 1. SAMPLE HEIGHTS (Stable Yaw-Aligned)
 	var current_pos = global_position
-	var center_h = WaterManager.get_wave_height(current_pos)
+	var center_h = water_manager.get_water_height_at(current_pos)
 	
 	# Use Yaw-only rotation for probes to prevent "sampling loop" where tilting boat reads wrong slope
 	var yaw_basis = Basis(Vector3.UP, transform.basis.get_euler().y)
 	var forward_dir = yaw_basis.z.normalized() # Backwards in Godot (+Z)
-	var right_dir = yaw_basis.x.normalized()   # Right (+X)
+	var right_dir = yaw_basis.x.normalized() # Right (+X)
 	
 	var p_f_world = current_pos + forward_dir * probe_distance
 	var p_r_world = current_pos + right_dir * probe_distance
 	
-	var h_f = WaterManager.get_wave_height(p_f_world)
-	var h_r = WaterManager.get_wave_height(p_r_world)
+	var h_f = water_manager.get_water_height_at(p_f_world)
+	var h_r = water_manager.get_water_height_at(p_r_world)
 	
 	# 2. CALC WAVE SLOPE NORMAL
 	# Construct relative vectors based on ACTUAL sampled positions
@@ -68,7 +72,7 @@ func _physics_process(delta):
 	var target_y = wave_normal
 	# Keep the original forward pointing direction (Yaw preservation)
 	# We use the flat forward_dir we calculated earlier to avoid roll influence
-	var desired_forward = forward_dir 
+	var desired_forward = forward_dir
 	
 	var target_x = target_y.cross(desired_forward).normalized()
 	var target_z = target_x.cross(target_y).normalized()
@@ -88,7 +92,6 @@ func _physics_process(delta):
 		# Correct Physical Damping (Exponential Decay or Time-Step Integration)
 		# Previous: velocity *= water_drag (Dependent on framerate!)
 		# New: velocity *= (1.0 - drag * delta) approx for small delta
-		
 		# More stable damping:
 		var damping_factor = clamp(1.0 - (water_drag * delta), 0.0, 1.0)
 		velocity.y += float_force * depth * delta

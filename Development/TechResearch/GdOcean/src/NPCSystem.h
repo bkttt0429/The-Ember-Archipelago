@@ -1,0 +1,1232 @@
+#pragma once
+
+#include <algorithm>
+#include <array>
+#include <chrono>
+#include <cmath>
+#include <deque>
+#include <functional>
+#include <iostream>
+#include <memory>
+#include <optional>
+#include <queue>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+namespace NPCSystem {
+
+// ============================================================================
+// 1. 基礎類型與向量數學
+// ============================================================================
+
+struct Vec3 {
+  float x, y, z;
+  Vec3(float x = 0, float y = 0, float z = 0) : x(x), y(y), z(z) {}
+
+  float length() const { return std::sqrt(x * x + y * y + z * z); }
+  float distance(const Vec3 &other) const {
+    return Vec3(x - other.x, y - other.y, z - other.z).length();
+  }
+  Vec3 operator-(const Vec3 &other) const {
+    return Vec3(x - other.x, y - other.y, z - other.z);
+  }
+  Vec3 operator+(const Vec3 &other) const {
+    return Vec3(x + other.x, y + other.y, z + other.z);
+  }
+  Vec3 operator*(float s) const { return Vec3(x * s, y * s, z * s); }
+  Vec3 normalized() const {
+    float len = length();
+    return len > 0 ? Vec3(x / len, y / len, z / len) : Vec3(0, 0, 0);
+  }
+};
+
+struct Vec2 {
+  float x, y;
+  Vec2(float x = 0, float y = 0) : x(x), y(y) {}
+  Vec2 operator*(float s) const { return Vec2(x * s, y * s); }
+  float length() const { return std::sqrt(x * x + y * y); }
+};
+
+using Uid = uint64_t;
+using EntityId = uint64_t;
+using SiteId = uint32_t;
+using TradeId = uint32_t;
+
+// ============================================================================
+// 2. 陣營系統 (Alignment)
+// ============================================================================
+
+enum class Alignment {
+  Wild,   // 野生動物和溫和巨獸
+  Enemy,  // 地牢邪教徒和土匪
+  Npc,    // 村莊中的友善居民
+  Tame,   // 村民的農場動物和寵物
+  Owned,  // 用項圈馴服的寵物
+  Passive // 被動物體如訓練假人
+};
+
+struct AlignmentData {
+  Alignment type;
+  std::optional<Uid> owner; // 用於 Owned 類型
+
+  AlignmentData(Alignment t, std::optional<Uid> o = std::nullopt)
+      : type(t), owner(o) {}
+
+  // 總是攻擊
+  bool hostile_towards(const AlignmentData &other) const {
+    if (type == Alignment::Passive || other.type == Alignment::Passive)
+      return false;
+    if (type == Alignment::Enemy && other.type == Alignment::Enemy)
+      return false;
+    if (type == Alignment::Enemy && other.type == Alignment::Wild)
+      return false;
+    if (type == Alignment::Wild && other.type == Alignment::Enemy)
+      return false;
+    if (type == Alignment::Wild && other.type == Alignment::Wild)
+      return false;
+    if (type == Alignment::Npc && other.type == Alignment::Wild)
+      return false;
+    if (type == Alignment::Npc && other.type == Alignment::Enemy)
+      return true;
+    if (type == Alignment::Enemy || other.type == Alignment::Enemy)
+      return true;
+    return false;
+  }
+
+  // 通常從不攻擊
+  bool passive_towards(const AlignmentData &other) const {
+    if (type == Alignment::Enemy && other.type == Alignment::Enemy)
+      return true;
+    if (type == Alignment::Owned && other.type == Alignment::Owned && owner &&
+        other.owner && *owner == *other.owner)
+      return true;
+    if (type == Alignment::Npc && other.type == Alignment::Npc)
+      return true;
+    if (type == Alignment::Npc && other.type == Alignment::Tame)
+      return true;
+    if (type == Alignment::Enemy && other.type == Alignment::Wild)
+      return true;
+    if (type == Alignment::Wild && other.type == Alignment::Enemy)
+      return true;
+    if (type == Alignment::Tame && other.type == Alignment::Npc)
+      return true;
+    if (type == Alignment::Tame && other.type == Alignment::Tame)
+      return true;
+    if (other.type == Alignment::Passive)
+      return true;
+    return false;
+  }
+
+  // 永不攻擊
+  bool friendly_towards(const AlignmentData &other) const {
+    if (type == Alignment::Enemy && other.type == Alignment::Enemy)
+      return true;
+    if (type == Alignment::Owned && other.type == Alignment::Owned && owner &&
+        other.owner && *owner == *other.owner)
+      return true;
+    if (type == Alignment::Npc && other.type == Alignment::Npc)
+      return true;
+    if (type == Alignment::Npc && other.type == Alignment::Tame)
+      return true;
+    if (type == Alignment::Tame && other.type == Alignment::Npc)
+      return true;
+    if (type == Alignment::Tame && other.type == Alignment::Tame)
+      return true;
+    if (other.type == Alignment::Passive)
+      return true;
+    return false;
+  }
+};
+
+// ============================================================================
+// 2.1 派系與需求系統 (Factions & Needs) [Prompt 1]
+// ============================================================================
+
+enum class FactionId {
+  None,
+  Syndicate, // 鋼鐵兄弟會
+  Covenant,  // 漂流木公約
+  Tidebound  // 深淵 (Tidebound)
+};
+
+// NEW: SEC Profile for Geopolitics Integration
+struct SECProfile {
+    float truth_awareness = 0.0f;
+    float suffering_coefficient = 0.0f;
+    float wall_distrust_index = 0.0f;
+    float obedience = 0.8f;
+    float fear_threshold = 10.0f;
+};
+
+struct FactionComponent {
+  FactionId id;
+  int rank; // 0-100
+  SECProfile sec_profile; // Added SEC Data
+
+  FactionComponent(FactionId i = FactionId::None, int r = 0) : id(i), rank(r) {}
+};
+
+struct ResourceNeeds {
+  float coal;    // Syndicate specific
+  float scrap;   // Covenant specific
+  float essence; // Tidebound specific
+
+  ResourceNeeds() : coal(0.0f), scrap(0.0f), essence(0.0f) {}
+
+  bool is_critical(FactionId faction) const {
+    switch (faction) {
+    case FactionId::Syndicate:
+      return coal < 20.0f;
+    case FactionId::Covenant:
+      return scrap < 10.0f;
+    default:
+      return false;
+    }
+  }
+};
+
+enum class BuoyancyState { Floating, Sinking, Submerged };
+
+struct BuoyancyComponent {
+  float current_buoyancy; // 0.0 - 100.0
+  float max_buoyancy;
+  bool health_linked;
+
+  BuoyancyComponent(float max_b = 100.0f)
+      : current_buoyancy(max_b), max_buoyancy(max_b), health_linked(true) {}
+
+  BuoyancyState check_state(float health_pct) {
+    if (health_linked && health_pct < 0.2f) { // If health low, buoyancy drops
+      current_buoyancy = std::min(current_buoyancy, max_buoyancy * 0.2f);
+    }
+
+    if (current_buoyancy <= 0)
+      return BuoyancyState::Submerged;
+    if (current_buoyancy < max_buoyancy * 0.2f)
+      return BuoyancyState::Sinking; // Low buoyancy threshold
+    return BuoyancyState::Floating;
+  }
+};
+
+// ============================================================================
+// 3. 行為能力系統 (Behavior)
+// ============================================================================
+
+enum BehaviorCapability { NONE = 0, SPEAK = 1 << 0, TRADE = 1 << 1 };
+
+enum BehaviorState { TRADING = 1 << 0, TRADING_ISSUER = 1 << 1 };
+
+enum class TradingBehaviorType { None, RequireBalanced, AcceptFood };
+
+struct TradingBehavior {
+  TradingBehaviorType type;
+  std::optional<SiteId> trade_site;
+
+  TradingBehavior() : type(TradingBehaviorType::None) {}
+
+  bool can_trade(const AlignmentData &alignment, Uid counterparty) const {
+    switch (type) {
+    case TradingBehaviorType::RequireBalanced:
+      return true;
+    case TradingBehaviorType::AcceptFood:
+      return alignment.type == Alignment::Owned && alignment.owner &&
+             *alignment.owner == counterparty;
+    case TradingBehaviorType::None:
+      return false;
+    }
+    return false;
+  }
+};
+
+class Behavior {
+private:
+  int capabilities;
+  int state;
+
+public:
+  TradingBehavior trading_behavior;
+
+  Behavior() : capabilities(BehaviorCapability::NONE), state(0) {}
+
+  explicit Behavior(int caps) : capabilities(caps), state(0) {}
+
+  Behavior &maybe_with_capabilities(std::optional<int> maybe_caps) {
+    if (maybe_caps)
+      allow(*maybe_caps);
+    return *this;
+  }
+
+  Behavior &with_trade_site(std::optional<SiteId> site) {
+    if (site) {
+      trading_behavior.type = TradingBehaviorType::RequireBalanced;
+      trading_behavior.trade_site = site;
+    }
+    return *this;
+  }
+
+  void allow(int cap) { capabilities |= cap; }
+  void deny(int cap) { capabilities &= ~cap; }
+  bool can(int cap) const { return (capabilities & cap) != 0; }
+
+  void set_state(int s) { state |= s; }
+  void unset_state(int s) { state &= ~s; }
+  bool is(int s) const { return (state & s) != 0; }
+
+  bool can_trade(const AlignmentData &alignment, Uid counterparty) const {
+    return trading_behavior.can_trade(alignment, counterparty);
+  }
+
+  std::optional<SiteId> trade_site() const {
+    if (trading_behavior.type == TradingBehaviorType::RequireBalanced) {
+      return trading_behavior.trade_site;
+    }
+    return std::nullopt;
+  }
+};
+
+// ============================================================================
+// 4. 心理特質 (Psyche)
+// ============================================================================
+
+struct Psyche {
+  float flee_health;               // 逃跑血量閾值 (0.0-1.0)
+  float sight_dist;                // 視野距離
+  float listen_dist;               // 聽覺距離
+  std::optional<float> aggro_dist; // 攻擊距離 (None = 總是攻擊)
+  float idle_wander_factor;        // 閒置遊蕩因子
+  float aggro_range_multiplier;    // 攻擊範圍倍數
+  bool should_stop_pursuing;       // 是否應該停止追擊
+
+  Psyche()
+      : flee_health(0.4f), sight_dist(40.0f), listen_dist(30.0f),
+        aggro_dist(20.0f), idle_wander_factor(1.0f),
+        aggro_range_multiplier(1.0f), should_stop_pursuing(true) {}
+
+  // 最大偵測距離
+  float search_dist() const {
+    return std::max(sight_dist, listen_dist) * aggro_range_multiplier;
+  }
+
+  // 根據身體類型設置（簡化版）
+  static Psyche from_body_type(const std::string &body_type) {
+    Psyche p;
+    if (body_type == "Humanoid") {
+      p.flee_health = 0.4f;
+      p.sight_dist = 40.0f;
+      p.aggro_dist = 20.0f;
+    } else if (body_type == "BirdLarge") {
+      p.flee_health = 0.0f;
+      p.sight_dist = 250.0f;
+      p.aggro_dist = std::nullopt;
+      p.should_stop_pursuing = false;
+    } else if (body_type == "Wolf") {
+      p.flee_health = 0.2f;
+      p.sight_dist = 40.0f;
+      p.aggro_dist = std::nullopt;
+    }
+    return p;
+  }
+};
+
+// ============================================================================
+// 5. 聲音系統 (Sound)
+// ============================================================================
+
+enum class SoundKind {
+  Unknown,
+  Utterance,
+  Movement,
+  Melee,
+  Projectile,
+  Explosion,
+  Beam,
+  Shockwave,
+  Mine,
+  Trap
+};
+
+struct Sound {
+  SoundKind kind;
+  Vec3 pos;
+  float vol;
+  double time;
+
+  Sound(SoundKind k, Vec3 p, float v, double t)
+      : kind(k), pos(p), vol(v), time(t) {}
+
+  Sound with_new_vol(float new_vol) const {
+    return Sound(kind, pos, new_vol, time);
+  }
+};
+
+// ============================================================================
+// 6. 目標系統 (Target)
+// ============================================================================
+
+struct Target {
+  EntityId target;
+  bool hostile;
+  double selected_at;
+  bool aggro_on;
+  std::optional<Vec3> last_known_pos;
+
+  Target(EntityId t, bool h, double s, bool a,
+         std::optional<Vec3> pos = std::nullopt)
+      : target(t), hostile(h), selected_at(s), aggro_on(a),
+        last_known_pos(pos) {}
+};
+
+// ============================================================================
+// 7. 計時器系統 (Timer)
+// ============================================================================
+
+enum class TimerAction { Interact, Warn };
+
+class Timer {
+private:
+  std::unordered_map<TimerAction, std::optional<double>> action_starts;
+  std::optional<TimerAction> last_action;
+
+public:
+  Timer() {}
+
+  bool reset(TimerAction action) {
+    auto it = action_starts.find(action);
+    if (it != action_starts.end() && it->second.has_value()) {
+      it->second = std::nullopt;
+      return true;
+    }
+    return false;
+  }
+
+  void start(double time, TimerAction action) {
+    action_starts[action] = time;
+    last_action = action;
+  }
+
+  void progress(double time, TimerAction action) {
+    if (last_action != action) {
+      start(time, action);
+    }
+  }
+
+  std::optional<double> time_of_last(TimerAction action) const {
+    auto it = action_starts.find(action);
+    return (it != action_starts.end()) ? it->second : std::nullopt;
+  }
+
+  bool time_since_exceeds(double time, TimerAction action,
+                          double timeout) const {
+    auto last_time = time_of_last(action);
+    if (!last_time)
+      return true;
+    return std::max(0.0, time - *last_time) > timeout;
+  }
+
+  std::optional<bool> timeout_elapsed(double time, TimerAction action,
+                                      double timeout) {
+    if (time_since_exceeds(time, action, timeout)) {
+      return reset(action);
+    } else {
+      progress(time, action);
+      return std::nullopt;
+    }
+  }
+};
+
+// ============================================================================
+// 8. 意識系統 (Awareness)
+// ============================================================================
+
+enum class AwarenessState {
+  Unaware = 0,
+  Low = 1,
+  Medium = 2,
+  High = 3,
+  Alert = 4
+};
+
+static std::string awareness_state_to_string(AwarenessState state) {
+  switch (state) {
+  case AwarenessState::Unaware:
+    return "未察覺";
+  case AwarenessState::Low:
+    return "低度警覺";
+  case AwarenessState::Medium:
+    return "中度警覺";
+  case AwarenessState::High:
+    return "高度警覺";
+  case AwarenessState::Alert:
+    return "完全警戒";
+  default:
+    return "未知";
+  }
+}
+
+class Awareness {
+private:
+  static constexpr float ALERT = 1.0f;
+  static constexpr float HIGH = 0.6f;
+  static constexpr float MEDIUM = 0.3f;
+  static constexpr float LOW = 0.1f;
+  static constexpr float UNAWARE = 0.0f;
+
+  float level;
+  bool reached;
+
+public:
+  Awareness(float lvl = 0.0f)
+      : level(std::clamp(lvl, UNAWARE, ALERT)), reached(false) {}
+
+  float get_level() const { return level; }
+
+  AwarenessState state() const {
+    if (level == ALERT)
+      return AwarenessState::Alert;
+    if (level >= HIGH)
+      return AwarenessState::High;
+    if (level >= MEDIUM)
+      return AwarenessState::Medium;
+    if (level >= LOW)
+      return AwarenessState::Low;
+    return AwarenessState::Unaware;
+  }
+
+  bool has_reached() const { return reached; }
+
+  void change_by(float amount) {
+    level = std::clamp(level + amount, UNAWARE, ALERT);
+
+    if (state() == AwarenessState::Alert) {
+      reached = true;
+    } else if (state() == AwarenessState::Unaware) {
+      reached = false;
+    }
+  }
+
+  void set_maximally_aware() {
+    reached = true;
+    level = ALERT;
+  }
+};
+
+// ============================================================================
+// 9. 代理事件 (AgentEvent)
+// ============================================================================
+
+enum class AgentEventType {
+  Talk,
+  TradeInvite,
+  TradeAccepted,
+  FinishedTrade,
+  UpdatePendingTrade,
+  ServerSound,
+  Hurt,
+  Dialogue
+};
+
+struct AgentEvent {
+  AgentEventType type;
+  std::optional<Uid> uid;
+  std::optional<Sound> sound;
+
+  AgentEvent(AgentEventType t, std::optional<Uid> u = std::nullopt,
+             std::optional<Sound> s = std::nullopt)
+      : type(t), uid(u), sound(s) {}
+};
+
+// ============================================================================
+// 9.1 世界事件總線 (World Event Bus) [Prompt 2]
+// ============================================================================
+
+enum class WorldEventType {
+  StructuralFailure, // Physics -> Social
+  DistressSignal,
+  ResourceEvent, // Drifting debris
+  FloodingAlarm, // Sensor -> AI
+  HarpoonEvent,   // Combat,
+  DiplomacyChange,
+  ResourceScarce
+};
+
+struct WorldEvent {
+  WorldEventType type;
+  Vec3 position;
+  float radius;
+  EntityId source_id;
+  FactionId source_faction;
+  float intensity; // Merged
+  std::string metadata; // e.g. "Sensor > 0.5m" or "LegBroken"
+
+  WorldEvent(WorldEventType t, Vec3 pos, float r, EntityId src,
+             FactionId fac = FactionId::None)
+      : type(t), position(pos), radius(r), source_id(src), source_faction(fac), intensity(r) {
+  }
+};
+
+class SpatialHash {
+private:
+  float cell_size;
+  std::unordered_map<std::string, std::vector<int>> grid;
+
+  std::string key(const Vec3 &pos) const {
+    int x = static_cast<int>(std::floor(pos.x / cell_size));
+    int z = static_cast<int>(std::floor(pos.z / cell_size));
+    return std::to_string(x) + "," + std::to_string(z);
+  }
+
+public:
+  SpatialHash(float size = 100.0f) : cell_size(size) {}
+
+  void insert(const Vec3 &pos, int index) { grid[key(pos)].push_back(index); }
+
+  void clear() { grid.clear(); }
+
+  std::vector<int> query(const Vec3 &pos) const {
+    int x = static_cast<int>(std::floor(pos.x / cell_size));
+    int z = static_cast<int>(std::floor(pos.z / cell_size));
+    std::vector<int> result;
+
+    // Query 3x3 surrounding cells to handle boundary cases
+    for (int i = -1; i <= 1; ++i) {
+      for (int j = -1; j <= 1; ++j) {
+        std::string k = std::to_string(x + i) + "," + std::to_string(z + j);
+        auto it = grid.find(k);
+        if (it != grid.end()) {
+          result.insert(result.end(), it->second.begin(), it->second.end());
+        }
+      }
+    }
+    return result;
+  }
+};
+
+class WorldEventBus {
+private:
+  std::vector<WorldEvent> events;
+  SpatialHash spatial_index;
+
+public:
+  WorldEventBus() : spatial_index(100.0f) {}
+
+  void publish(const WorldEvent &e) {
+    events.push_back(e);
+    spatial_index.insert(e.position, events.size() - 1);
+  }
+
+  // Returns events relevant to a position and radius using Spatial Hash
+  std::vector<WorldEvent> query_nearby(Vec3 pos, float range) const {
+    std::vector<WorldEvent> result;
+    std::vector<int> indices = spatial_index.query(pos);
+
+    for (int idx : indices) {
+      const auto &e = events[idx];
+      if (e.position.distance(pos) <= range) {
+        result.push_back(e);
+      }
+    }
+    return result;
+  }
+
+  void clear_old() {
+    events.clear();
+    spatial_index.clear();
+  }
+};
+
+// ============================================================================
+// 9.2 遺蹟/幽靈記錄系統 (Ghost Recorder) [Next Steps 2]
+// ============================================================================
+
+struct GhostFrame {
+  Vec3 pos;
+  double timestamp;
+};
+
+class GhostRecorder {
+private:
+  std::unordered_map<EntityId, std::vector<GhostFrame>> records;
+  static constexpr size_t MAX_SAMPLES = 100;
+
+public:
+  void record(EntityId id, Vec3 pos, double time) {
+    auto &frames = records[id];
+    frames.push_back({pos, time});
+    if (frames.size() > MAX_SAMPLES) {
+      frames.erase(frames.begin());
+    }
+  }
+
+  const std::vector<GhostFrame> *get_ghost(EntityId id) const {
+    auto it = records.find(id);
+    if (it != records.end())
+      return &it->second;
+    return nullptr;
+  }
+
+  void clear(EntityId id) { records.erase(id); }
+};
+
+// ============================================================================
+// 9.3 任務黑板系統 (Job Blackboard) [Next Steps 3]
+// ============================================================================
+
+enum class JobType { Scavenge, Repair, Combat, Transport };
+
+struct Job {
+  Uid id;
+  JobType type;
+  Vec3 position;
+  float priority;
+  std::optional<Uid> assigned_to;
+  float difficulty;
+
+  Job(Uid i, JobType t, Vec3 pos, float p, float d = 1.0f)
+      : id(i), type(t), position(pos), priority(p), difficulty(d) {}
+};
+
+class JobBlackboard {
+private:
+  std::vector<Job> open_jobs;
+
+public:
+  void post_job(const Job &job) { open_jobs.push_back(job); }
+
+  std::optional<Job> bid_for_job(Uid agent_id, JobType preferred_type) {
+    int best_idx = -1;
+    float best_score = -1.0f;
+
+    for (int i = 0; i < (int)open_jobs.size(); ++i) {
+      if (open_jobs[i].assigned_to.has_value())
+        continue;
+
+      float score = open_jobs[i].priority;
+      if (open_jobs[i].type == preferred_type)
+        score *= 2.0f;
+
+      if (score > best_score) {
+        best_score = score;
+        best_idx = i;
+      }
+    }
+
+    if (best_idx != -1) {
+      open_jobs[best_idx].assigned_to = agent_id;
+      return open_jobs[best_idx];
+    }
+    return std::nullopt;
+  }
+
+  void complete_job(Uid job_id) {
+    open_jobs.erase(
+        std::remove_if(open_jobs.begin(), open_jobs.end(),
+                       [job_id](const Job &j) { return j.id == job_id; }),
+        open_jobs.end());
+  }
+
+  void clear() { open_jobs.clear(); }
+};
+
+// Keep the struct but it might be integrated into a system later
+struct Sensor {
+  std::string metric; // "WaterLevel"
+  float value;
+  float threshold;
+  EntityId owner_id;
+  Vec3 position;
+
+  bool check() const { return value > threshold; }
+};
+
+class LogicBridgeSystem {
+public:
+  void process_sensors(const std::vector<Sensor> &sensors, WorldEventBus &bus) {
+    for (const auto &s : sensors) {
+      if (s.check()) {
+        if (s.metric == "WaterLevel") {
+          bus.publish(WorldEvent(WorldEventType::FloodingAlarm, s.position,
+                                 50.0f, s.owner_id));
+        }
+      }
+    }
+  }
+};
+
+// ============================================================================
+// 10. 動作狀態 (ActionState)
+// ============================================================================
+
+constexpr size_t NUM_TIMERS = 5;
+constexpr size_t NUM_COUNTERS = 5;
+constexpr size_t NUM_INT_COUNTERS = 5;
+constexpr size_t NUM_CONDITIONS = 5;
+constexpr size_t NUM_POSITIONS = 5;
+
+struct ActionState {
+  std::array<float, NUM_TIMERS> timers;
+  std::array<float, NUM_COUNTERS> counters;
+  std::array<bool, NUM_CONDITIONS> conditions;
+  std::array<uint8_t, NUM_INT_COUNTERS> int_counters;
+  std::array<std::optional<Vec3>, NUM_POSITIONS> positions;
+  bool initialized;
+
+  ActionState() : initialized(false) {
+    timers.fill(0.0f);
+    counters.fill(0.0f);
+    conditions.fill(false);
+    int_counters.fill(0);
+    positions.fill(std::nullopt);
+  }
+};
+
+// ============================================================================
+// 11. 尋路系統 (Chaser)
+// ============================================================================
+
+class Chaser {
+private:
+  std::vector<Vec3> nodes;
+  std::optional<Vec3> goal;
+
+public:
+  Chaser() {}
+
+  void set_path(const std::vector<Vec3> &path) { nodes = path; }
+
+  void set_goal(const Vec3 &g) { goal = g; }
+
+  std::optional<Vec3> get_next_node() const {
+    if (!nodes.empty())
+      return nodes[0];
+    return std::nullopt;
+  }
+
+  void advance() {
+    if (!nodes.empty())
+      nodes.erase(nodes.begin());
+  }
+
+  bool has_path() const { return !nodes.empty(); }
+  std::optional<Vec3> get_goal() const { return goal; }
+};
+
+// ============================================================================
+// 12. PID 控制器 (用於飛行載具)
+// ============================================================================
+
+template <size_t NUM_SAMPLES> class PidController {
+private:
+  float kp, ki, kd;
+  float sp; // setpoint
+  std::array<std::pair<double, float>, NUM_SAMPLES> pv_samples;
+  size_t pv_idx;
+  double integral_error;
+  std::function<float(float, float)> error_func;
+
+public:
+  PidController(
+      float kp, float ki, float kd, float sp, double time,
+      std::function<float(float, float)> ef = [](float a,
+                                                 float b) { return a - b; })
+      : kp(kp), ki(ki), kd(kd), sp(sp), pv_idx(0), integral_error(0.0),
+        error_func(ef) {
+    pv_samples.fill({time, sp});
+  }
+
+  void add_measurement(double time, float pv) {
+    pv_idx = (pv_idx + 1) % NUM_SAMPLES;
+    pv_samples[pv_idx] = {time, pv};
+    update_integral_error();
+  }
+
+  float calc_error() const {
+    return kp * proportional_error() + ki * integral_error_value() +
+           kd * derivative_error();
+  }
+
+  float proportional_error() const {
+    return error_func(sp, pv_samples[pv_idx].second);
+  }
+
+  float integral_error_value() const {
+    return static_cast<float>(integral_error);
+  }
+
+  float derivative_error() const {
+    size_t prev_idx = (pv_idx + NUM_SAMPLES - 1) % NUM_SAMPLES;
+    auto [a, x0] = pv_samples[prev_idx];
+    auto [b, x1] = pv_samples[pv_idx];
+    double h = b - a;
+    if (h == 0.0)
+      return 0.0f;
+    return (error_func(sp, x1) - error_func(sp, x0)) / static_cast<float>(h);
+  }
+
+  void limit_integral_windup(std::function<void(double &)> limiter) {
+    limiter(integral_error);
+  }
+
+private:
+  void update_integral_error() {
+    size_t prev_idx = (pv_idx + NUM_SAMPLES - 1) % NUM_SAMPLES;
+    auto [a, x0] = pv_samples[prev_idx];
+    auto [b, x1] = pv_samples[pv_idx];
+    double dx = b - a;
+
+    if (dx < 5.0) { // 忽略過長的間隔
+      auto f = [this](float x) {
+        return static_cast<double>(error_func(sp, x));
+      };
+      integral_error += dx * (f(x1) + f(x0)) / 2.0;
+    }
+  }
+};
+
+enum class FlightMode { Braking, FlyThrough };
+
+template <size_t NUM_SAMPLES> struct PidControllers {
+  FlightMode mode;
+  std::optional<PidController<NUM_SAMPLES>> x_controller;
+  std::optional<PidController<NUM_SAMPLES>> y_controller;
+  std::optional<PidController<NUM_SAMPLES>> z_controller;
+
+  PidControllers(FlightMode m) : mode(m) {}
+
+  void add_measurement(double time, const Vec3 &pos) {
+    if (x_controller)
+      x_controller->add_measurement(time, pos.x);
+    if (y_controller)
+      y_controller->add_measurement(time, pos.y);
+    if (z_controller)
+      z_controller->add_measurement(time, pos.z);
+  }
+
+  Vec3 calc_error() const {
+    return Vec3(x_controller ? x_controller->calc_error() : 0.0f,
+                y_controller ? y_controller->calc_error() : 0.0f,
+                z_controller ? z_controller->calc_error() : 0.0f);
+  }
+};
+
+// ============================================================================
+// 13. RtSim 控制器 (簡化版)
+// ============================================================================
+
+class RtSimController {
+private:
+  std::optional<Vec3> destination;
+
+public:
+  RtSimController() {}
+
+  static RtSimController with_destination(const Vec3 &dest) {
+    RtSimController ctrl;
+    ctrl.destination = dest;
+    return ctrl;
+  }
+
+  std::optional<Vec3> get_destination() const { return destination; }
+  void set_destination(const Vec3 &dest) { destination = dest; }
+  void clear_destination() { destination = std::nullopt; }
+};
+
+// ============================================================================
+// 14. Agent 主類
+// ============================================================================
+
+constexpr float DEFAULT_INTERACTION_TIME = 3.0f;
+constexpr float TRADE_INTERACTION_TIME = 300.0f;
+constexpr double SECONDS_BEFORE_FORGET_SOUNDS = 180.0;
+
+class Agent {
+public:
+  RtSimController rtsim_controller;
+  std::optional<Vec3> patrol_origin;
+  std::optional<Target> target;
+  Chaser chaser;
+  Behavior behavior;
+  Psyche psyche;
+  std::deque<AgentEvent> inbox;
+  ActionState combat_state;
+  ActionState behavior_state;
+  Timer timer;
+  Vec2 bearing;
+  std::vector<Sound> sounds_heard;
+  std::optional<PidControllers<16>> multi_pid_controllers;
+  std::optional<Vec3> flee_from_pos;
+  Awareness awareness;
+  std::optional<Vec3> stay_pos;
+
+  // Components
+  FactionComponent faction;
+  ResourceNeeds needs;
+  BuoyancyComponent buoyancy;
+
+  // 構造函數：從身體類型創建
+  static Agent from_body(const std::string &body_type) {
+    Agent agent;
+    agent.psyche = Psyche::from_body_type(body_type);
+    return agent;
+  }
+
+  Agent &with_patrol_origin(const Vec3 &origin) {
+    patrol_origin = origin;
+    return *this;
+  }
+
+  Agent &with_behavior(const Behavior &b) {
+    behavior = b;
+    return *this;
+  }
+
+  Agent &with_no_flee_if(bool condition) {
+    if (condition)
+      psyche.flee_health = 0.0f;
+    return *this;
+  }
+
+  void set_no_flee() { psyche.flee_health = 0.0f; }
+
+  Agent &with_destination(const Vec3 &pos) {
+    psyche.flee_health = 0.0f;
+    rtsim_controller = RtSimController::with_destination(pos);
+    behavior.allow(BehaviorCapability::SPEAK);
+    return *this;
+  }
+
+  Agent &with_idle_wander_factor(float factor) {
+    psyche.idle_wander_factor = factor;
+    return *this;
+  }
+
+  Agent &with_aggro_range_multiplier(float multiplier) {
+    psyche.aggro_range_multiplier = multiplier;
+    return *this;
+  }
+
+  Agent &with_altitude_pid_controller(const PidControllers<16> &mpid) {
+    multi_pid_controllers = mpid;
+    return *this;
+  }
+
+  Agent &with_aggro_no_warn() {
+    psyche.aggro_dist = std::nullopt;
+    return *this;
+  }
+
+  void forget_old_sounds(double time) {
+    if (!sounds_heard.empty()) {
+      sounds_heard.erase(
+          std::remove_if(sounds_heard.begin(), sounds_heard.end(),
+                         [time](const Sound &s) {
+                           return time - s.time > SECONDS_BEFORE_FORGET_SOUNDS;
+                         }),
+          sounds_heard.end());
+    }
+  }
+
+  bool allowed_to_speak() const {
+    return behavior.can(BehaviorCapability::SPEAK);
+  }
+
+  void push_event(const AgentEvent &event) { inbox.push_back(event); }
+
+  // [Prompt 4] 派系特徵決策邏輯
+  void decide_next_action(WorldEventBus *bus, const Vec3 &current_pos) {
+    if (!bus)
+      return;
+
+    // Syndicate (鋼鐵): 煤炭需求與維修
+    if (faction.id == FactionId::Syndicate) {
+      if (needs.coal < 20.0f) {
+        std::cout << "[Syndicate] 警告: 煤炭不足 (" << needs.coal
+                  << "<20)! 尋找貿易站或煤礦.\n";
+      }
+
+      auto nearby = bus->query_nearby(current_pos, 200.0f);
+      for (const auto &e : nearby) {
+        if (e.type == WorldEventType::StructuralFailure &&
+            e.source_faction == FactionId::Syndicate) {
+          std::cout << "[Syndicate] 收到盟友 (" << e.source_id
+                    << ") 結構損壞求救! 發送維修請求.\n";
+        }
+      }
+    }
+
+    // Covenant (漂流木): 拾荒與魚叉
+    if (faction.id == FactionId::Covenant) {
+      auto nearby = bus->query_nearby(current_pos, 100.0f);
+      for (const auto &e : nearby) {
+        if (e.type == WorldEventType::HarpoonEvent) {
+          std::cout
+              << "[Covenant] 偵測到魚叉攻擊! 觸發 SwarmAttack 蜂群戰術!\n";
+          awareness.set_maximally_aware();
+        }
+        if (e.type == WorldEventType::StructuralFailure) {
+          std::cout << "[Covenant] 發現殘骸 (" << e.source_id
+                    << ")! 設定目標進行拾荒 (Scavenge).\n";
+        }
+      }
+    }
+
+    // Tidebound (深淵): 潛行
+    if (faction.id == FactionId::Tidebound) {
+      if (awareness.state() == AwarenessState::High ||
+          awareness.state() == AwarenessState::Alert) {
+        std::cout << "[Tidebound] 威脅過高! 執行下潛 (Dive) 規避視線.\n";
+        buoyancy.current_buoyancy = -10.0f; // Force dive
+      }
+    }
+
+    // Logic Bridge Response
+    auto sensors = bus->query_nearby(current_pos, 50.0f);
+    for (const auto &e : sensors) {
+      if (e.type == WorldEventType::FloodingAlarm) {
+        std::cout << "[Agent] 收到水位警報! 切換至損管 (DamageControl) 狀態.\n";
+      }
+    }
+
+    if (buoyancy.check_state(1.0f) == BuoyancyState::Sinking) {
+      std::cout << "[Agent] 浮力過低 (<20%)! 正在下沉! (發布維修任務)\n";
+    }
+  }
+
+  // 更新函數
+  void update(double dt, double current_time, const Vec3 &current_pos,
+              EntityId my_id, WorldEventBus *world_bus = nullptr,
+              GhostRecorder *ghosts = nullptr) {
+    if (world_bus) {
+      decide_next_action(world_bus, current_pos);
+
+      if (ghosts && buoyancy.check_state(1.0f) == BuoyancyState::Sinking) {
+        ghosts->record(my_id, current_pos, current_time);
+      }
+    }
+    while (!inbox.empty()) {
+      process_event(inbox.front());
+      inbox.pop_front();
+    }
+
+    forget_old_sounds(current_time);
+    awareness.change_by(-dt * 0.01f);
+
+    if (multi_pid_controllers) {
+      multi_pid_controllers->add_measurement(current_time, current_pos);
+    }
+  }
+
+  void print_status(const std::string &name) const {
+    std::cout << "\n=== " << name << " 狀態 ===\n";
+    std::cout << "意識等級: " << awareness_state_to_string(awareness.state()) << " ("
+              << (awareness.get_level() * 100) << "%)\n";
+    std::cout << "已達警戒: " << (awareness.has_reached() ? "是" : "否")
+              << "\n";
+    std::cout << "聽到聲音數: " << sounds_heard.size() << "\n";
+    std::cout << "收件箱事件: " << inbox.size() << "\n";
+    if (target) {
+      std::cout << "目標: 實體 " << target->target
+                << (target->hostile ? " (敵對)" : " (非敵對)") << "\n";
+    }
+    if (patrol_origin) {
+      std::cout << "巡邏原點: (" << patrol_origin->x << ", " << patrol_origin->y
+                << ", " << patrol_origin->z << ")\n";
+    }
+  }
+
+private:
+  void process_event(const AgentEvent &event) {
+    switch (event.type) {
+    case AgentEventType::ServerSound:
+      if (event.sound) {
+        sounds_heard.push_back(*event.sound);
+        float awareness_increase = 0.1f;
+        if (event.sound->kind == SoundKind::Explosion) {
+          awareness_increase = 0.5f;
+        } else if (event.sound->kind == SoundKind::Melee) {
+          awareness_increase = 0.3f;
+        }
+        awareness.change_by(awareness_increase);
+      }
+      break;
+
+    case AgentEventType::Hurt:
+      awareness.set_maximally_aware();
+      break;
+
+    case AgentEventType::Talk:
+    case AgentEventType::Dialogue:
+      awareness.change_by(0.2f);
+      break;
+
+    default:
+      break;
+    }
+  }
+};
+
+// ============================================================================
+// 15. 測試與演示
+// ============================================================================
+
+class Simulation {
+private:
+  std::vector<std::pair<std::string, Agent>> agents;
+  double current_time;
+
+public:
+  WorldEventBus event_bus; // Public for testing access
+  LogicBridgeSystem logic_bridge;
+  GhostRecorder ghost_recorder;
+  JobBlackboard job_blackboard;
+
+  Simulation() : current_time(0.0) {}
+
+  void add_agent(const std::string &name, const Agent &agent) {
+    agents.push_back({name, agent});
+  }
+
+  void step(double dt) {
+    current_time += dt;
+
+    for (size_t i = 0; i < agents.size(); ++i) {
+      // Use reference to update actual agent
+      auto &pair = agents[i]; 
+      // name is pair.first, agent is pair.second
+      
+      Vec3 pos(0, 0, 0); // 簡化：固定位置
+      pair.second.update(dt, current_time, pos, i, &event_bus, &ghost_recorder);
+    }
+
+    // Clear old events
+    event_bus.clear_old();
+  }
+
+  void print_all_status() const {
+    for (const auto &[name, agent] : agents) {
+      agent.print_status(name);
+    }
+  }
+
+  Agent *get_agent(const std::string &name) {
+    for (auto &[n, agent] : agents) {
+      if (n == name)
+        return &agent;
+    }
+    return nullptr;
+  }
+  
+  // NEW: Get Agent by index
+  Agent &get_agent_at(size_t index) {
+     if (index < agents.size()) {
+         return agents[index].second;
+     }
+     throw std::out_of_range("Agent index out of range");
+  }
+
+  size_t get_agent_count() const {
+      return agents.size();
+  }
+};
+
+} // namespace NPCSystem

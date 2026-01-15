@@ -1,0 +1,272 @@
+[gd_scene load_steps=10 format=3 uid="uid://chomxtii8l70o"]
+
+[ext_resource type="Script" path="res://NewWaterSystem/Core/Scripts/WaterManager.gd" id="1_water"]
+[ext_resource type="Script" path="res://WeatherSystem/Core/WeatherController.gd" id="2_weather"]
+[ext_resource type="Resource" path="res://WeatherSystem/Resources/Clear.tres" id="3_clear"]
+[ext_resource type="Resource" path="res://WeatherSystem/Resources/Storm.tres" id="4_storm"]
+[ext_resource type="Script" path="res://WeatherSystem/VFX/RainController.gd" id="5_rain"]
+[ext_resource type="Script" path="res://WeatherSystem/VFX/LightningSystem.gd" id="6_lightning"]
+[ext_resource type="Script" path="res://WeatherSystem/VFX/TornadoController.gd" id="7_tornado"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_fixed"]
+sky_top_color = Color(0.384, 0.455, 0.549, 1)
+sky_horizon_color = Color(0.646, 0.655, 0.67, 1)
+ground_bottom_color = Color(0.2, 0.16, 0.13, 1)
+ground_horizon_color = Color(0.646, 0.655, 0.67, 1)
+
+[sub_resource type="Sky" id="Sky_fixed"]
+sky_material = SubResource("ProceduralSkyMaterial_fixed")
+
+[sub_resource type="Environment" id="Environment_fixed"]
+background_mode = 2
+sky = SubResource("Sky_fixed")
+ambient_light_source = 3
+ambient_light_color = Color(0.1, 0.1, 0.2, 1)
+tonemap_mode = 2
+ssr_enabled = true
+ssao_enabled = true
+ssil_enabled = true
+sdfgi_enabled = true
+glow_enabled = true
+volumetric_fog_enabled = true
+volumetric_fog_density = 0.001
+
+[sub_resource type="ParticleProcessMaterial" id="ParticleProcessMaterial_tornado"]
+emission_shape = 6
+emission_ring_axis = Vector3(0, 1, 0)
+emission_ring_height = 20.0
+emission_ring_radius = 5.0
+emission_ring_inner_radius = 2.0
+gravity = Vector3(0, 5, 0)
+orbital_velocity_min = 2.0
+orbital_velocity_max = 5.0
+radial_accel_min = -2.0
+radial_accel_max = -1.0
+scale_min = 2.0
+scale_max = 5.0
+color = Color(0.4, 0.4, 0.4, 0.3)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_cloud"]
+transparency = 1
+shading_mode = 0
+vertex_color_use_as_albedo = true
+billboard_mode = 3
+particles_anim_h_frames = 1
+particles_anim_v_frames = 1
+particles_anim_loop = false
+
+[sub_resource type="QuadMesh" id="QuadMesh_tornado"]
+material = SubResource("StandardMaterial3D_cloud")
+size = Vector2(4, 4)
+
+[sub_resource type="GDScript" id="GDScript_ui"]
+script/source = "extends Node
+
+@export var controller: WeatherController
+@export var btn_clear: Button
+@export var btn_storm: Button
+@export var time_label: Label
+@export var time_slider: HSlider
+
+@export var wind_label: Label
+@export var wind_slider: HSlider
+@export var rain_label: Label
+@export var rain_slider: HSlider
+
+@export var btn_lightning: Button
+@export var btn_tornado: Button
+
+func _ready():
+	if not controller: return
+	
+	btn_clear.pressed.connect(func(): controller.apply_weather(controller.default_weather))
+	btn_storm.pressed.connect(func(): controller.apply_weather(controller.storm_weather))
+	
+	time_slider.value_changed.connect(func(v): controller.current_time_of_day = v)
+	
+	# Manual Overrides (will be updated by WeatherController.process, but we can set target)
+	wind_slider.value_changed.connect(func(v): 
+		controller.active_wind_strength = v
+		if controller._tween: controller._tween.kill() # Break current tween to allow manual control
+	)
+	
+	rain_slider.value_changed.connect(func(v): 
+		controller.active_rain_intensity = v
+		if controller._tween: controller._tween.kill()
+	)
+	
+	btn_lightning.pressed.connect(func(): controller.manual_lightning())
+	btn_tornado.pressed.connect(func(): controller.manual_tornado())
+
+func _process(_delta):
+	if controller:
+		# Update UI display
+		var hours = int(controller.current_time_of_day * 24)
+		var mins = int(fmod(controller.current_time_of_day * 24 * 60, 60))
+		time_label.text = \"Time: %02d:%02d\" % [hours, mins]
+		
+		wind_label.text = \"Wind Strength: %.1f\" % controller.active_wind_strength
+		rain_label.text = \"Rain Intensity: %.2f\" % controller.active_rain_intensity
+		
+		# Optional: Sync sliders back if no mouse input (to show tween progress)
+		if not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+			time_slider.value = controller.current_time_of_day
+			wind_slider.value = controller.active_wind_strength
+			rain_slider.value = controller.active_rain_intensity
+"
+
+[node name="WeatherTest" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_fixed")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, -0.707107, 0.707107, 0, -0.707107, -0.707107, 0, 10, 0)
+shadow_enabled = true
+
+[node name="OceanWaterManager" type="Node3D" parent="."]
+script = ExtResource("1_water")
+sea_size = Vector2(512, 512)
+grid_res = 256
+wind_strength = 1.0
+
+[node name="WeatherController" type="Node" parent="." node_paths=PackedStringArray("water_manager", "sun_light", "world_env")]
+script = ExtResource("2_weather")
+water_manager = NodePath("../OceanWaterManager")
+sun_light = NodePath("../DirectionalLight3D")
+world_env = NodePath("../WorldEnvironment")
+default_weather = ExtResource("3_clear")
+storm_weather = ExtResource("4_storm")
+
+[node name="RainController" type="Node3D" parent="WeatherController"]
+script = ExtResource("5_rain")
+
+[node name="GPUParticles3D" type="GPUParticles3D" parent="WeatherController/RainController"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 20, 0)
+emitting = false
+amount = 5000
+lifetime = 2.0
+visibility_aabb = AABB(-100, -50, -100, 200, 100, 200)
+local_coords = true
+draw_order = 1
+trail_enabled = true
+
+[node name="TornadoController" type="Node3D" parent="WeatherController"]
+script = ExtResource("7_tornado")
+
+[node name="GPUParticles3D" type="GPUParticles3D" parent="WeatherController/TornadoController"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 10, 0)
+emitting = false
+amount = 1000
+lifetime = 4.0
+visibility_aabb = AABB(-50, -20, -50, 100, 80, 100)
+local_coords = true
+process_material = SubResource("ParticleProcessMaterial_tornado")
+draw_pass_1 = SubResource("QuadMesh_tornado")
+
+[node name="LightningSystem" type="Node3D" parent="WeatherController"]
+script = ExtResource("6_lightning")
+
+[node name="OmniLight3D" type="OmniLight3D" parent="WeatherController/LightningSystem"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 50, 0)
+light_color = Color(0.8, 0.9, 1, 1)
+light_energy = 0.0
+omni_range = 1000.0
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.906308, 0.422618, 0, -0.422618, 0.906308, 0, 15.656, 26.697)
+current = true
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="PanelContainer" type="PanelContainer" parent="UI"]
+offset_left = 20.0
+offset_top = 20.0
+offset_right = 220.0
+offset_bottom = 170.0
+
+[node name="MarginContainer" type="MarginContainer" parent="UI/PanelContainer"]
+layout_mode = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 10
+
+[node name="VBoxContainer" type="VBoxContainer" parent="UI/PanelContainer/MarginContainer"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="LabelProfiles" type="Label" parent="UI/PanelContainer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Weather Profiles"
+horizontal_alignment = 1
+
+[node name="BtnClear" type="Button" parent="UI/PanelContainer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Clear Weather"
+
+[node name="BtnStorm" type="Button" parent="UI/PanelContainer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Storm Weather"
+
+[node name="HSeparator" type="HSeparator" parent="UI/PanelContainer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="LabelEnv" type="Label" parent="UI/PanelContainer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Manual Control"
+horizontal_alignment = 1
+
+[node name="TimeLabel" type="Label" parent="UI/PanelContainer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Time: 08:00"
+
+[node name="TimeSlider" type="HSlider" parent="UI/PanelContainer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+max_value = 1.0
+step = 0.001
+
+[node name="WindLabel" type="Label" parent="UI/PanelContainer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Wind Strength: 1.0"
+
+[node name="WindSlider" type="HSlider" parent="UI/PanelContainer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+max_value = 10.0
+step = 0.1
+value = 1.0
+
+[node name="RainLabel" type="Label" parent="UI/PanelContainer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Rain Intensity: 0.0"
+
+[node name="RainSlider" type="HSlider" parent="UI/PanelContainer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+max_value = 1.0
+step = 0.01
+
+[node name="HSeparator2" type="HSeparator" parent="UI/PanelContainer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="BtnLightning" type="Button" parent="UI/PanelContainer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Trigger Lightning"
+
+[node name="BtnTornado" type="Button" parent="UI/PanelContainer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Spawn Tornado"
+
+[node name="WeatherTestUI" type="Node" parent="UI" node_paths=PackedStringArray("controller", "btn_clear", "btn_storm", "time_label", "time_slider", "wind_label", "wind_slider", "rain_label", "rain_slider", "btn_lightning", "btn_tornado")]
+script = SubResource("GDScript_ui")
+controller = NodePath("../../WeatherController")
+btn_clear = NodePath("../PanelContainer/MarginContainer/VBoxContainer/BtnClear")
+btn_storm = NodePath("../PanelContainer/MarginContainer/VBoxContainer/BtnStorm")
+time_label = NodePath("../PanelContainer/MarginContainer/VBoxContainer/TimeLabel")
+time_slider = NodePath("../PanelContainer/MarginContainer/VBoxContainer/TimeSlider")
+wind_label = NodePath("../PanelContainer/MarginContainer/VBoxContainer/WindLabel")
+wind_slider = NodePath("../PanelContainer/MarginContainer/VBoxContainer/WindSlider")
+rain_label = NodePath("../PanelContainer/MarginContainer/VBoxContainer/RainLabel")
+rain_slider = NodePath("../PanelContainer/MarginContainer/VBoxContainer/RainSlider")
+btn_lightning = NodePath("../PanelContainer/MarginContainer/VBoxContainer/BtnLightning")
+btn_tornado = NodePath("../PanelContainer/MarginContainer/VBoxContainer/BtnTornado")
+

@@ -1,81 +1,60 @@
-[gd_scene load_steps=15 format=3 uid="uid://cy8k6p3t1q0w3"]
+[gd_scene load_steps=12 format=3 uid="uid://cy8k6p3t1q0w3"]
 
-[ext_resource type="Script" uid="uid://dh3f5tce2itx0" path="res://NewWaterSystem/scripts/WaterManager.gd" id="1_water"]
-[ext_resource type="Script" uid="uid://btsnfrvmsn15r" path="res://NewWaterSystem/scripts/CameraController.gd" id="2_cam"]
-[ext_resource type="Script" uid="uid://bakuxwt3onq75" path="res://NewWaterSystem/scripts/DemoUI.gd" id="3_ui"]
+[ext_resource type="Script" uid="uid://cd6doksvbjqcw" path="res://NewWaterSystem/Core/Scripts/WaterManager.gd" id="1_water"]
+[ext_resource type="Script" uid="uid://crr33rfp6efcd" path="res://NewWaterSystem/Core/Scripts/CameraController.gd" id="2_cam"]
+[ext_resource type="Texture2D" uid="uid://u1pdrd2gf4aj" path="res://WaterSystem/VFX/textures/n_noise_2.tres" id="3_ls1lp"]
+[ext_resource type="Script" uid="uid://i56dwu2dccnx" path="res://NewWaterSystem/Core/Scripts/DemoUI.gd" id="3_ui"]
+[ext_resource type="Environment" uid="uid://cj5n6ylnth8yx" path="res://NewWaterSystem/scenes/SkillsDemo_env.tres" id="4_env"]
 
-[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
-sky_top_color = Color(0.1, 0.2, 0.45, 1)
-sky_horizon_color = Color(0.55, 0.65, 0.75, 1)
-ground_bottom_color = Color(0.1, 0.1, 0.1, 1)
-ground_horizon_color = Color(0.55, 0.65, 0.75, 1)
-
-[sub_resource type="Sky" id="Sky_env"]
-sky_material = SubResource("ProceduralSkyMaterial_sky")
-
-[sub_resource type="Environment" id="Environment_main"]
-background_mode = 2
-sky = SubResource("Sky_env")
-tonemap_mode = 2
-ssr_enabled = true
-glow_enabled = true
-
-[sub_resource type="FastNoiseLite" id="FastNoiseLite_ccr3y"]
-seed = -159051479
-frequency = 0.05
-fractal_octaves = 3
-
-[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_76jct"]
-width = 256
-height = 256
-noise = SubResource("FastNoiseLite_ccr3y")
-seamless = true
-
-[sub_resource type="FastNoiseLite" id="FastNoiseLite_ls1lp"]
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_4dpo3"]
 noise_type = 2
-seed = 427535235
+seed = -1249523238
 frequency = 0.05
 fractal_type = 0
 
-[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_4dpo3"]
-noise = SubResource("FastNoiseLite_ls1lp")
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_668hp"]
+noise = SubResource("FastNoiseLite_4dpo3")
 seamless = true
 
-[sub_resource type="FastNoiseLite" id="FastNoiseLite_668hp"]
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_d58wi"]
 seed = 12345
 frequency = 0.05
 
-[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_d58wi"]
-noise = SubResource("FastNoiseLite_668hp")
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_rsolk"]
+noise = SubResource("FastNoiseLite_d58wi")
 seamless = true
 as_normal_map = true
 
-[sub_resource type="FastNoiseLite" id="FastNoiseLite_rsolk"]
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_t846j"]
 seed = 67890
 frequency = 0.08
 
-[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_t846j"]
-noise = SubResource("FastNoiseLite_rsolk")
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_0j8w3"]
+noise = SubResource("FastNoiseLite_t846j")
 seamless = true
 as_normal_map = true
 
 [node name="SkillsDemo" type="Node3D"]
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
-environment = SubResource("Environment_main")
+environment = ExtResource("4_env")
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
-transform = Transform3D(0.866025, -0.433013, 0.25, 0, 0.5, 0.866025, -0.5, -0.75, 0.433013, 0, 10, 0)
+transform = Transform3D(0.7071068, 0.49999994, -0.5000001, 0, 0.70710695, 0.7071067, 0.7071068, -0.49999994, 0.5000001, 0, 10, 30.19041)
+light_energy = 1.062
 shadow_enabled = true
 
 [node name="OceanWaterManager" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -1.3933754)
 script = ExtResource("1_water")
-sea_size = Vector2(100, 100)
-wind_strength = 0.0
-foam_noise_tex = SubResource("NoiseTexture2D_76jct")
-caustics_texture = SubResource("NoiseTexture2D_4dpo3")
-normal_map1 = SubResource("NoiseTexture2D_d58wi")
-normal_map2 = SubResource("NoiseTexture2D_t846j")
+wave_length = 21.515
+peak_sharpness = 0.8695652173913044
+color_foam = Color(1, 0.05490196, 1, 1)
+foam_noise_tex = ExtResource("3_ls1lp")
+foam_crest_strength = 4.0
+caustics_texture = SubResource("NoiseTexture2D_668hp")
+normal_map1 = SubResource("NoiseTexture2D_rsolk")
+normal_map2 = SubResource("NoiseTexture2D_0j8w3")
 
 [node name="Camera3D" type="Camera3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 0.866025, 0.5, 0, -0.5, 0.866025, 0, 15, 25)

@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://c7oh6mkx31ie4"
+path="res://.godot/imported/OceanFFT_Displace.glsl-0aa3fbc435a81537644473e47beb11a9.res"
+
+[deps]
+
+source_file="res://NewWaterSystem/Core/Shaders/Internal/OceanFFT_Displace.glsl"
+dest_files=["res://.godot/imported/OceanFFT_Displace.glsl-0aa3fbc435a81537644473e47beb11a9.res"]
+
+[params]
+

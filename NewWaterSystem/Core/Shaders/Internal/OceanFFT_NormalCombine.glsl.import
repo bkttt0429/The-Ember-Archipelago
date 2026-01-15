@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://c7ufs5ea6cfgc"
+path="res://.godot/imported/OceanFFT_NormalCombine.glsl-9d512f03169dc8edb3dc947b1a359436.res"
+
+[deps]
+
+source_file="res://NewWaterSystem/Core/Shaders/Internal/OceanFFT_NormalCombine.glsl"
+dest_files=["res://.godot/imported/OceanFFT_NormalCombine.glsl-9d512f03169dc8edb3dc947b1a359436.res"]
+
+[params]
+

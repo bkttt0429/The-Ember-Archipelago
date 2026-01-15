@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://b711dwo3kcssh"
+path="res://.godot/imported/OceanFFT_Butterfly.glsl-8878b6fd34f3ae5311e33f40300fb0d6.res"
+
+[deps]
+
+source_file="res://NewWaterSystem/Core/Shaders/Internal/OceanFFT_Butterfly.glsl"
+dest_files=["res://.godot/imported/OceanFFT_Butterfly.glsl-8878b6fd34f3ae5311e33f40300fb0d6.res"]
+
+[params]
+

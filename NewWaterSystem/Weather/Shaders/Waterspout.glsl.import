@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://dr1nxvokwqkmw"
+path="res://.godot/imported/Waterspout.glsl-d6bbc2afc9bdeafc473908a7560a7ed5.res"
+
+[deps]
+
+source_file="res://NewWaterSystem/Weather/Shaders/Waterspout.glsl"
+dest_files=["res://.godot/imported/Waterspout.glsl-d6bbc2afc9bdeafc473908a7560a7ed5.res"]
+
+[params]
+

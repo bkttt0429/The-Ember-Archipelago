@@ -1,0 +1,30 @@
+[gd_scene load_steps=5 format=3 uid="uid://boat_fab_001"]
+
+[ext_resource type="Script" path="res://NewWaterSystem/Core/Scripts/BuoyancyComponent.gd" id="1_buoy_script"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_main"]
+size = Vector3(4.0, 1.0, 2.0)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_main"]
+size = Vector3(4.0, 1.0, 2.0)
+
+[node name="Boat" type="RigidBody3D"]
+mass = 500.0
+linear_damp = 0.5
+angular_damp = 0.5
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+mesh = SubResource("BoxMesh_main")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("BoxShape3D_main")
+
+[node name="BuoyancyComponent" type="Node3D" parent="."]
+script = ExtResource("1_buoy_script")
+buoyancy_force = 10000.0
+submerged_height = 1.0
+drag = 1.0
+angular_drag = 1.0
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.939693, 0.34202, 0, -0.34202, 0.939693, 0, 3, 6)

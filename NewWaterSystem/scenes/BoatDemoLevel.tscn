@@ -1,0 +1,78 @@
+[gd_scene load_steps=14 format=3 uid="uid://dkvaw5yscsf5x"]
+
+[ext_resource type="Script" path="res://NewWaterSystem/Core/Scripts/WaterManager.gd" id="1_water_mgr"]
+[ext_resource type="PackedScene" path="res://NewWaterSystem/scenes/Boat.tscn" id="2_boat_scn"]
+[ext_resource type="Script" path="res://NewWaterSystem/Core/Scripts/ViewSwitcher.gd" id="3_view_switch"]
+[ext_resource type="Environment" uid="uid://cj5n6ylnth8yx" path="res://NewWaterSystem/scenes/SkillsDemo_env.tres" id="4_env_res"]
+[ext_resource type="Script" path="res://NewWaterSystem/Core/Scripts/CameraController.gd" id="5_cam_ctrl"]
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_4dwp4"]
+seed = -550277680
+frequency = 0.05
+fractal_octaves = 3
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_ksals"]
+width = 256
+height = 256
+noise = SubResource("FastNoiseLite_4dwp4")
+seamless = true
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_1uimi"]
+noise_type = 2
+seed = -1126670874
+frequency = 0.05
+fractal_type = 0
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_frfft"]
+noise = SubResource("FastNoiseLite_1uimi")
+seamless = true
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_ousmj"]
+seed = 12345
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_0vudp"]
+noise = SubResource("FastNoiseLite_ousmj")
+seamless = true
+as_normal_map = true
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_tes3i"]
+seed = 67890
+frequency = 0.08
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_hvyoa"]
+noise = SubResource("FastNoiseLite_tes3i")
+seamless = true
+as_normal_map = true
+
+[node name="BoatDemoLevel" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = ExtResource("4_env_res")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.707107, 0.5, -0.5, 0, 0.707107, 0.707107, 0.707107, -0.5, 0.5, 0, 10, 0)
+light_energy = 1.5
+shadow_enabled = true
+
+[node name="OceanWaterManager" type="Node3D" parent="." groups=["WaterSystem_Managers"]]
+script = ExtResource("1_water_mgr")
+sea_size = Vector2(256, 256)
+color_foam = Color(1, 1, 0, 1)
+foam_noise_tex = SubResource("NoiseTexture2D_ksals")
+caustics_texture = SubResource("NoiseTexture2D_frfft")
+normal_map1 = SubResource("NoiseTexture2D_0vudp")
+normal_map2 = SubResource("NoiseTexture2D_hvyoa")
+
+[node name="Boat" parent="." instance=ExtResource("2_boat_scn")]
+transform = Transform3D(2, 0, 0, 0, 2, 0, 0, 0, 2, 0, 2, 0)
+
+[node name="FreeCamera" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.7071068, 0.7071068, 0, -0.7071068, 0.7071068, 0, 18.551243, 5.443199)
+script = ExtResource("5_cam_ctrl")
+speed = 20.0
+
+[node name="ViewSwitcher" type="Node" parent="."]
+script = ExtResource("3_view_switch")
+free_camera_path = NodePath("../FreeCamera")
+boat_camera_path = NodePath("../Boat/Camera3D")
