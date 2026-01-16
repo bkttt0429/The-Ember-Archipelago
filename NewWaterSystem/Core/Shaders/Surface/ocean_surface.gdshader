@@ -1,6 +1,9 @@
 shader_type spatial;
 render_mode blend_mix, cull_back, diffuse_burley, specular_schlick_ggx, alpha_to_coverage, depth_draw_always;
 
+// Varying for Jacobian (Foam)
+varying float v_jacobian;
+
 uniform float peak_sharpness : hint_range(0.1, 4.0) = 1.0;
 uniform float sss_strength : hint_range(0.0, 5.0) = 0.5;
 uniform vec4 sss_color : source_color = vec4(0.0, 0.6, 0.5, 1.0);
@@ -10,7 +13,7 @@ uniform vec4 sss_color : source_color = vec4(0.0, 0.6, 0.5, 1.0);
 
 uniform float horizontal_displacement_scale : hint_range(0.0, 1.0) = 0.8;
 
-vec3 gerstner_wave(vec3 pos, float time, vec2 dir, float length, float steepness, float speed, inout vec3 tangent, inout vec3 binormal) {
+vec3 gerstner_wave(vec3 pos, float time, vec2 dir, float length, float steepness, float speed, inout vec3 tangent, inout vec3 binormal, inout float jacobian_sum) {
     float k = 2.0 * PI / length;
     float c = sqrt(9.81 / k) * speed;
     vec2 d = normalize(dir);
@@ -22,9 +25,12 @@ vec3 gerstner_wave(vec3 pos, float time, vec2 dir, float length, float steepness
     float dh_df = cos(f);
     if (peak_sharpness != 1.0) {
         float s = h * 0.5 + 0.5;
-        // Refined: Use max(h_raw, 0) to avoid negative basis for pow
-        dh_df = peak_sharpness * pow(max(s, 0.001), max(peak_sharpness - 1.0, 0.0)) * cos(f);
+        // ✅ Decoupled: Visual height uses pow() for sharpness
         h = pow(max(s, 0.001), peak_sharpness) * 2.0 - 1.0;
+        
+        // ✅ Tangent: Always use smooth derivative (ignore peak_sharpness pow)
+        // This prevents "explosions" where the normal flips instantly between vertices
+        dh_df = cos(f); 
     }
 
     tangent += vec3(
@@ -38,6 +44,11 @@ vec3 gerstner_wave(vec3 pos, float time, vec2 dir, float length, float steepness
         -d.y * d.y * (steepness * sin(f))
     );
     
+    // Jacobian contribution: Q * k * A * cos(f)
+    // Q (steepness control) is roughly 'steepness' here in our simplified model
+    // This value represents "how much the wave is bunching up"
+    jacobian_sum += steepness * cos(f);
+
     return vec3(
         d.x * (a * cos(f)) * horizontal_displacement_scale,
         a * h,
@@ -45,7 +56,7 @@ vec3 gerstner_wave(vec3 pos, float time, vec2 dir, float length, float steepness
     );
 }
 
-vec3 get_waves_displacement(vec3 pos, float t, float wind_strength, vec2 wind_dir, float wave_length, float wave_steepness, float wave_chaos, inout vec3 tangent, inout vec3 binormal, int iterations) {
+vec3 get_waves_displacement(vec3 pos, float t, float wind_strength, vec2 wind_dir, float wave_length, float wave_steepness, float wave_chaos, inout vec3 tangent, inout vec3 binormal, int iterations, inout float jacobian) {
     vec3 disp = vec3(0.0);
     
     // 8-Layer Wave Data (Multipliers)
@@ -74,26 +85,28 @@ vec3 get_waves_displacement(vec3 pos, float t, float wind_strength, vec2 wind_di
     }
 
     float base_angle = atan(wind_dir.y, wind_dir.x);
+    
+    // ✅ Safety Clamp for Chaos (Prevent Moiré patterns)
+    float safe_chaos = min(wave_chaos, 0.3);
 
     for (int i = 0; i < iterations; i++) {
         int idx = i * 4;
         float w_len = wave_data[idx] * wave_length;
         
-        // ✅ 關鍵修正：移除多餘的 wind_strength 乘法
-        // wave_data[idx+1] 已經包含相對強度，只需要用戶縮放和安全係數
+        // wave_data[idx+1] contains relative steepness
         float w_steep = wave_data[idx+1] * global_energy_scale * steepness_norm;
         
         float w_speed = wave_data[idx+2];
-        float w_angle = base_angle + wave_data[idx+3] * wave_chaos;
+        float w_angle = base_angle + wave_data[idx+3] * safe_chaos;
         
         vec2 d = vec2(cos(w_angle), sin(w_angle));
-        disp += gerstner_wave(pos, t, d, w_len, w_steep, w_speed, tangent, binormal);
+        disp += gerstner_wave(pos, t, d, w_len, w_steep, w_speed, tangent, binormal, jacobian);
     }
     
     // Fix: Ensure noise is also suppressed when wind is 0
     if (wind_strength > 0.001) {
         float noise = sin(pos.x * 2.0 + t) * cos(pos.z * 2.0 - t * 0.5) * 0.2;
-        disp.y += noise * wind_strength * wave_chaos;
+        disp.y += noise * wind_strength * safe_chaos;
     }
     
     return disp;
@@ -124,6 +137,9 @@ vec3 get_gerstner_normal_analytical(vec3 pos, float t, float wind_strength, vec2
     }
 
     float base_angle = atan(wind_dir.y, wind_dir.x);
+    
+    // ✅ Safety Clamp for Chaos (Analytical)
+    float safe_chaos = min(wave_chaos, 0.3);
 
     for (int i = 0; i < 8; i++) {
         int idx = i * 4;
@@ -133,7 +149,7 @@ vec3 get_gerstner_normal_analytical(vec3 pos, float t, float wind_strength, vec2
         float w_steep = wave_data[idx+1] * global_energy_scale * steepness_norm;
         
         float w_speed = wave_data[idx+2];
-        float w_angle = base_angle + wave_data[idx+3] * wave_chaos;
+        float w_angle = base_angle + wave_data[idx+3] * safe_chaos;
         
         vec2 d = vec2(cos(w_angle), sin(w_angle));
         float k = 2.0 * PI / w_len;
@@ -144,23 +160,25 @@ vec3 get_gerstner_normal_analytical(vec3 pos, float t, float wind_strength, vec2
         float dh_df = cos(f);
         if (peak_sharpness != 1.0) {
             float s = h_raw * 0.5 + 0.5;
-            // Robust non-linearity using smoothstep power approximation
-            // dh_df = peak_sharpness * pow(max(s, 0.001), max(peak_sharpness - 1.0, 0.0)) * cos(f);
-             s = smoothstep(0.0, 1.0, s); // First softening
-             dh_df = peak_sharpness * s * cos(f); 
+            // ✅ Decoupled Visuals vs Physics
+            // Visual Height: Sharpened
+            // Normal/Derivative: Smooth
+            // float h_visual = pow(max(s, 0.001), peak_sharpness) * 2.0 - 1.0; 
+            
+            // We only need the derivative for the normal here. 
+            // Previous code calculated h_visual but didn't use it for normal.y (it used h_raw).
+            // Let's stick to the decoupled derivative:
+            dh_df = cos(f); 
         }
         
-        // Clamp gradients to prevent explosions
-        float grad_x = clamp(d.x * (w_steep * dh_df), -1.0, 1.0);
-        float grad_z = clamp(d.y * (w_steep * dh_df), -1.0, 1.0);
-        
-        normal.x -= grad_x;
+        // ✅ Standard Gerstner Normal Accumulation (Robust)
+        normal.x -= d.x * (w_steep * dh_df);
         normal.y -= w_steep * h_raw; 
-        normal.z -= grad_z;
+        normal.z -= d.y * (w_steep * dh_df);
     }
     
-    // Stabilize Y and clamping
-    return normalize(vec3(normal.x, max(1.0 - normal.y * 0.3, 0.2), normal.z));
+    // ✅ Simple normalization without complex clamping hacks
+    return normalize(vec3(normal.x, 1.0 - normal.y * 0.5, normal.z));
 }
 // End of inlined logic
 
@@ -320,6 +338,9 @@ void vertex() {
 	vec3 binormal = vec3(0.0, 0.0, 1.0);
 	vec3 wave_disp = vec3(0.0);
 
+	// Jacobian accumulator
+	float j_sum = 0.0;
+
     // Calcluate world position early for damping
     // Note: VERTEX is local. MODEL_MATRIX * VERTEX is world.
     // We already have calculation: vec3 world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
@@ -357,7 +378,7 @@ void vertex() {
 	if (wind_strength > 0.001) {
 		// INLINED get_waves_displacement to support LOD variable iterations
         // Using `iterations` variable from LOD logic
-		wave_disp = get_waves_displacement(world_pos, interpolated_time, wind_strength, wind_dir, wave_length, wave_steepness, wave_chaos, tangent, binormal, iterations);
+		wave_disp = get_waves_displacement(world_pos, interpolated_time, wind_strength, wind_dir, wave_length, wave_steepness, wave_chaos, tangent, binormal, iterations, j_sum);
         
 		v_wave_normal = normalize(cross(binormal, tangent));
 	} else {
@@ -440,9 +461,12 @@ void fragment() {
 		float interpolated_time = physics_time + render_alpha * (1.0 / 60.0);
 		vec3 analytical_n = get_gerstner_normal_analytical(v_world_pos, interpolated_time, wind_strength, wind_dir, wave_length, wave_steepness, wave_chaos);
 		
-		// ✅ 使用 smoothstep 漸進混合，而非固定權重
-		float smooth_transition = smoothstep(0.1, 0.5, wave_height_factor);
-		float mix_weight = mix(0.5, 0.85, smooth_transition); // 動態權重
+		// ✅ 使用雙重平滑
+		float smooth_transition = smoothstep(0.2, 0.8, wave_height_factor); // 更寬範圍
+		float mix_weight = mix(0.3, 0.7, smooth_transition); // 降低最大權重（原0.85→0.7）
+		
+		// ✅ 額外的邊緣衰減（防止網格邊界突變）
+		mix_weight *= v_edge_damp; // 利用已有的邊緣衰減
 		
 		base_normal = normalize(mix(base_normal, analytical_n, mix_weight));
 	}
@@ -491,9 +515,16 @@ void fragment() {
     	}
 	
 	// ✅ 減弱 detail_normal 的混合強度
-	// ✅ 減弱 detail_normal 的混合強度 (30% + Adaptive)
-	float detail_fade = 1.0 - smoothstep(0.2, 0.8, wave_height_factor);
-	detail_normal = mix(vec3(0.0, 0.0, 1.0), detail_normal, normal_scale * 0.3 * detail_fade);
+	// ✅ 減弱 detail_normal 的混合強度 (智能禁用)
+	float detail_fade = smoothstep(0.3, 1.5, abs(v_world_pos.y)); // 更激進的禁用範圍
+	float detail_strength = normal_scale * 0.2 * (1.0 - detail_fade); // 降到 0.2（原0.3）
+	
+	// ✅ Storm Mode 下進一步降低
+	if (storm_mode) {
+		detail_strength *= 0.5; // Storm 下只保留10%
+	}
+	
+	detail_normal = mix(vec3(0.0, 0.0, 1.0), detail_normal, detail_strength);
 	// Use safer blending (Whiteout Blend)
 	normal = normalize(blend_normals(normal, detail_normal));
 	
@@ -503,8 +534,9 @@ void fragment() {
 	vec3 fft_normal = normalize(vec3(-fft_grad.x, 1.0, -fft_grad.y));
 	// Unsuppressed FFT influence for more detail
 	// ✅ 降低 FFT 法線的影響（從 1.5 降到 0.8）
-	// ✅ 降低 FFT 法線的影響（從 1.5 降到 0.6）
-	float fft_norm_strength = wind_strength * fft_scale * 0.6 * smoothstep(0.0, 5.0, TIME); // Progressive start
+	// ✅ 降低 FFT 法線的影響（從 1.5 降到 0.5，10秒漸進）
+	float fft_ramp = smoothstep(0.0, 10.0, TIME); // 5秒→10秒
+	float fft_norm_strength = wind_strength * fft_scale * 0.5 * fft_ramp; // 0.6→0.5
 	normal = normalize(mix(normal, blend_normals(normal, fft_normal), fft_norm_strength));
 	
 	// CRITICAL: Set the fragment normal in VIEW SPACE for correct PBR shading and reflections
@@ -514,8 +546,13 @@ void fragment() {
 	
 	// 4. Foam System (Upgraded Sensitivity)
 	vec2 foam_uv = v_world_pos.xz * 0.4;
-	float f_n1 = texture(foam_noise, foam_uv + TIME * 0.02).r;
-	float f_n2 = texture(foam_noise, foam_uv * 2.5 - TIME * 0.05).r;
+	
+	// ✅ Domain Distortion (Warping)
+	// Use the wave normal to distort the UVs, making foam "swirl" and "stretch"
+	vec2 distortion = v_wave_normal.xz * 0.1; 
+	
+	float f_n1 = texture(foam_noise, foam_uv + distortion + TIME * 0.02).r;
+	float f_n2 = texture(foam_noise, foam_uv * 2.5 - distortion + TIME * 0.05).r;
 	
 	// Relaxed noise blending to allow more continuous foam
 	float combined_noise = (f_n1 * 0.6 + f_n2 * 0.4);
@@ -526,7 +563,10 @@ void fragment() {
 	float shore_foam = smoothstep(0.3, 0.7, shore_mask + combined_noise * 0.4) * shore_mask * foam_shore_strength;
 	
 	// Global steepness signal for Foam and SSS
-	float steepness_signal = clamp(1.0 - normal.y - 0.1, 0.0, 1.0); 
+	// ✅ Jacobian-based Foam (Physically correct bunching)
+	// v_jacobian represents how "compressed" the surface is. 
+	// Tuned for high sensitivity: > 0.3 means crest
+	float steepness_signal = smoothstep(0.3, 0.7, v_jacobian); 
 
 	// Crest & Wake Foam (Simplified Steepness-based)
 	// Using fragment normal for higher detail (includes detail maps/waves)
@@ -537,12 +577,14 @@ void fragment() {
     
 	// Base threshold based on foam_jacobian_bias (repurposed for steepness)
 	// Relaxed logic: allow foam to appear more easily on crests
-	float s_threshold = 0.35 - (foam_jacobian_bias * 0.3); 
+	// ✅ Lowered threshold for more foam
+	float s_threshold = 0.4 - (foam_jacobian_bias * 0.4); 
 	float crest_foam = 0.0;
-	if (steepness_signal > 0.02 && (wind_strength > 0.1 || storm_mode)) {
-        // Boost signal using energy and noise
-        float energetic_signal = steepness_signal * (0.8 + wave_energy * 0.5);
-		crest_foam = smoothstep(s_threshold, s_threshold + 0.3, energetic_signal + combined_noise * 0.2) * foam_crest_strength;
+	if (wind_strength > 0.1 || storm_mode) {
+        // Boost signal using energetic height + Jacobian pinch
+        // Increased Jacobian weight (steepness_signal)
+        float energetic_signal = steepness_signal * 1.2 + wave_energy * 0.5;
+		crest_foam = smoothstep(s_threshold, s_threshold + 0.3, energetic_signal + combined_noise * 0.3) * foam_crest_strength;
 	}
 	
 	float ripple_h = texture(swe_texture, v_swe_uv).r;

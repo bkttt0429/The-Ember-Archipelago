@@ -43,7 +43,7 @@ extends Node3D
 	set(v): wave_length = v; _update_shader_params_deferred()
 @export var horizontal_displacement_scale: float = 0.5:
 	set(v): horizontal_displacement_scale = v; _update_shader_params_deferred()
-@export var wave_chaos: float = 1.0:
+@export var wave_chaos: float = 0.25:
 	set(v):
 		wave_chaos = v
 		_update_shader_params_deferred()
@@ -76,7 +76,7 @@ func apply_deep_ocean_barrel_preset():
 	wave_length = 80.0 # Increased from 40.0 to match wind scale
 	wave_steepness = 0.18
 	horizontal_displacement_scale = 0.7 # ✅ Lower for stability in big waves
-	peak_sharpness = 1.8 # ✅ Reduced from 2.2 to prevent spikes
+	peak_sharpness = 1.1 # ✅ Reduced from 1.8 for safety
 	wave_chaos = 0.25 # Reduced from 0.4 to prevent messy intersection
 	
 	rogue_wave_present = true
@@ -92,7 +92,7 @@ func apply_deep_ocean_barrel_preset():
 	print("[WaterManager] Deep Ocean Barrel Preset Applied (Anti-Spike)")
 	
 	# Visual Fixes
-	normal_scale = 0.7
+	normal_scale = 0.5
 	normal_tile = 10.0
 	roughness = 0.25
 	foam_jacobian_bias = 0.15
@@ -107,7 +107,7 @@ func apply_surfing_barrel_preset():
 	wave_length = 50.0
 	wave_steepness = 0.20
 	horizontal_displacement_scale = 0.75 # ✅ Lower for stability
-	peak_sharpness = 2.0 # ✅ Reduced from 2.8
+	peak_sharpness = 1.2 # ✅ Reduced from 2.0
 	wave_chaos = 0.2
 	
 	rogue_wave_present = true
@@ -123,7 +123,7 @@ func apply_surfing_barrel_preset():
 	print("[WaterManager] Surfing Barrel Preset Applied (Anti-Spike)")
 
 	# Visual Fixes
-	normal_scale = 0.7
+	normal_scale = 0.5
 	normal_tile = 10.0
 	roughness = 0.25
 	foam_jacobian_bias = 0.15
@@ -369,13 +369,21 @@ func _apply_storm_preset():
 	wind_strength = 3.5 # 35 m/s ≈ 12 級颱風
 	wave_length = 120.0 # ✅ 恢復：對應高風速的波長基準
 	wave_steepness = 0.35 # Reduced from 0.5 for stability
-	peak_sharpness = 1.4 # Reduced from 1.8 for stability
+	peak_sharpness = 1.0 # ✅ Reduced to 1.0 (Linear only) to strictly prevent artifacts
+	wave_chaos = 0.25 # ✅ Enforce low chaos for storm stability
 	sss_color = Color(0.1, 0.8, 0.6) # More teal, less green
 	foam_crest_strength = 4.0
 	fresnel_strength = 0.7 # Reduced from 1.2
 	reflection_strength = 0.6 # Reduced from 0.8
 	sss_strength = 0.4 # Reduced from 1.0
 	print("[WaterManager] Storm Mode - JONSWAP 自动调整波长分布 (Refined).")
+	
+	# Visual Fixes (Unified)
+	normal_scale = 0.5
+	normal_tile = 10.0
+	roughness = 0.25
+	foam_jacobian_bias = 0.15
+	normal_speed = 0.25
 
 func _ready():
 	_is_initialized = false
@@ -457,6 +465,15 @@ func _ready():
 	_update_shader_parameters()
 	
 	print("[WaterManager] Visual settings applied: normal_scale=%.2f, roughness=%.2f" % [normal_scale, roughness])
+	
+	# Startup Safety Override
+	if abs(wind_strength - 1.0) < 0.1:
+		normal_scale = 0.5
+		if peak_sharpness > 1.2:
+			peak_sharpness = 1.0
+		if wave_chaos > 0.3:
+			wave_chaos = 0.25
+		print("[WaterManager] Startup Safety: Enforced normal_scale=0.5, peak_sharpness=1.0, wave_chaos=0.25")
 	# ================================
 	
 	_is_initialized = true
