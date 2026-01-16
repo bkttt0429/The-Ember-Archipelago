@@ -13,7 +13,7 @@ uniform vec4 sss_color : source_color = vec4(0.0, 0.6, 0.5, 1.0);
 
 uniform float horizontal_displacement_scale : hint_range(0.0, 1.0) = 0.8;
 
-vec3 gerstner_wave(vec3 pos, float time, vec2 dir, float length, float steepness, float speed, inout vec3 tangent, inout vec3 binormal, inout float jacobian_sum) {
+vec3 gerstner_wave(vec3 pos, float time, vec2 dir, float length, float steepness, float speed, inout vec3 tangent, inout vec3 binormal, inout float jacobian_det) {
     float k = 2.0 * PI / length;
     float c = sqrt(9.81 / k) * speed;
     vec2 d = normalize(dir);
@@ -44,10 +44,10 @@ vec3 gerstner_wave(vec3 pos, float time, vec2 dir, float length, float steepness
         -d.y * d.y * (steepness * sin(f))
     );
     
-    // Jacobian contribution: Q * k * A * cos(f)
-    // Q (steepness control) is roughly 'steepness' here in our simplified model
-    // This value represents "how much the wave is bunching up"
-    jacobian_sum += steepness * cos(f);
+    // Jacobian Determinant contribution: J *= (1 - k * A * cos(f))
+    // k * A = steepness (approximately)
+    // This value represents the determinant of the transformation. < 0 means folding.
+    jacobian_det *= (1.0 - steepness * cos(f));
 
     return vec3(
         d.x * (a * cos(f)) * horizontal_displacement_scale,
@@ -56,7 +56,7 @@ vec3 gerstner_wave(vec3 pos, float time, vec2 dir, float length, float steepness
     );
 }
 
-vec3 get_waves_displacement(vec3 pos, float t, float wind_strength, vec2 wind_dir, float wave_length, float wave_steepness, float wave_chaos, inout vec3 tangent, inout vec3 binormal, int iterations, inout float jacobian) {
+vec3 get_waves_displacement(vec3 pos, float t, float wind_strength, vec2 wind_dir, float wave_length, float wave_steepness, float wave_chaos, inout vec3 tangent, inout vec3 binormal, int iterations, inout float jacobian_det) {
     vec3 disp = vec3(0.0);
     
     // 8-Layer Wave Data (Multipliers)
@@ -100,7 +100,7 @@ vec3 get_waves_displacement(vec3 pos, float t, float wind_strength, vec2 wind_di
         float w_angle = base_angle + wave_data[idx+3] * safe_chaos;
         
         vec2 d = vec2(cos(w_angle), sin(w_angle));
-        disp += gerstner_wave(pos, t, d, w_len, w_steep, w_speed, tangent, binormal, jacobian);
+        disp += gerstner_wave(pos, t, d, w_len, w_steep, w_speed, tangent, binormal, jacobian_det);
     }
     
     // Fix: Ensure noise is also suppressed when wind is 0
@@ -223,6 +223,9 @@ uniform bool debug_show_markers = false;
 uniform bool show_wireframe = false;
 
 uniform sampler2D foam_noise : repeat_enable, hint_default_white; 
+uniform sampler2D foam_detail : repeat_enable, hint_default_white;
+uniform sampler2D foam_sparkle : repeat_enable, hint_default_white;
+uniform sampler2D foam_normal : hint_normal, repeat_enable;
 uniform sampler2D normal_map1 : hint_normal, repeat_enable;
 uniform sampler2D normal_map2 : hint_normal, repeat_enable;
 uniform sampler2D envelope_tex : hint_default_white, filter_linear, repeat_disable;
@@ -338,8 +341,8 @@ void vertex() {
 	vec3 binormal = vec3(0.0, 0.0, 1.0);
 	vec3 wave_disp = vec3(0.0);
 
-	// Jacobian accumulator
-	float j_sum = 0.0;
+	// Jacobian accumulator (Determinant initialized to 1.0)
+	float j_det = 1.0;
 
     // Calcluate world position early for damping
     // Note: VERTEX is local. MODEL_MATRIX * VERTEX is world.
@@ -378,12 +381,18 @@ void vertex() {
 	if (wind_strength > 0.001) {
 		// INLINED get_waves_displacement to support LOD variable iterations
         // Using `iterations` variable from LOD logic
-		wave_disp = get_waves_displacement(world_pos, interpolated_time, wind_strength, wind_dir, wave_length, wave_steepness, wave_chaos, tangent, binormal, iterations, j_sum);
+		wave_disp = get_waves_displacement(world_pos, interpolated_time, wind_strength, wind_dir, wave_length, wave_steepness, wave_chaos, tangent, binormal, iterations, j_det);
         
 		v_wave_normal = normalize(cross(binormal, tangent));
 	} else {
 		v_wave_normal = vec3(0.0, 1.0, 0.0);
 	}
+
+    // Convert Jacobian Determinant to "Compression Signal" (1.0 - Det)
+    // Det < 1.0 -> Compressing
+    // Det < 0.0 -> Folding
+    // v_jacobian > 1.0 implies folding
+    v_jacobian = 1.0 - j_det;
     
     // Add Rogue Wave (Raw)
     vec3 rogue_disp = get_rogue_wave_displacement(world_pos, interpolated_time, tangent, binormal, tangent, binormal);
@@ -551,55 +560,68 @@ void fragment() {
 	// Use the wave normal to distort the UVs, making foam "swirl" and "stretch"
 	vec2 distortion = v_wave_normal.xz * 0.1; 
 	
-	float f_n1 = texture(foam_noise, foam_uv + distortion + TIME * 0.02).r;
-	float f_n2 = texture(foam_noise, foam_uv * 2.5 - distortion + TIME * 0.05).r;
+	// 3-Layer Texture Mixing
+	float f_base = texture(foam_noise, foam_uv + distortion + TIME * 0.02).r;
+	float f_detail = texture(foam_detail, foam_uv * 3.0 + distortion * 2.0 - TIME * 0.05).r;
+	float f_sparkle = texture(foam_sparkle, foam_uv * 8.0 + TIME * 0.1).r;
 	
 	// Relaxed noise blending to allow more continuous foam
-	float combined_noise = (f_n1 * 0.6 + f_n2 * 0.4);
-	combined_noise = smoothstep(0.4, 0.9, combined_noise); // Sharpness increased
+	float combined_noise = (f_base * 0.5 + f_detail * 0.3 + f_sparkle * 0.2); // Weighted blend
+	combined_noise = smoothstep(0.3, 0.8, combined_noise); 
 
 	// Shore Foam (Slightly more sensitive)
 	float shore_mask = clamp(1.0 - water_depth / max(foam_shore_spread, 0.01), 0.0, 1.0);
 	float shore_foam = smoothstep(0.3, 0.7, shore_mask + combined_noise * 0.4) * shore_mask * foam_shore_strength;
 	
 	// Global steepness signal for Foam and SSS
-	// ✅ Jacobian-based Foam (Physically correct bunching)
-	// v_jacobian represents how "compressed" the surface is. 
-	// Tuned for high sensitivity: > 0.3 means crest
-	float steepness_signal = smoothstep(0.3, 0.7, v_jacobian); 
-
-	// Crest & Wake Foam (Simplified Steepness-based)
-	// Using fragment normal for higher detail (includes detail maps/waves)
+	// ✅ Jacobian-based Foam (Physically correct folding)
+	// v_jacobian = 1.0 - Det.
+	// Det < 0.0 (Folding) -> v_jacobian > 1.0
+	// Bias controls sensitivity.
+    // Foam threshold
+	float foam_jacob_signal = smoothstep(foam_jacobian_bias, foam_jacobian_bias + 0.2, v_jacobian);
 	
-	// Energy Factor: Based on wave height for scaling
-    float energy_scale = max(wave_length * 0.1, 1.0);
-    float wave_energy = clamp(v_world_pos.y / energy_scale, 0.0, 1.0);
+	// Recover missing variables for SSS and Energy
+	// Recover missing variables for SSS and Energy
+	float steepness_signal = max(v_jacobian - foam_jacobian_bias, 0.0);
+	// Fix: reduce base energy input to prevent global whiteout
+	// Only add energy when waves are actually steep/folding
+	float wave_energy = steepness_signal * wind_strength; 
     
-	// Base threshold based on foam_jacobian_bias (repurposed for steepness)
-	// Relaxed logic: allow foam to appear more easily on crests
-	// ✅ Lowered threshold for more foam
-	float s_threshold = 0.4 - (foam_jacobian_bias * 0.4); 
+    // Add Wake Foam (SWE Interaction + Weather)
+    float swe_h_frag = texture(swe_texture, v_swe_uv).r;
+    // Wake signal from Height + Weather Danger
+    float wake_signal = smoothstep(0.1, 0.5, abs(swe_h_frag) * 2.0) * foam_wake_strength;
+    wake_signal += clamp(weather_danger * 2.0, 0.0, 1.0); 
+    
+    // Combine with energy (Jacobian + Wave Steepness + Wake/Interaction)
+    float energetic_signal = foam_jacob_signal * 1.0 + wave_energy * 0.5 + wake_signal;
+
+	// Integrated Crest & Wake Foam
 	float crest_foam = 0.0;
-	if (wind_strength > 0.1 || storm_mode) {
-        // Boost signal using energetic height + Jacobian pinch
-        // Increased Jacobian weight (steepness_signal)
-        float energetic_signal = steepness_signal * 1.2 + wave_energy * 0.5;
-		crest_foam = smoothstep(s_threshold, s_threshold + 0.3, energetic_signal + combined_noise * 0.3) * foam_crest_strength;
+	// Generate foam if there is Wind, Storm, or significant Wake/Interaction
+	if (wind_strength > 0.1 || storm_mode || wake_signal > 0.01) {
+		crest_foam = smoothstep(0.4, 0.7, energetic_signal + combined_noise * 0.3) * foam_crest_strength;
 	}
 	
-	float ripple_h = texture(swe_texture, v_swe_uv).r;
-	float wake_signal = max(abs(ripple_h) * swe_strength, 0.0) + weather_danger * 2.0;
-	float wake_foam = 0.0;
-	if (wake_signal > 0.2 && abs(ripple_h) > 0.05) {
-		wake_foam = smoothstep(0.2, 1.0, wake_signal + combined_noise * 0.2) * foam_wake_strength;
+	// Total Stillness Mode check (Kill all foam if completely calm)
+	if (wind_strength < 0.01 && abs(swe_h_frag) < 0.02 && weather_danger < 0.01) {
+		crest_foam = 0.0;
 	}
 	
-	// Total Stillness Mode check
-	if (wind_strength < 0.01 && abs(ripple_h) < 0.02 && weather_danger < 0.01) {
-		crest_foam = 0.0; wake_foam = 0.0;
-	}
-	
-	float final_foam = clamp(max(shore_foam, max(crest_foam, wake_foam)), 0.0, 1.0);
+    float final_foam = clamp(max(shore_foam, crest_foam), 0.0, 1.0);
+    
+    // Foam Tinting Logic
+    vec3 foam_tint_color = mix(vec3(0.9, 0.9, 0.85), vec3(1.0), foam_jacob_signal); // Old (Yellowish) to New (White)
+    foam_tint_color = mix(foam_tint_color, color_foam.rgb, 0.5); // Blend with user color
+    
+    // Add sparkle highlights
+    foam_tint_color += vec3(f_sparkle) * 0.5 * final_foam;
+    
+    // Apply tint
+    // NOTE: This overrides the previous "mix(color, color_foam.rgb, final_foam)" logic later
+    // We calculate color mixing here
+    vec3 foam_contribution = foam_tint_color * final_foam;
 	
 	if (debug_mesh_only) {
 		normal = v_wave_normal;
@@ -629,7 +651,13 @@ void fragment() {
 		}
 	}
 	
-	color = mix(color, color_foam.rgb, final_foam);
+	// Apply Foam Color
+    color = mix(color, foam_tint_color, final_foam);
+    
+    // Normal blending with Foam Normal (if available)
+    // Assuming foam_normal texture exists
+    // vec3 f_normal = texture(foam_normal, foam_uv * 2.0).rgb * 2.0 - 1.0;
+    // normal = mix(normal, normalize(f_normal), final_foam * 0.5);
 	
 	if (show_wireframe) {
 		vec2 grid_uv = fract(v_swe_uv * vec2(textureSize(swe_texture, 0)));
@@ -642,6 +670,12 @@ void fragment() {
 	// Replaces hard clamp with smooth proximity fade
     // Combine depth fade with world-space edge fade
 	ALPHA = clamp(smoothstep(0.0, max(edge_scale, 0.01), water_depth), 0.0, 1.0);
+    
+    // Foam Transparency Layering
+    // Edges are semi-transparent, core is opaque
+    float foam_alpha = final_foam * mix(0.3, 1.0, final_foam); // Dense foam is opaque
+    ALPHA = max(ALPHA, foam_alpha); // Foam adds opacity
+    
     ALPHA *= smoothstep(0.0, 0.2, v_edge_damp); // Extra smooth falloff at the very edge
 
 	// Deep water lowers metallic/specular to avoid plastic look

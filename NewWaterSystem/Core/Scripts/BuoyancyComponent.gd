@@ -49,7 +49,7 @@ func _setup_probes():
 		# Single center probe
 		_probes.append(Vector3.ZERO)
 
-func _physics_process(delta):
+func _physics_process(_delta):
 	if not _water_manager or not _rigid_body: return
 	
 	var body_gt = _rigid_body.global_transform
@@ -77,10 +77,27 @@ func _physics_process(delta):
 			
 			# Add Water Drag (Linear and Angular)
 			var velocity = _rigid_body.linear_velocity
-			var drag_force = - velocity * drag * (depth / submerged_height) * delta
+			var drag_force = - velocity * drag * (depth / submerged_height)
 			_rigid_body.apply_force(drag_force, global_probe_pos - _rigid_body.global_position)
 	
 	# Apply Angular Drag if submerged
 	if total_submerged_ratio > 0.0:
-		var ang_drag = - _rigid_body.angular_velocity * angular_drag * total_submerged_ratio * delta
+		var ang_drag = - _rigid_body.angular_velocity * angular_drag * total_submerged_ratio
 		_rigid_body.apply_torque(ang_drag)
+		
+		# Wake / Ripple Logic
+		var speed = _rigid_body.linear_velocity.length()
+		if speed > 1.0: # Minimum speed to create wake
+			# Trigger ripple at current position
+			# Use a slightly larger radius based on speed?
+			var dynamic_radius = wake_radius * (1.0 + speed * 0.1)
+			var dynamic_force = wake_force * (speed * 0.1) * total_submerged_ratio
+			
+			# Clamp to reasonable values
+			dynamic_force = min(dynamic_force, 2.0)
+			
+			_water_manager.trigger_ripple(_rigid_body.global_position, dynamic_force, dynamic_radius)
+
+@export_group("Wake Effects")
+@export var wake_force: float = 0.5
+@export var wake_radius: float = 2.0

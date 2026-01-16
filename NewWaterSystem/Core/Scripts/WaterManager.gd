@@ -143,6 +143,12 @@ func apply_surfing_barrel_preset():
 	set(v): color_foam = v; _update_shader_params_deferred()
 @export var foam_noise_tex: NoiseTexture2D:
 	set(v): foam_noise_tex = v; _update_shader_params_deferred()
+@export var foam_detail_tex: Texture2D:
+	set(v): foam_detail_tex = v; _update_shader_params_deferred()
+@export var foam_sparkle_tex: Texture2D:
+	set(v): foam_sparkle_tex = v; _update_shader_params_deferred()
+@export var foam_normal_tex: Texture2D:
+	set(v): foam_normal_tex = v; _update_shader_params_deferred()
 
 @export_subgroup("Reflections & PBR")
 @export var metallic: float = 0.0:
@@ -828,40 +834,62 @@ func _calculate_rogue_wave_height(pos_xz: Vector2) -> float:
 	var width = rogue_wave_width
 	
 	# Assume wave direction matches wind (as in shader)
-	var wave_dir = wind_direction.normalized()
+	var dir = wind_direction.normalized()
 	
-	var dist_long = (pos_xz - center).dot(wave_dir)
-	var dist_lat = (pos_xz - center).dot(Vector2(-wave_dir.y, wave_dir.x))
+	# Rogue Wave Shape Logic (matching shader)
+	# Project pos onto wave direction
+	var dist_long = (pos_xz - center).dot(dir)
+	var dist_lat = (pos_xz - center).dot(Vector2(-dir.y, dir.x))
 	
 	if abs(dist_long) > width or abs(dist_lat) > width * 2.0:
 		return 0.0
 		
-	# Replicate Sech-Tanh envelope math
-	# envelope texture maps [-Width, Width] -> [0, 1] UV -> Value
-	
-	# u goes from 0 to 1 across the width
-	# dist_long goes from -width to +width? 
-	# In shader: sample_envelope(dist_long, width)
-	# float u = clamp((dist / width) * 0.5 + 0.5, 0.0, 1.0);
+	# Envelope function (Simple cosine bump for now)
 	var u = clamp((dist_long / width) * 0.5 + 0.5, 0.0, 1.0)
+	var envelope = 0.5 - 0.5 * cos(u * 2.0 * PI) # Placeholder for texture lookup
 	
-	# Math from _generate_envelope_texture
-	var x = (u * 2.0 - 1.0) * 4.0 # Range [-4, 4]
-	var sech = 2.0 / (exp(x) + exp(-x))
-	var distortion = 1.0 - 0.3 * tanh(x)
-	var val = sech * distortion
-	val = clamp(val, 0.0, 1.0)
+	# Lateral falloff
+	envelope *= smoothstep(width * 2.0, width, abs(dist_lat))
 	
-	# Lateral falloff (Smoothstep from shader)
-	# smoothstep(width * 2.0, width, abs(dist_lat))
-	var lat_falloff = smoothstep(width * 2.0, width, abs(dist_lat))
+	return envelope * height
+
+## 獲取破碎波浪位置（用於粒子生成）
+## @return: Array of Vector3 (World Positions)
+func get_breaking_wave_positions(grid_density: int = 16) -> Array:
+	var breaking_points = []
+	if wind_strength < 0.1: return breaking_points
 	
-	# ========== 新增：二階平滑濾波 ==========
-	# 使用 smoothstep 再次平滑，避免突變
-	var final_envelope = smoothstep(0.0, 1.0, val * lat_falloff)
-	# ======================================
+	# Scan a grid around the camera/manager
+	var scan_size = sea_size.x * 0.8
+	var step = scan_size / float(grid_density)
+	var start = - scan_size * 0.5
+	var time = physics_time
+	if not Engine.is_in_physics_frame():
+		time += accumulated_time
 	
-	return final_envelope * height
+	for i in range(grid_density):
+		for j in range(grid_density):
+			var local_x = start + i * step
+			var local_z = start + j * step
+			
+			# Add some jitter to avoid grid artifacts
+			local_x += (randf() - 0.5) * step * 0.5
+			local_z += (randf() - 0.5) * step * 0.5
+			
+			var world_pos_2d = Vector2(global_position.x + local_x, global_position.z + local_z)
+			
+			# Check Jacobian at this point
+			var jac = _calculate_gerstner_jacobian(world_pos_2d, time)
+			
+			# If Jacobian is low enough, it's a folding/breaking point
+			# Threshold can be tuned (-0.1 to 0.3)
+			if jac < 0.2:
+				# Calculate height at this point
+				var h = get_wave_height_at(Vector3(world_pos_2d.x, 0, world_pos_2d.y))
+				breaking_points.append(Vector3(world_pos_2d.x, h, world_pos_2d.y))
+				
+	return breaking_points
+
 
 func _init_default_normals():
 	if not normal_map1:
@@ -1306,6 +1334,9 @@ func _update_shader_parameters():
 	mat.set_shader_parameter("absorption_coeff", absorption_coeff)
 	mat.set_shader_parameter("color_foam", color_foam)
 	mat.set_shader_parameter("foam_noise", foam_noise_tex)
+	mat.set_shader_parameter("foam_detail", foam_detail_tex)
+	mat.set_shader_parameter("foam_sparkle", foam_sparkle_tex)
+	mat.set_shader_parameter("foam_normal", foam_normal_tex)
 	mat.set_shader_parameter("envelope_tex", envelope_texture)
 	
 	mat.set_shader_parameter("metallic", metallic)
