@@ -76,16 +76,19 @@ foam_jacobian_bias = 0.15
 caustics_texture = SubResource("NoiseTexture2D_a8hrg")
 normal_map1 = SubResource("NoiseTexture2D_4a7co")
 normal_map2 = SubResource("NoiseTexture2D_kua33")
+sea_size = Vector2(2048, 2048)
+far_fade_start = 1500.0
+far_fade_max = 2000.0
 
 [node name="BreakingWave1" type="Node3D" parent="OceanWaterManager"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -20, 0, 0)
 script = ExtResource("2_wave")
-wave_width = 40.0
-curl_strength = 1.0
-wave_speed = 10.0
+wave_width = 120.0
+curl_strength = 2.5
+wave_speed = 15.0
 lifespan = 10.0
 loop = true
 
 [node name="TestCamera" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0.866025, 0.5, 0, -0.5, 0.866025, 0, 20, 30)
+transform = Transform3D(1, 0, 0, 0, 0.866025, 0.5, 0, -0.5, 0.866025, 0, 40, 80)
 script = ExtResource("3_cam")

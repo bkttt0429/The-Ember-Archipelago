@@ -1672,31 +1672,79 @@ func _physics_process(delta):
 
 func _update_breaking_wave_uniforms():
 	if not is_inside_tree(): return
-	var mesh_inst = get_node_or_null("WaterPlane")
-	if not mesh_inst: return
-	var mat = mesh_inst.get_surface_override_material(0)
-	if not mat: return
+	
+	# 🔥 優先獲取 LOD 或 WaterPlane
+	var target_mat = null
+	if use_lod and has_node("OceanLOD"):
+		var lod = $OceanLOD
+		if lod.has_method("get") and lod.cascades and lod.cascades.size() > 0:
+			# Get first cascade material
+			if lod.cascades[0]:
+				target_mat = lod.cascades[0].get_surface_override_material(0)
+	
+	if not target_mat:
+		var mesh_inst = get_node_or_null("WaterPlane")
+		if mesh_inst:
+			target_mat = mesh_inst.get_surface_override_material(0)
+	
+	if not target_mat:
+		# If no material found yet, try finding any child with material if using LOD but cascades might be different?
+		# Actually, if use_lod is true but OceanLOD node missing/not ready, fallback.
+		return # Silently return if not ready
 	
 	var bw_data_list = []
 	var bw_params_list = []
-	
 	bw_data_list.resize(3)
-	bw_data_list.fill(Vector4(0, -999, 0, 0.01)) # ✅ 修復：使用無效值避免除零錯誤 (方案 4)
+	bw_data_list.fill(Vector4(0, -999, 0, 0.01))
 	bw_params_list.resize(3)
-	bw_params_list.fill(Vector4(0, 0, 0, 0)) # w component unused
+	bw_params_list.fill(Vector4(0, 0, 0, 0))
 	
 	for i in range(min(breaking_waves.size(), 3)):
 		var w = breaking_waves[i]
-		# data: x=pos.x, y=height, z=pos.z, w=width
-		bw_data_list[i] = Vector4(w.position.x, w.height, w.position.y, w.width)
-		# params: x=curl, y=break_point, z=dir.x, w=dir.y
-		# Default dir to wind_dir if missing
+		
+		# 🔥 安全讀取（防止 Key 錯誤）
+		var pos = w.get("position", Vector2.ZERO)
+		var height = w.get("height", 0.0)
+		var width = max(w.get("width", 1.0), 0.01) # 防除零
+		var curl = w.get("curl", 0.0)
+		var bp = w.get("break_point", 0.5)
 		var dir = w.get("direction", wind_direction)
-		bw_params_list[i] = Vector4(w.curl, w.break_point, dir.x, dir.y)
+		
+		if not pos is Vector2:
+			push_error("[WaterManager] breaking_waves[%d].position 不是 Vector2: %s" % [i, pos])
+			continue
+		
+		bw_data_list[i] = Vector4(pos.x, height, pos.y, width)
+		bw_params_list[i] = Vector4(curl, bp, dir.x, dir.y)
+	
+	# Apply to target mat found
+	target_mat.set_shader_parameter("breaking_wave_count", min(breaking_waves.size(), 3))
+	target_mat.set_shader_parameter("breaking_wave_data", bw_data_list)
+	target_mat.set_shader_parameter("breaking_wave_params", bw_params_list)
 
-	mat.set_shader_parameter("breaking_wave_count", min(breaking_waves.size(), 3))
-	mat.set_shader_parameter("breaking_wave_data", bw_data_list)
-	mat.set_shader_parameter("breaking_wave_params", bw_params_list)
+	# 🔥 修復：同步到 LOD Cascades (全部)
+	if use_lod and has_node("OceanLOD"):
+		var lod = $OceanLOD
+		if lod.has_method("get") and lod.cascades:
+			for cascade in lod.cascades:
+				if cascade:
+					cascade.set_surface_override_material(0, target_mat) # Or set params individually if materials differ? Usually shared or same shader.
+					# Better: set params on the cascade's material if unique, or ensure they share material.
+					# Implementation assumes they might share or need update. 
+					# To be safe, let's update params on all valid materials.
+					var c_mat = cascade.get_surface_override_material(0)
+					if c_mat and c_mat != target_mat:
+						c_mat.set_shader_parameter("breaking_wave_count", min(breaking_waves.size(), 3))
+						c_mat.set_shader_parameter("breaking_wave_data", bw_data_list)
+						c_mat.set_shader_parameter("breaking_wave_params", bw_params_list)
+
+	# 🔥 Debug 輸出（可選）
+	if breaking_waves.size() > 0 and Engine.get_frames_drawn() % 60 == 0:
+		print("🌊 [Uniform更新] Count=%d | Pos=%s | Height=%.1f" % [
+			breaking_waves.size(),
+			bw_data_list[0],
+			breaking_waves[0].get("height", 0)
+		])
 
 
 ## 自動優化參數（安全助手）

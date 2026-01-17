@@ -419,7 +419,7 @@ void vertex() {
 	// === Breaking Wave Curl Logic ===
 	for (int i = 0; i < breaking_wave_count; i++) {
 		vec3 wave_center = breaking_wave_data[i].xyz; // x, height, z
-		float b_width = breaking_wave_data[i].w;
+		float b_width = max(breaking_wave_data[i].w, 0.01); // ✅ Safety Force Min Width
 		float curl_strength = breaking_wave_params[i].x;
 		float break_point = breaking_wave_params[i].y;
 		
@@ -449,14 +449,19 @@ void vertex() {
 		// u > break_point triggers forward curl
 		float curl_zone = smoothstep(break_point - 0.2, break_point + 0.1, u);
 		
-		// Displacement
+		// 1. Base Vertical Rise (The body of the wave)
+		float base_rise = envelope * lateral_fade * wave_center.y;
+		VERTEX.y += base_rise;
+		
+		// 2. Curl Displacement (Forward and Down)
 		vec3 curl_offset = vec3(
 			dir_norm.x * curl_zone * curl_strength * 3.0,
-			-curl_zone * curl_strength * 2.0, // Downward
+			-curl_zone * curl_strength * 1.5, // Downward curl
 			dir_norm.y * curl_zone * curl_strength * 3.0
 		);
 		
-		VERTEX.xyz += curl_offset * envelope * lateral_fade * wave_center.y * 0.5; // Scale by height
+		// Apply curl scaling by height
+		VERTEX.xyz += curl_offset * envelope * lateral_fade * wave_center.y * 0.5; 
 	}
 
 	VERTEX.y += swe_h * swe_strength * wave_weight * final_damp;
@@ -484,6 +489,8 @@ void fragment() {
 	float geometry_z = -view_pos_raw.z;
 	float surface_z = -VERTEX.z;
 	float water_depth = max(geometry_z - surface_z, 0.0);
+	
+	// (Debug code moved to end of function to avoid 'return' error)
 	
 	// Debug override for raw depth check if needed
 	// if (debug_view) { water_depth = geometry_z; } 
@@ -793,5 +800,15 @@ void fragment() {
         EMISSION += sss_color.rgb * (sss_strength * sss_mask * (0.2 + 0.8 * sss_view_mask) + foam_sss) * (1.0 - final_foam);
 	} else {
 		EMISSION = vec3(0.0);
+	}
+	// 🔥 Break Wave Debug Visualization (Moved)
+	if (debug_show_markers && breaking_wave_count > 0) {
+		vec2 test_pos = breaking_wave_data[0].xz;
+		float test_dist = length(v_world_pos.xz - test_pos);
+		if (test_dist < breaking_wave_data[0].w) {
+			ALBEDO = vec3(1.0, 0.0, 0.0); // Red Marker
+			ALPHA = 0.5; // Semi-transparent to see shape
+			EMISSION = vec3(0.5, 0.0, 0.0);
+		}
 	}
 }
