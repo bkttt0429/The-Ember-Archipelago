@@ -369,6 +369,12 @@ func set_breaking_wave_data(data: Dictionary):
 	else:
 		# 替換最老的
 		breaking_waves[0] = data
+	
+	# 🔥 核心修復：立即更新 Shader (方案 A)
+	call_deferred("_update_breaking_wave_uniforms")
+	# 注意：如果每幀多個波浪更新，這裡可能會導致多次 GPU 上傳。
+	# 但考慮到破碎波通常 < 3 個，這是可以接受的。
+
 
 func get_breaking_wave_at(pos_xz: Vector2) -> Dictionary:
 	var closest_wave = {}
@@ -1675,7 +1681,7 @@ func _update_breaking_wave_uniforms():
 	var bw_params_list = []
 	
 	bw_data_list.resize(3)
-	bw_data_list.fill(Vector4(0, 0, 0, 0))
+	bw_data_list.fill(Vector4(0, -999, 0, 0.01)) # ✅ 修復：使用無效值避免除零錯誤 (方案 4)
 	bw_params_list.resize(3)
 	bw_params_list.fill(Vector4(0, 0, 0, 0)) # w component unused
 	

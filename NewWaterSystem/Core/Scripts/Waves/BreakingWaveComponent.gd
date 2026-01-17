@@ -45,6 +45,13 @@ func _ready():
 func _physics_process(delta):
 	if not _water_manager: return
 	
+	# 🚨 修復：可見性與距離剔除 (方案 5)
+	if not is_visible_in_tree(): return
+	
+	var cam = get_viewport().get_camera_3d()
+	if cam and global_position.distance_to(cam.global_position) > 400.0: # LOD 距離
+		return
+	
 	_age += delta
 	
 	# 狀態轉換

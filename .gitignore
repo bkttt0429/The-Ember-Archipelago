@@ -67,3 +67,6 @@ gen/
 # Temporary / Log files
 status.txt
 gd_files.txt
+
+# Obsidian
+.obsidian/workspace.json
