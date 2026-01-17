@@ -1,0 +1,91 @@
+[gd_scene load_steps=14 format=3 uid="uid://c8k2y4j8x501"]
+
+[ext_resource type="Script" uid="uid://cd6doksvbjqcw" path="res://NewWaterSystem/Core/Scripts/WaterManager.gd" id="1_water"]
+[ext_resource type="Script" uid="uid://bh2iyp38itm6y" path="res://NewWaterSystem/Core/Scripts/Waves/BreakingWaveComponent.gd" id="2_wave"]
+[ext_resource type="Script" path="res://NewWaterSystem/Core/Scripts/Utils/FreeLookCamera.gd" id="3_cam"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_test"]
+
+[sub_resource type="Sky" id="Sky_test"]
+sky_material = SubResource("ProceduralSkyMaterial_test")
+
+[sub_resource type="Environment" id="Environment_test"]
+background_mode = 2
+sky = SubResource("Sky_test")
+tonemap_mode = 2
+glow_enabled = true
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_3xhgm"]
+seed = 1105406331
+frequency = 0.05
+fractal_octaves = 3
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_vv8po"]
+width = 256
+height = 256
+noise = SubResource("FastNoiseLite_3xhgm")
+seamless = true
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_cjtq0"]
+noise_type = 2
+seed = -2146270306
+frequency = 0.05
+fractal_type = 0
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_a8hrg"]
+noise = SubResource("FastNoiseLite_cjtq0")
+seamless = true
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_o0q25"]
+seed = 12345
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_4a7co"]
+noise = SubResource("FastNoiseLite_o0q25")
+seamless = true
+as_normal_map = true
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_7hmhy"]
+seed = 67890
+frequency = 0.08
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_kua33"]
+noise = SubResource("FastNoiseLite_7hmhy")
+seamless = true
+as_normal_map = true
+
+[node name="BreakingWaveDemo" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_test")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(-0.866023, -0.433016, 0.250001, 0, 0.499998, 0.866027, -0.500003, 0.749999, -0.43301, 0, 0, 0)
+shadow_enabled = true
+
+[node name="OceanWaterManager" type="Node3D" parent="." groups=["WaterSystem_Managers"]]
+script = ExtResource("1_water")
+wind_strength = 2.0
+wind_direction = Vector2(1, 0)
+wave_steepness = 0.2
+color_deep = Color(0, 0.1, 0.3, 1)
+color_shallow = Color(0, 0.6, 0.8, 1)
+foam_noise_tex = SubResource("NoiseTexture2D_vv8po")
+foam_crest_strength = 1.5
+foam_jacobian_bias = 0.15
+caustics_texture = SubResource("NoiseTexture2D_a8hrg")
+normal_map1 = SubResource("NoiseTexture2D_4a7co")
+normal_map2 = SubResource("NoiseTexture2D_kua33")
+
+[node name="BreakingWave1" type="Node3D" parent="OceanWaterManager"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -20, 0, 0)
+script = ExtResource("2_wave")
+wave_width = 40.0
+curl_strength = 1.0
+wave_speed = 10.0
+lifespan = 10.0
+loop = true
+
+[node name="TestCamera" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.866025, 0.5, 0, -0.5, 0.866025, 0, 20, 30)
+script = ExtResource("3_cam")

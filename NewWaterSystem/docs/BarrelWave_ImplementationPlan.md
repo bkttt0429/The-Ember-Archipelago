@@ -3,17 +3,17 @@
 Based on the design in `BarrelWaveSystem_Design.md`.
 
 ## Phase 1: Core Wave Shape (核心形態)
-- [ ] Implement `BreakingWaveComponent.gd` in `NewWaterSystem/Core/Scripts/Waves/`
-- [ ] Extend `WaterManager.gd` with breaking wave interface
-- [ ] Modify `ocean_surface.gdshader` (Vertex Shader) to add curl logic
-- [ ] Test scene setup with single wave
+- [x] Implement `BreakingWaveComponent.gd` in `NewWaterSystem/Core/Scripts/Waves/`
+- [x] Extend `WaterManager.gd` with breaking wave interface
+- [x] Modify `ocean_surface.gdshader` (Vertex Shader) to add curl logic
+- [x] Test scene setup with single wave
 
 ## Phase 2: Foam System (泡沫系統)
-- [ ] Implement Foam Particle Physics in `WaterManager.gd`
-- [ ] Create `FoamParticleRenderer.gd` in `NewWaterSystem/Core/Scripts/Foam/`
-- [ ] Create `FoamParticle.gdshader` in `NewWaterSystem/Core/Shaders/`
-- [ ] Enhance Fragment Shader in `ocean_surface.gdshader` for foam
-- [ ] Performance tuning
+- [x] Implement Foam Particle Physics in `WaterManager.gd`
+- [x] Create `FoamParticleRenderer.gd` in `NewWaterSystem/Core/Scripts/Foam/`
+- [x] Create `FoamParticle.gdshader` in `NewWaterSystem/Core/Shaders/`
+- [x] Enhance Fragment Shader in `ocean_surface.gdshader` for foam
+- [x] Performance tuning
 
 ## Phase 3: Interaction & Optimization (交互與優化)
 - [ ] Implement `PlayerWaveInteraction.gd` in `NewWaterSystem/Core/Scripts/Interaction/`

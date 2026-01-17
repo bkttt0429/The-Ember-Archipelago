@@ -233,6 +233,16 @@ uniform sampler2D envelope_tex : hint_default_white, filter_linear, repeat_disab
 uniform float normal_scale : hint_range(0.0, 2.0) = 0.7;
 uniform float normal_speed : hint_range(0.0, 0.5) = 0.1;
 uniform vec4 rogue_wave_data = vec4(0.0, 0.0, 0.0, 1.0); // x,y: pos, z: height, w: width
+
+// === Breaking Wave Uniforms ===
+uniform int breaking_wave_count = 0;
+uniform vec4 breaking_wave_data[3];  // xyz=pos+height, w=width
+uniform vec4 breaking_wave_params[3];  // x=curl, y=break_point, z=state, w=unused
+
+// === Volumetric & Particle Foam ===
+uniform sampler2D foam_particle_texture : hint_default_black;
+uniform float water_transparency : hint_range(0.0, 1.0) = 0.4;
+uniform vec3 water_scatter_color : source_color = vec3(0.1, 0.6, 0.8);
 uniform float lod_scale = 1.0;
 uniform float physics_time = 0.0;
 uniform float render_alpha = 0.0;
@@ -405,6 +415,50 @@ void vertex() {
     wave_disp.y *= final_damp;
 	
 	VERTEX.xyz += wave_disp; 
+	
+	// === Breaking Wave Curl Logic ===
+	for (int i = 0; i < breaking_wave_count; i++) {
+		vec3 wave_center = breaking_wave_data[i].xyz; // x, height, z
+		float b_width = breaking_wave_data[i].w;
+		float curl_strength = breaking_wave_params[i].x;
+		float break_point = breaking_wave_params[i].y;
+		
+		// 修正：世界坐標計算
+		// Vertex 已經偏移了，這裡使用原始 world_pos (尚未應用 displacement?)
+		// 實際上應該基於當前 Vertex 位置？
+		// 我們需要相對於波浪中心的偏移。
+		// world_pos 是基於初始 VERTEX 的。
+		
+		vec2 to_wave = world_pos.xz - vec2(wave_center.x, wave_center.z);
+		
+		vec2 dir_norm = normalize(breaking_wave_params[i].zw);
+		// Fallback to wind if zero (shouldn't happen with new logic, but safe)
+		if (length(dir_norm) < 0.1) dir_norm = normalize(wind_dir);
+		float dist_along = dot(to_wave, dir_norm);
+		float dist_across = length(to_wave - dist_along * dir_norm);
+		
+		if (abs(dist_across) > b_width) continue;
+		
+		float lateral_fade = smoothstep(b_width, b_width * 0.5, abs(dist_across));
+		
+		// Envelope (Sech approx)
+		float u = clamp(dist_along / b_width * 0.5 + 0.5, 0.0, 1.0);
+		float envelope = texture(envelope_tex, vec2(u, 0.0)).r;
+		
+		// Curl Zone
+		// u > break_point triggers forward curl
+		float curl_zone = smoothstep(break_point - 0.2, break_point + 0.1, u);
+		
+		// Displacement
+		vec3 curl_offset = vec3(
+			dir_norm.x * curl_zone * curl_strength * 3.0,
+			-curl_zone * curl_strength * 2.0, // Downward
+			dir_norm.y * curl_zone * curl_strength * 3.0
+		);
+		
+		VERTEX.xyz += curl_offset * envelope * lateral_fade * wave_center.y * 0.5; // Scale by height
+	}
+
 	VERTEX.y += swe_h * swe_strength * wave_weight * final_damp;
 	
 	// FFT Displacement (High Frequency) - Tiled
@@ -437,7 +491,19 @@ void fragment() {
 	float absorption = exp(-water_depth * absorption_coeff);
 	// Only use color_shallow via mixing in shallow water; deep water is always color_deep
 	// Always allow color transition based on absorption
+	
+	// === Volumetric Transparency ===
+	// Make shallow water more transparent
+	float transparency = mix(water_transparency, 0.1, smoothstep(0.0, 5.0, water_depth));
+	
+	// Volumetric Scatter (Fake SSS inside wave volume)
+	float wave_thickness = max(0.0, v_world_pos.y - manager_world_pos.y);
+	vec3 scattered_light = water_scatter_color * exp(-wave_thickness * 0.3);
+	
 	vec3 sea_color = mix(color_deep.rgb, color_shallow.rgb, absorption);
+	
+	// Apply scatter to base color (simulate light inside wave)
+	sea_color += scattered_light * 0.2;
 	
 	// 2. Sample Weather Influence
 	vec4 weather_data = texture(weather_influence, v_swe_uv);
@@ -609,7 +675,10 @@ void fragment() {
 		crest_foam = 0.0;
 	}
 	
-    float final_foam = clamp(max(shore_foam, crest_foam), 0.0, 1.0);
+	// === Particle Foam ===
+	float particle_foam = texture(foam_particle_texture, v_swe_uv).a; // Stored in Alpha
+	
+    float final_foam = clamp(max(shore_foam, crest_foam) + particle_foam * 2.0, 0.0, 1.0);
     
     // Foam Tinting Logic
     vec3 foam_tint_color = mix(vec3(0.9, 0.9, 0.85), vec3(1.0), foam_jacob_signal); // Old (Yellowish) to New (White)
@@ -635,6 +704,11 @@ void fragment() {
 	// Allow subtle refraction/ripple detail even in deep water
 	// Make deep water opaque (refraction visibility 0.0 in deep, 0.6 in shallow)
 	float refraction_visibility = mix(0.0, 0.6, absorption); 
+	
+	// Apply Transparency (Volumetric)
+	// If final_foam is high, opacity increases -> Refraction visibility decreases
+	refraction_visibility = mix(refraction_visibility, 1.0, transparency * (1.0 - final_foam));
+	
 	vec3 color = mix(sea_color, ref_color, refraction_visibility);
 	
 	// Caustics
@@ -712,7 +786,11 @@ void fragment() {
         // SSS is most visible when looking through the wave against the light
         // Using a combination of eye vector and wave normal to simulate back-lighting
         float sss_view_mask = pow(clamp(dot(VIEW, -NORMAL), 0.0, 1.0), 3.0);
-        EMISSION += sss_color.rgb * sss_strength * sss_mask * (0.2 + 0.8 * sss_view_mask) * (1.0 - final_foam);
+        
+        // Particle Foam SSS
+        float foam_sss = particle_foam * sss_strength * 2.0;
+        
+        EMISSION += sss_color.rgb * (sss_strength * sss_mask * (0.2 + 0.8 * sss_view_mask) + foam_sss) * (1.0 - final_foam);
 	} else {
 		EMISSION = vec3(0.0);
 	}

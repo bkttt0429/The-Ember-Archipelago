@@ -347,6 +347,132 @@ var _is_initialized: bool = false
 
 var _idle_timer: float = 0.0
 
+# === 新增：破碎波浪系統 ===
+var breaking_waves: Array[Dictionary] = [] # 存儲所有活動的破碎波
+const MAX_BREAKING_WAVES = 3 # 同時最多3個（性能考量）
+
+# === 泡沫粒子系統接口 ===
+var foam_particles: Array[Dictionary] = []
+var MAX_FOAM_PARTICLES = 2000 # 可以動態調整 (LOD)
+var _foam_renderer: FoamParticleRenderer
+
+func set_breaking_wave_data(data: Dictionary):
+	# 檢查是否已存在（避免重複）
+	for i in range(breaking_waves.size()):
+		if breaking_waves[i].position.distance_to(data.position) < 5.0:
+			breaking_waves[i] = data
+			return
+	
+	# 添加新波浪（限制數量）
+	if breaking_waves.size() < MAX_BREAKING_WAVES:
+		breaking_waves.append(data)
+	else:
+		# 替換最老的
+		breaking_waves[0] = data
+
+func get_breaking_wave_at(pos_xz: Vector2) -> Dictionary:
+	var closest_wave = {}
+	var min_dist = INF
+	
+	for wave in breaking_waves:
+		var dist = pos_xz.distance_to(wave.position)
+		if dist < min_dist and dist < wave.width * 1.5:
+			min_dist = dist
+			closest_wave = wave
+	
+	return closest_wave
+
+func spawn_foam_particle(pos: Vector3, velocity: Vector3):
+	if foam_particles.size() >= MAX_FOAM_PARTICLES:
+		foam_particles.pop_front() # 移除最老的
+	
+	foam_particles.append({
+		"position": pos,
+		"velocity": velocity,
+		"age": 0.0,
+		"lifetime": randf_range(2.0, 5.0),
+		"scale": randf_range(0.2, 0.8)
+	})
+
+func _update_foam_particles(delta: float):
+	for i in range(foam_particles.size() - 1, -1, -1):
+		var p = foam_particles[i]
+		
+		# 物理模擬
+		p.velocity.y -= 9.8 * delta # 重力
+		p.velocity *= 0.98 # 空氣阻力
+		p.position += p.velocity * delta
+		p.age += delta
+		
+		# 水面碰撞
+		var water_h = get_wave_height_at(Vector3(p.position.x, 0, p.position.z))
+		if p.position.y < water_h:
+			p.position.y = water_h
+			p.velocity.y = abs(p.velocity.y) * 0.3 # 反彈
+			p.velocity *= 0.7 # 濺射能量損失
+		
+		# 移除過期粒子
+		if p.age > p.lifetime:
+			foam_particles.remove_at(i)
+
+func _update_foam_texture():
+	# 將粒子數據烘焙到紋理（用於 Shader 採樣）
+	# 更新 weather_texture 的 Alpha 通道
+	# 注意：weather_image 是 RGBAH/RGBAF，我們將 Alpha 用於粒子泡沫
+	if not weather_image or weather_image.is_empty(): return
+	
+	# Reset alpha channel roughly? No, we want persistence or clear?
+	# Implementation choice: Clear alpha every frame or fade it?
+	# Let's try fading existing alpha for trails?
+	# For now, simple splat.
+	
+	# To perform well, we might want to NOT iterate every pixel.
+	# But iterating invalidating rects is complex.
+	# Let's clear alpha first (or assume shader handles logic? design says splat)
+	
+	# Optimization: Only update dirty regions?
+	# CPU update of 128x128 image is fast enough. 256x256 might be slow.
+	if grid_res > 256: return # Avoid CPU killer
+	
+	for p in foam_particles:
+		var uv = _world_to_uv(Vector2(p.position.x, p.position.z))
+		if _is_valid_uv(uv):
+			var intensity = 1.0 - (p.age / p.lifetime)
+			_splat_to_texture(weather_image, uv, intensity * p.scale, 2.0)
+	
+	weather_visual_tex.update(weather_image)
+
+func _world_to_uv(pos_xz: Vector2) -> Vector2:
+	var local_pos = pos_xz - Vector2(global_position.x, global_position.z)
+	# UV (0,0) is top-left? -Width/2?
+	# Usually plane is centered.
+	return (local_pos / sea_size) + Vector2(0.5, 0.5)
+
+func _is_valid_uv(uv: Vector2) -> bool:
+	return uv.x >= 0.0 and uv.x <= 1.0 and uv.y >= 0.0 and uv.y <= 1.0
+
+func _splat_to_texture(img: Image, uv: Vector2, intensity: float, radius: float):
+	var w = img.get_width()
+	var h = img.get_height()
+	var pixel = uv * Vector2(w, h)
+	var radius_px = int(radius)
+	
+	var center_x = int(pixel.x)
+	var center_y = int(pixel.y)
+	
+	for y in range(max(0, center_y - radius_px), min(h, center_y + radius_px + 1)):
+		for x in range(max(0, center_x - radius_px), min(w, center_x + radius_px + 1)):
+			var dx = x - center_x
+			var dy = y - center_y
+			var dist_sq = dx * dx + dy * dy
+			if dist_sq > radius_px * radius_px: continue
+			
+			var dist = sqrt(float(dist_sq)) / radius
+			var falloff = 1.0 - smoothstep(0.0, 1.0, dist)
+			var col = img.get_pixel(x, y)
+			col.a = min(col.a + intensity * falloff * 0.5, 1.0) # Accumulate logic
+			img.set_pixel(x, y, col)
+
 func _update_shader_params_deferred():
 	if is_inside_tree():
 		call_deferred("_update_shader_parameters")
@@ -396,6 +522,12 @@ func _ready():
 	add_to_group("WaterSystem_Managers")
 	_cleanup()
 	_setup_simulation()
+
+	# 初始化泡沫渲染器 (Phase 2 Integration)
+	_foam_renderer = FoamParticleRenderer.new()
+	_foam_renderer.name = "FoamParticleRenderer"
+	_foam_renderer.max_particles = MAX_FOAM_PARTICLES
+	add_child(_foam_renderer)
 	
 	await get_tree().process_frame
 	_bake_obstacles()
@@ -1388,6 +1520,23 @@ func _update_shader_parameters():
 	else:
 		mat.set_shader_parameter("rogue_wave_data", Vector4(0, 0, 0, 1))
 	
+	# === Breaking Waves Uniforms ===
+	# max 3 waves: breaking_wave_data[3] (vec4: x,y,z=pos+height, w=width)
+	# breaking_wave_params[3] (vec4: x=curl, y=break_point, z=state, w=unused)
+	
+	# Note: GDScript arrays to GLSL uniforms (arrays of vec4) need careful packing.
+	# Godot 4 expects PackedFloat32Array or similar if the shader defines it as uniform vec4 name[size].
+	# However, set_shader_parameter sometimes handles Array of Vectors.
+	
+	# Let's pack manually to ensure safety if standard array fails, 
+	# but `uniform vec4` array usually takes Array[Vector4] or similar.
+	
+	_update_breaking_wave_uniforms()
+	# Reuse weather_visual_tex (which now contains foam splats in alpha)
+	mat.set_shader_parameter("foam_particle_texture", weather_visual_tex)
+	# Reuse weather_visual_tex (which now contains foam splats in alpha)
+	mat.set_shader_parameter("foam_particle_texture", weather_visual_tex)
+	
 	if use_lod and has_node("OceanLOD"):
 		for cascade in $OceanLOD.cascades:
 			cascade.set_surface_override_material(0, mat)
@@ -1437,6 +1586,14 @@ func _process(delta):
 			if not w_data.is_empty():
 				weather_image.set_data(grid_res, grid_res, false, Image.FORMAT_RGBAH, w_data)
 				weather_visual_tex.update(weather_image)
+				
+	# Update Foam Renderer Visuals
+	if _foam_renderer:
+		_foam_renderer.update_particles(foam_particles)
+	
+	# Only update breaking wave uniforms every frame if we have them
+	if not breaking_waves.is_empty():
+		_update_breaking_wave_uniforms()
 	
 	var sim_delta = min(delta, 0.033)
 	
@@ -1483,6 +1640,16 @@ func _physics_process(delta):
 	accumulated_time = 0.0
 	
 	_auto_adjust_for_safety()
+	
+	# === Physics Update for Foam Particles ===
+	_update_foam_particles(delta)
+	
+	# === Update Foam Texture (CPU Side) ===
+	# Warning: Doing this every physics frame might be too frequent for rendering, 
+	# but needed for smooth updates.
+	# We can throttle this to checking Engine.get_frames_drawn() % N == 0?
+	# For now, let's update.
+	_update_foam_texture()
 
 	# GlobalWind Integration
 	# Check if GlobalWind singleton exists (autoloaded name)
@@ -1496,6 +1663,35 @@ func _physics_process(delta):
 			
 			if not wind_direction.is_equal_approx(gw.current_wind_direction):
 				wind_direction = wind_direction.lerp(gw.current_wind_direction, delta * 0.5).normalized()
+
+func _update_breaking_wave_uniforms():
+	if not is_inside_tree(): return
+	var mesh_inst = get_node_or_null("WaterPlane")
+	if not mesh_inst: return
+	var mat = mesh_inst.get_surface_override_material(0)
+	if not mat: return
+	
+	var bw_data_list = []
+	var bw_params_list = []
+	
+	bw_data_list.resize(3)
+	bw_data_list.fill(Vector4(0, 0, 0, 0))
+	bw_params_list.resize(3)
+	bw_params_list.fill(Vector4(0, 0, 0, 0)) # w component unused
+	
+	for i in range(min(breaking_waves.size(), 3)):
+		var w = breaking_waves[i]
+		# data: x=pos.x, y=height, z=pos.z, w=width
+		bw_data_list[i] = Vector4(w.position.x, w.height, w.position.y, w.width)
+		# params: x=curl, y=break_point, z=dir.x, w=dir.y
+		# Default dir to wind_dir if missing
+		var dir = w.get("direction", wind_direction)
+		bw_params_list[i] = Vector4(w.curl, w.break_point, dir.x, dir.y)
+
+	mat.set_shader_parameter("breaking_wave_count", min(breaking_waves.size(), 3))
+	mat.set_shader_parameter("breaking_wave_data", bw_data_list)
+	mat.set_shader_parameter("breaking_wave_params", bw_params_list)
+
 
 ## 自動優化參數（安全助手）
 func _auto_adjust_for_safety():
