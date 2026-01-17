@@ -442,33 +442,30 @@ void vertex() {
 		// 🔥 Modified: Trigger curl earlier (break_point - 0.3)
 		float curl_zone = smoothstep(break_point - 0.3, break_point + 0.2, u);
 		
-		// 🔥 Fix: Add base height first to prevent "concave" hole
+		// 🔥 基底高度：使用更平滑的抬升
 		float base_h = envelope * lateral_fade * wave_center.y;
-		VERTEX.y += base_h;
+		VERTEX.y += base_h * (1.0 - curl_zone * 0.5); // 在進入捲曲區時稍微降低基底，騰出旋轉空間
 		
-		// 🔥 Modified: Balanced displacement (Curl as deformation on top of base_h)
-		// Reduced scale (0.2-0.3) for vertical curl to keep it as a 'peak'
-		vec3 curl_offset = vec3(
-			dir_norm.x * curl_zone * curl_strength * 1.5,
-			-curl_zone * curl_strength * 0.8, // Downward curl (relative to peak)
-			dir_norm.y * curl_zone * curl_strength * 1.5
-		);
+		// 🌊 [Barrel Wave 2.0]：徑向旋轉邏輯
+		// 想像一個圓柱體，頂點隨著 u 的增加繞著圓柱旋轉
+		float barrel_angle = curl_zone * PI * 0.85; // 旋轉角度，0.85PI 剛好形成下扣的鉤子
+		float barrel_radius = wave_center.y * 0.6 * envelope * lateral_fade; // 捲管半徑
 		
-		// Create "Tube" effect near break point
-		if (u > break_point && u < break_point + 0.3) {
-			float tube_factor = smoothstep(0.0, 0.3, u - break_point);
-			float radial_offset = abs(dist_across) / b_width;
-			
-			// Tube lifting force (Stronger to counteract curl downward)
-			curl_offset.y += radial_offset * curl_strength * 2.5 * tube_factor;
-			
-			// Forward Lean
-			float forward_lean = (1.0 - radial_offset) * curl_strength * 1.5 * tube_factor;
-			curl_offset.xz += dir_norm * forward_lean;
+		// 計算旋轉偏移 (相對於波峰)
+		// cos 控制前衝 (XZ)，sin 控制上下 (Y)
+		vec3 rotate_offset = vec3(0.0);
+		rotate_offset.xz = dir_norm * (sin(barrel_angle) * barrel_radius);
+		rotate_offset.y = (cos(barrel_angle) - 1.0) * barrel_radius * 0.5; 
+		
+		// 🏚️ 刻畫空心管道 (Tube Space)
+		if (u > break_point - 0.2) {
+			float local_u = clamp((u - (break_point - 0.2)) / 0.5, 0.0, 1.0);
+			float tube_hollow = sin(local_u * PI) * (1.0 - abs(dist_across)/b_width);
+			rotate_offset.y += tube_hollow * barrel_radius * 0.4 * curl_strength;
 		}
 		
-		// Apply curl deformation (using smaller scaling to avoid crushing the base height)
-		VERTEX.xyz += curl_offset * envelope * lateral_fade * (wave_center.y * 0.3); 
+		// 最終位移應用
+		VERTEX.xyz += rotate_offset;
 	}
 
 	VERTEX.y += swe_h * swe_strength * wave_weight * final_damp;

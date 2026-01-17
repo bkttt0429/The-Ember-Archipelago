@@ -357,13 +357,20 @@ var MAX_FOAM_PARTICLES = 2000 # 可以動態調整 (LOD)
 var _foam_renderer: FoamParticleRenderer
 
 func set_breaking_wave_data(data: Dictionary):
-	# 檢查是否已存在（避免重複）
+	# 檢查是否已存在（改為插值更新，避免瞬間跳變）
 	for i in range(breaking_waves.size()):
-		if breaking_waves[i].position.distance_to(data.position) < 5.0:
-			breaking_waves[i] = data
+		if breaking_waves[i].position.distance_to(data.position) < 10.0:
+			# 🔥 修復：使用 lerp 平滑數據，解決 "波浪瞬間下降一小格" 的問題
+			var old = breaking_waves[i]
+			breaking_waves[i].position = old.position.lerp(data.position, 0.3)
+			breaking_waves[i].height = lerp(old.height, data.height, 0.2)
+			breaking_waves[i].width = lerp(old.width, data.width, 0.2)
+			breaking_waves[i].curl = lerp(old.curl, data.curl, 0.2)
+			breaking_waves[i].break_point = lerp(old.break_point, data.break_point, 0.2)
+			breaking_waves[i].direction = old.direction.lerp(data.direction, 0.2)
 			return
 	
-	# 添加新波浪（限制數量）
+	# 添加新波浪
 	if breaking_waves.size() < MAX_BREAKING_WAVES:
 		breaking_waves.append(data)
 	else:

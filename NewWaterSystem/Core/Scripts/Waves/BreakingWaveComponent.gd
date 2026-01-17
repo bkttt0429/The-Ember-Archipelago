@@ -110,11 +110,15 @@ func _inject_wave_data():
 
 func _get_state_multiplier() -> float:
 	match _state:
-		WaveState.BUILDING: return smoothstep(0.0, 0.3, _age / lifespan)
-		WaveState.CURLING: return 1.0
-		WaveState.BREAKING: return 1.0
-		WaveState.DISSIPATING: return 1.0 - smoothstep(0.85, 1.0, _age / lifespan)
-	return 1.0
+		WaveState.BUILDING:
+			return smoothstep(0.0, 0.3, _age / lifespan)
+		WaveState.CURLING, WaveState.BREAKING:
+			# 🔥 修復：防止狀態切換時的瞬間跳變
+			# 如果 _age 剛好在臨界點，確保過渡到 1.0 是平滑的
+			return clamp(lerp(0.0, 1.0, _age / (lifespan * 0.3)), 0.0, 1.0)
+		WaveState.DISSIPATING:
+			return 1.0 - smoothstep(0.8, 1.0, _age / lifespan)
+	return 0.0
 
 func _get_curl_factor() -> float:
 	# Curling 狀態達到最大捲曲
