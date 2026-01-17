@@ -930,20 +930,23 @@ func get_wave_height_with_tilt(global_pos: Vector3, tilt_factor: float = 0.0) ->
 ## 計算 Gerstner 波的 Jacobian 行列式（檢測折疊）
 ## 返回值 < 0 表示波形自相交
 func _calculate_gerstner_jacobian(pos_xz: Vector2, t: float) -> float:
+	# 🔥 Optimization: Only check top 4 layers for breaking detection
 	var wave_layers = _get_optimized_wave_layers()
+	var limit = min(wave_layers.size(), 4)
 	var base_angle = atan2(wind_direction.y, wind_direction.x)
 	
 	# Jacobian 初始為單位矩陣的行列式 = 1.0
 	var jacobian = 1.0
 	
 	var total_steepness = 0.0
-	for layer in wave_layers:
-		total_steepness += layer[1]
+	for i in range(limit):
+		total_steepness += wave_layers[i][1]
 	var safety_scale = 1.0
 	if total_steepness > 0.75:
 		safety_scale = 0.75 / total_steepness
 
-	for layer in wave_layers:
+	for i in range(limit):
+		var layer = wave_layers[i]
 		var w_len = layer[0] * wave_length
 		# ✅ Scheme A: 物理正確的陡度疊加
 		var w_steep = layer[1] * sqrt(wave_steepness) * safety_scale
@@ -993,7 +996,7 @@ func _calculate_rogue_wave_height(pos_xz: Vector2) -> float:
 
 ## 獲取破碎波浪位置（用於粒子生成）
 ## @return: Array of Vector3 (World Positions)
-func get_breaking_wave_positions(grid_density: int = 16) -> Array:
+func get_breaking_wave_positions(grid_density: int = 8) -> Array:
 	var breaking_points = []
 	if wind_strength < 0.1: return breaking_points
 	

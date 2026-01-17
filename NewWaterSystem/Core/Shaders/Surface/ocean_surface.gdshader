@@ -442,11 +442,11 @@ void vertex() {
 		// 🔥 Modified: Trigger curl earlier (break_point - 0.3)
 		float curl_zone = smoothstep(break_point - 0.3, break_point + 0.2, u);
 		
-		// 🔥 Modified: Massively increased displacement (10-15x)
+		// 🔥 Modified: Balanced displacement (Reverted massive 25x, used height scaling correctly)
 		vec3 curl_offset = vec3(
-			dir_norm.x * curl_zone * curl_strength * 25.0, // 3.0 -> 25.0
-			-curl_zone * curl_strength * 15.0,             // 1.5 -> 15.0 (Downward)
-			dir_norm.y * curl_zone * curl_strength * 25.0
+			dir_norm.x * curl_zone * curl_strength * 1.5,  // Forward
+			-curl_zone * curl_strength * 0.8,              // Down (Less aggressive)
+			dir_norm.y * curl_zone * curl_strength * 1.5
 		);
 		
 		// 🔥 Modified: Aggressive Curl (Deformation)
@@ -456,14 +456,14 @@ void vertex() {
 			float radial_offset = abs(dist_across) / b_width;
 			
 			// Curl Inward (Create tube space)
-			curl_offset.y += radial_offset * curl_strength * 20.0 * tube_factor;
+			curl_offset.y += radial_offset * curl_strength * 1.2 * tube_factor;
 			
 			// Forward Lean
-			float forward_lean = (1.0 - radial_offset) * curl_strength * 10.0 * tube_factor;
+			float forward_lean = (1.0 - radial_offset) * curl_strength * 1.0 * tube_factor;
 			curl_offset.xz += dir_norm * forward_lean;
 		}
 		
-		// 🔥 Modified: Removed * 0.5 attenuation
+		// Apply displacement scaled by wave height
 		VERTEX.xyz += curl_offset * envelope * lateral_fade * wave_center.y; 
 	}
 
