@@ -442,29 +442,33 @@ void vertex() {
 		// 🔥 Modified: Trigger curl earlier (break_point - 0.3)
 		float curl_zone = smoothstep(break_point - 0.3, break_point + 0.2, u);
 		
-		// 🔥 Modified: Balanced displacement (Reverted massive 25x, used height scaling correctly)
+		// 🔥 Fix: Add base height first to prevent "concave" hole
+		float base_h = envelope * lateral_fade * wave_center.y;
+		VERTEX.y += base_h;
+		
+		// 🔥 Modified: Balanced displacement (Curl as deformation on top of base_h)
+		// Reduced scale (0.2-0.3) for vertical curl to keep it as a 'peak'
 		vec3 curl_offset = vec3(
-			dir_norm.x * curl_zone * curl_strength * 1.5,  // Forward
-			-curl_zone * curl_strength * 0.8,              // Down (Less aggressive)
+			dir_norm.x * curl_zone * curl_strength * 1.5,
+			-curl_zone * curl_strength * 0.8, // Downward curl (relative to peak)
 			dir_norm.y * curl_zone * curl_strength * 1.5
 		);
 		
-		// 🔥 Modified: Aggressive Curl (Deformation)
 		// Create "Tube" effect near break point
 		if (u > break_point && u < break_point + 0.3) {
 			float tube_factor = smoothstep(0.0, 0.3, u - break_point);
 			float radial_offset = abs(dist_across) / b_width;
 			
-			// Curl Inward (Create tube space)
-			curl_offset.y += radial_offset * curl_strength * 1.2 * tube_factor;
+			// Tube lifting force (Stronger to counteract curl downward)
+			curl_offset.y += radial_offset * curl_strength * 2.5 * tube_factor;
 			
 			// Forward Lean
-			float forward_lean = (1.0 - radial_offset) * curl_strength * 1.0 * tube_factor;
+			float forward_lean = (1.0 - radial_offset) * curl_strength * 1.5 * tube_factor;
 			curl_offset.xz += dir_norm * forward_lean;
 		}
 		
-		// Apply displacement scaled by wave height
-		VERTEX.xyz += curl_offset * envelope * lateral_fade * wave_center.y; 
+		// Apply curl deformation (using smaller scaling to avoid crushing the base height)
+		VERTEX.xyz += curl_offset * envelope * lateral_fade * (wave_center.y * 0.3); 
 	}
 
 	VERTEX.y += swe_h * swe_strength * wave_weight * final_damp;

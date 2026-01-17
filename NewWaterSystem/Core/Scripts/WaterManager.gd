@@ -779,13 +779,31 @@ func get_wave_height_at(global_pos: Vector3) -> float:
 		# 3. 應用安全係數
 		total_height += _calculate_gerstner_height(world_pos_2d, t) * safety_mult
 	
-	# 3. Rogue Wave
+	# 3. Breaking Wave Positive Peak (CPU Sync)
+	for w in breaking_waves:
+		var pos = w.get("position", Vector2.ZERO)
+		var height = w.get("height", 0.0)
+		var b_width = w.get("width", 50.0)
+		var dir = w.get("direction", wind_direction)
+		
+		var to_wave = world_pos_2d - pos
+		var dist_along = to_wave.dot(dir)
+		var dist_across = (to_wave - dist_along * dir).length()
+		
+		if abs(dist_across) < b_width:
+			var lateral_fade = smoothstep(b_width, b_width * 0.3, abs(dist_across))
+			# Sech approximation for envelope: 1.0 / cosh(x)
+			# u maps from -1 to 1 across the wave width
+			var u = dist_along / (b_width * 0.5)
+			var envelope = 1.0 / (exp(u) + exp(-u)) * 2.0 # 2.0 / (e^u + e^-u)
+			envelope = clamp(envelope, 0.0, 1.0)
+			
+			total_height += height * envelope * lateral_fade
+
+	# 4. Rogue Wave
 	if rogue_wave_present:
 		total_height += _calculate_rogue_wave_height(world_pos_2d)
 		
-	# 4. SWE Simulation Height (Optional/Advanced)
-	# ... (Sim reading omitted)
-	
 	return total_height
 
 func _calculate_gerstner_height(pos_xz: Vector2, t: float) -> float:
