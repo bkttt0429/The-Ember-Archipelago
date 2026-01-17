@@ -261,6 +261,7 @@ uniform float far_fade_start : hint_range(0.0, 500.0) = 150.0;
 uniform float far_fade_max : hint_range(0.0, 1000.0) = 300.0;
 uniform bool debug_view = false;
 uniform bool debug_mesh_only = false;
+uniform bool is_barrel_mesh = false;  // 🌊 桶浪模式：跳過所有頂點位移
 
 
 
@@ -327,138 +328,95 @@ vec3 get_rogue_wave_displacement(vec3 pos, float t, vec3 tangent_in, vec3 binorm
 }
 
 void vertex() {
-	v_swe_uv = (VERTEX.xz / sea_size) + 0.5;
-	v_swe_uv = clamp(v_swe_uv, 0.0, 1.0);
-	
 	vec3 world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-	float cam_dist = length(world_pos - manager_world_pos); // Or CAMERA_POSITION_WORLD if available
-    
-	// Sample SWE for displacement
-	vec4 swe_sample = texture(swe_texture, v_swe_uv);
-	float swe_h = swe_sample.r;
-	float is_obstacle = swe_sample.b;
-	float wave_weight = 1.0 - is_obstacle;
+	v_world_pos = world_pos;
 	
-	// Time Interpolation for smooth vertex movement
-	float interpolated_time = physics_time + render_alpha * (1.0 / 60.0);
-	
-    // LOD Strategy
-    int iterations = 8;
-    if (cam_dist > 150.0 * lod_scale) iterations = 2;
-    else if (cam_dist > 50.0 * lod_scale) iterations = 4;
-
-	// Gerstner Waves
-	vec3 tangent = vec3(1.0, 0.0, 0.0);
-	vec3 binormal = vec3(0.0, 0.0, 1.0);
-	vec3 wave_disp = vec3(0.0);
-
-	// Jacobian accumulator (Determinant initialized to 1.0)
-	float j_det = 1.0;
-
-    // Calcluate world position early for damping
-    // Note: VERTEX is local. MODEL_MATRIX * VERTEX is world.
-    // We already have calculation: vec3 world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-    
-    // Calculate Distance Damping for smooth horizon
-    float dist = length(world_pos - CAMERA_POSITION_WORLD);
-    float wave_damp = 1.0 - smoothstep(far_fade_start, far_fade_max, dist);
-    
-    // World Space Edge Damping (Box Projection)
-    // Calculate dist from center (manager_world_pos) in XZ plane
-    vec2 dist_from_center = abs(world_pos.xz - manager_world_pos.xz);
-    vec2 half_size = sea_size * 0.5;
-    
-    // REFINED:
-    // 1. General Fade (Vertical Height + Alpha): 40% margin
-    vec2 margin_general = half_size * 0.4;
-    vec2 edge_t_gen = smoothstep(half_size - margin_general, half_size, dist_from_center);
-    // Cubic smoothing (SmootherStep)
-    edge_t_gen = smoothstep(0.0, 1.0, edge_t_gen);
-    
-    // 2. Horizontal Suppression (Prevent Tearing): 20% margin
-    vec2 margin_horizontal = half_size * 0.2;
-    vec2 edge_t_hor = smoothstep(half_size - margin_horizontal, half_size, dist_from_center);
-    // Cubic smoothing
-    edge_t_hor = smoothstep(0.0, 1.0, edge_t_hor);
-    
-    // Invert signal (1.0 = Center, 0.0 = Edge)
-    float edge_damp_gen = (1.0 - edge_t_gen.x) * (1.0 - edge_t_gen.y);
-    float edge_damp_hor = (1.0 - edge_t_hor.x) * (1.0 - edge_t_hor.y);
-    
-    float final_damp = wave_damp * edge_damp_gen;
-    float h_damp = edge_damp_hor;
-    v_edge_damp = edge_damp_gen; // Pass to fragment for Alpha fade
-    
-	if (wind_strength > 0.001) {
-		// INLINED get_waves_displacement to support LOD variable iterations
-        // Using `iterations` variable from LOD logic
-		wave_disp = get_waves_displacement(world_pos, interpolated_time, wind_strength, wind_dir, wave_length, wave_steepness, wave_chaos, tangent, binormal, iterations, j_det);
-        
-		v_wave_normal = normalize(cross(binormal, tangent));
+	// 🌊 桶浪模式：跳過所有位移，只設置必要的 varying
+	if (is_barrel_mesh) {
+		v_swe_uv = vec2(0.5);
+		v_wave_normal = (MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz;
+		v_edge_damp = 1.0;
+		v_jacobian = 0.0;
 	} else {
-		v_wave_normal = vec3(0.0, 1.0, 0.0);
-	}
+		v_swe_uv = (VERTEX.xz / sea_size) + 0.5;
+		v_swe_uv = clamp(v_swe_uv, 0.0, 1.0);
+		float cam_dist = length(world_pos - manager_world_pos); // Or CAMERA_POSITION_WORLD if available
+		
+		// Sample SWE for displacement
+		vec4 swe_sample = texture(swe_texture, v_swe_uv);
+		float swe_h = swe_sample.r;
+		float is_obstacle = swe_sample.b;
+		float wave_weight = 1.0 - is_obstacle;
+		
+		// Time Interpolation for smooth vertex movement
+		float interpolated_time = physics_time + render_alpha * (1.0 / 60.0);
+		
+		// LOD Strategy
+		int iterations = 8;
+		if (cam_dist > 150.0 * lod_scale) iterations = 2;
+		else if (cam_dist > 50.0 * lod_scale) iterations = 4;
 
-    // Convert Jacobian Determinant to "Compression Signal" (1.0 - Det)
-    // Det < 1.0 -> Compressing
-    // Det < 0.0 -> Folding
-    // v_jacobian > 1.0 implies folding
-    v_jacobian = 1.0 - j_det;
-    
-    // Add Rogue Wave (Raw)
-    vec3 rogue_disp = get_rogue_wave_displacement(world_pos, interpolated_time, tangent, binormal, tangent, binormal);
-    wave_disp += rogue_disp;
-    
-    // FINAL DAMPING APPLICATION (Separated)
-    // 1. Horizontal: Aggressive suppression to prevent tearing
-    wave_disp.xz *= h_damp;
-    // 2. Vertical: Gentle fade for visual smoothnees
-    wave_disp.y *= final_damp;
-	
-	VERTEX.xyz += wave_disp; 
-	
-	// === Breaking Wave Curl Logic ===
-	for (int i = 0; i < breaking_wave_count; i++) {
-		vec3 wave_center = breaking_wave_data[i].xyz; // x, height, z
-		float b_width = max(breaking_wave_data[i].w, 0.01); // 🔥 Safety Force Min Width
-		
-		// 🔥 Early-Exit: Skip waves far from this vertex (Performance Fix)
-		float quick_dist = length(world_pos.xz - vec2(wave_center.x, wave_center.z));
-		if (quick_dist > b_width * 2.5) continue;
-		
-		float curl_strength = breaking_wave_params[i].x;
-		float break_point = breaking_wave_params[i].y;
-		
-		vec2 to_wave = world_pos.xz - vec2(wave_center.x, wave_center.z);
-		vec2 dir_norm = normalize(breaking_wave_params[i].zw);
-		if (length(dir_norm) < 0.1) dir_norm = normalize(wind_dir);
-		
-		float dist_along = dot(to_wave, dir_norm);
-		float dist_across = length(to_wave - dist_along * dir_norm);
-		
-		if (abs(dist_across) > b_width) continue;
-		
-		// 🔥 Modified: Smoother lateral fade
-		float lateral_fade = smoothstep(b_width, b_width * 0.3, abs(dist_across)); // From 0.5 to 0.3
-		
-		// Envelope (Sech approx)
-		float u = clamp(dist_along / b_width * 0.5 + 0.5, 0.0, 1.0);
-		float envelope = texture(envelope_tex, vec2(u, 0.0)).r;
-		
-		// 🌊 [Simplified]：Height only - Curl handled by independent mesh
-		// No XZ projection to avoid mesh tearing
-		float base_height = wave_center.y * envelope * lateral_fade;
-		VERTEX.y += base_height;
-	}
+		// Gerstner Waves
+		vec3 tangent = vec3(1.0, 0.0, 0.0);
+		vec3 binormal = vec3(0.0, 0.0, 1.0);
+		vec3 wave_disp = vec3(0.0);
 
-	VERTEX.y += swe_h * swe_strength * wave_weight * final_damp;
-	
-	// FFT Displacement (High Frequency) - Tiled
-	vec2 fft_uv = (world_pos.xz / sea_size) + 0.5;
-	float fft_h = texture(fft_texture, fft_uv).b;
-	VERTEX.y += fft_h * wind_strength * wave_weight * fft_scale * final_damp;
-	
-	v_world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+		// Jacobian accumulator (Determinant initialized to 1.0)
+		float j_det = 1.0;
+
+		// Calculate Distance Damping for smooth horizon
+		float dist = length(world_pos - CAMERA_POSITION_WORLD);
+		float wave_damp = 1.0 - smoothstep(far_fade_start, far_fade_max, dist);
+		
+		// World Space Edge Damping (Box Projection)
+		vec2 dist_from_center = abs(world_pos.xz - manager_world_pos.xz);
+		vec2 half_size = sea_size * 0.5;
+		
+		vec2 margin_general = half_size * 0.4;
+		vec2 edge_t_gen = smoothstep(half_size - margin_general, half_size, dist_from_center);
+		edge_t_gen = smoothstep(0.0, 1.0, edge_t_gen);
+		
+		vec2 margin_horizontal = half_size * 0.2;
+		vec2 edge_t_hor = smoothstep(half_size - margin_horizontal, half_size, dist_from_center);
+		edge_t_hor = smoothstep(0.0, 1.0, edge_t_hor);
+		
+		float edge_damp_gen = (1.0 - edge_t_gen.x) * (1.0 - edge_t_gen.y);
+		float edge_damp_hor = (1.0 - edge_t_hor.x) * (1.0 - edge_t_hor.y);
+		
+		float final_damp = wave_damp * edge_damp_gen;
+		float h_damp = edge_damp_hor;
+		v_edge_damp = edge_damp_gen; // Pass to fragment for Alpha fade
+		
+		if (wind_strength > 0.001) {
+			wave_disp = get_waves_displacement(world_pos, interpolated_time, wind_strength, wind_dir, wave_length, wave_steepness, wave_chaos, tangent, binormal, iterations, j_det);
+			v_wave_normal = normalize(cross(binormal, tangent));
+		} else {
+			v_wave_normal = vec3(0.0, 1.0, 0.0);
+		}
+
+		v_jacobian = 1.0 - j_det;
+		
+		vec3 rogue_disp = get_rogue_wave_displacement(world_pos, interpolated_time, tangent, binormal, tangent, binormal);
+		wave_disp += rogue_disp;
+		
+		wave_disp.xz *= h_damp;
+		wave_disp.y *= final_damp;
+		
+		VERTEX.xyz += wave_disp; 
+		
+		// 🌊 Breaking Wave Heightfield DISABLED
+		// The barrel mesh (independent procedural mesh) now handles the curl effect
+		// Keeping this commented out for reference:
+		// for (int i = 0; i < breaking_wave_count; i++) { ... VERTEX.y += base_height; }
+
+		VERTEX.y += swe_h * swe_strength * wave_weight * final_damp;
+		
+		vec2 fft_uv = (world_pos.xz / sea_size) + 0.5;
+		float fft_h = texture(fft_texture, fft_uv).b;
+		VERTEX.y += fft_h * wind_strength * wave_weight * fft_scale * final_damp;
+		
+		v_world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	}
 }
 
 vec3 blend_normals(vec3 n1, vec3 n2) {
@@ -466,6 +424,55 @@ vec3 blend_normals(vec3 n1, vec3 n2) {
 }
 
 void fragment() {
+	// 🌊 桶浪模式：簡化的渲染路徑
+	if (is_barrel_mesh) {
+		// 使用世界空間法線和位置
+		vec3 world_normal = normalize(v_wave_normal);
+		vec3 view_dir = normalize(CAMERA_POSITION_WORLD - v_world_pos);
+		
+		// 基於弧形位置的深度模擬（使用法線的Y分量）
+		float arc_depth = clamp(1.0 - world_normal.y, 0.0, 1.0);
+		
+		// 顏色混合：頂部淺色，底部深色
+		vec3 sea_color = mix(color_deep.rgb, color_shallow.rgb, arc_depth * 0.7 + 0.3);
+		
+		// 法線貼圖細節
+		vec2 detail_uv = v_world_pos.xz * normal_tile * 0.1 + TIME * normal_speed;
+		vec3 n1 = texture(normal_map1, detail_uv).rgb * 2.0 - 1.0;
+		vec3 n2 = texture(normal_map2, detail_uv * 1.2 - TIME * normal_speed * 0.7).rgb * 2.0 - 1.0;
+		vec3 detail_normal = normalize(vec3((n1.xy + n2.xy) * normal_scale * 0.3, 1.0));
+		
+		// 混合法線
+		vec3 final_normal = normalize(world_normal + detail_normal * 0.2);
+		NORMAL = normalize((VIEW_MATRIX * vec4(final_normal, 0.0)).xyz);
+		
+		// Fresnel
+		float fresnel = pow(1.0 - max(dot(NORMAL, VIEW), 0.0), 4.0);
+		
+		// 泡沫（沿著捲曲的唇部）
+		vec2 foam_uv = v_world_pos.xz * 0.4 + TIME * 0.02;
+		float foam_noise_val = texture(foam_noise, foam_uv).r;
+		float lip_foam = smoothstep(0.3, 0.8, arc_depth) * foam_noise_val * 0.6;
+		
+		// 混合泡沫
+		sea_color = mix(sea_color, color_foam.rgb, lip_foam);
+		
+		ALBEDO = sea_color;
+		METALLIC = metallic * (1.0 - lip_foam);
+		ROUGHNESS = mix(roughness, 0.6, lip_foam);
+		SPECULAR = specular;
+		ALPHA = 0.9;
+		
+		// SSS 和 Fresnel 發光
+		vec3 fresnel_color = mix(sea_color, vec3(0.3, 0.5, 0.7), 0.3) * fresnel_strength;
+		EMISSION = fresnel_color * pow(fresnel, 5.0) * (1.0 - lip_foam);
+		
+		// SSS
+		float sss_mask = pow(arc_depth, 2.0);
+		float sss_view = pow(max(dot(view_dir, -final_normal), 0.0), 3.0);
+		EMISSION += sss_color.rgb * sss_strength * sss_mask * (0.2 + 0.8 * sss_view) * (1.0 - lip_foam);
+	} else {
+
 	// 1. Depth & Water Color - Using Linear Z Difference for robust Depth Fade
 	float depth_raw = texture(depth_texture, SCREEN_UV).r;
 	vec3 ndc = vec3(SCREEN_UV * 2.0 - 1.0, depth_raw);
@@ -823,4 +830,5 @@ void fragment() {
 			EMISSION = vec3(0.5, 0.0, 0.0);
 		}
 	}
+	} // end else (non-barrel mesh)
 }

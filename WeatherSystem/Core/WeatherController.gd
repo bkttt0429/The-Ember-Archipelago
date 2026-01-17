@@ -33,6 +33,8 @@ var active_sky_color: Color = Color(0.3, 0.5, 0.8)
 var active_fog_density: float = 0.001
 var active_rain_intensity: float = 0.0
 
+var _active_state: ActiveWeatherState = ActiveWeatherState.new()
+
 var _current_state: Resource # WeatherState
 var _tween: Tween
 
@@ -69,6 +71,14 @@ func _ready():
 	if world_env and world_env.environment:
 		_cached_env = world_env.environment
 		_cached_sky = _cached_env.sky.sky_material if _cached_env.sky else null
+
+	# Initialize active state from default values
+	_active_state.wind_strength = active_wind_strength
+	_active_state.wind_direction = active_wind_direction
+	_active_state.wave_steepness = active_wave_steepness
+	_active_state.sky_color = active_sky_color
+	_active_state.fog_density = active_fog_density
+	_active_state.rain_intensity = active_rain_intensity
 
 	if default_weather:
 		apply_weather(default_weather, 0.0)
@@ -158,6 +168,15 @@ func _handle_weather_vfx(delta: float):
 			_tornado_timer = randf_range(tornado_min, tornado_max)
 
 func _apply_active_state_to_systems():
+	# Sync active_* variables to _active_state
+	if _active_state:
+		_active_state.wind_strength = active_wind_strength
+		_active_state.wind_direction = active_wind_direction
+		_active_state.wave_steepness = active_wave_steepness
+		_active_state.sky_color = active_sky_color
+		_active_state.fog_density = active_fog_density
+		_active_state.rain_intensity = active_rain_intensity
+
 	# Update Global Wind (only if changed)
 	if _cached_wind_strength != active_wind_strength or _cached_wind_direction != active_wind_direction:
 		_cached_wind_strength = active_wind_strength
@@ -252,6 +271,9 @@ func _update_lighting():
 
 func get_current_state() -> WeatherState:
 	return _current_state as WeatherState
+
+func get_active_state() -> ActiveWeatherState:
+	return _active_state
 
 func is_transitioning() -> bool:
 	return _tween and _tween.is_valid()

@@ -430,28 +430,32 @@ func _update_foam_particles(delta: float):
 
 func _update_foam_texture():
 	# 將粒子數據烘焙到紋理（用於 Shader 採樣）
-	# 更新 weather_texture 的 Alpha 通道
-	# 注意：weather_image 是 RGBAH/RGBAF，我們將 Alpha 用於粒子泡沫
 	if not weather_image or weather_image.is_empty(): return
 	
-	# Reset alpha channel roughly? No, we want persistence or clear?
-	# Implementation choice: Clear alpha every frame or fade it?
-	# Let's try fading existing alpha for trails?
-	# For now, simple splat.
+	# 🔥 Phase 0 Fix: Early exit for empty or very large arrays
+	if foam_particles.is_empty(): return
 	
-	# To perform well, we might want to NOT iterate every pixel.
-	# But iterating invalidating rects is complex.
-	# Let's clear alpha first (or assume shader handles logic? design says splat)
+	# 🔥 Phase 0 Fix: Skip frames for large particle counts (CPU killer prevention)
+	if foam_particles.size() > 500:
+		if Engine.get_frames_drawn() % 3 != 0: return
+	elif foam_particles.size() > 200:
+		if Engine.get_frames_drawn() % 2 != 0: return
 	
-	# Optimization: Only update dirty regions?
-	# CPU update of 128x128 image is fast enough. 256x256 might be slow.
-	if grid_res > 256: return # Avoid CPU killer
+	# Avoid CPU killer on high-res grids
+	if grid_res > 256: return
+	
+	# 🔥 Phase 0 Fix: Batch process with early exit
+	var processed = 0
+	var max_per_frame = 100 # Limit texture updates per frame
 	
 	for p in foam_particles:
+		if processed >= max_per_frame: break
+		
 		var uv = _world_to_uv(Vector2(p.position.x, p.position.z))
 		if _is_valid_uv(uv):
 			var intensity = 1.0 - (p.age / p.lifetime)
 			_splat_to_texture(weather_image, uv, intensity * p.scale, 2.0)
+			processed += 1
 	
 	weather_visual_tex.update(weather_image)
 

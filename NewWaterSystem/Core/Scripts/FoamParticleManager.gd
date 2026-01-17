@@ -95,6 +95,10 @@ func _spawn_particles(_delta):
 		})
 
 func _update_particles(delta):
+	# 🔥 Phase 0 Fix: Cache boundary values once per frame
+	var half_sea = water_manager.sea_size * 0.5 if water_manager else Vector2(100, 100)
+	var manager_pos = water_manager.global_position if water_manager else Vector3.ZERO
+	
 	for i in range(particles.size() - 1, -1, -1):
 		var p = particles[i]
 		p.age += delta
@@ -102,8 +106,13 @@ func _update_particles(delta):
 		if p.age >= p.lifetime:
 			particles.remove_at(i)
 			continue
+		
+		# 🔥 Phase 0 Fix: Skip physics for out-of-bounds particles (just age them)
+		var local_pos = Vector2(p.pos.x - manager_pos.x, p.pos.z - manager_pos.z)
+		if abs(local_pos.x) > half_sea.x or abs(local_pos.y) > half_sea.y:
+			continue # Just let them age out naturally, skip expensive physics
 			
-		# Physics
+		# Physics (only for in-bounds particles)
 		p.vel.y += GRAVITY * delta
 		
 		# Drag
@@ -121,7 +130,6 @@ func _update_particles(delta):
 			p.vel.y += BUOYANCY * delta # Float up
 			p.vel.y *= 0.5 # Damping when hitting water
 			
-			# Add surface velocity? (Optional)
 			# Stick to surface more
 			p.pos.y = lerp(p.pos.y, water_height, 0.5)
 
