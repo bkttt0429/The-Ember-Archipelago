@@ -127,6 +127,14 @@ func _get_curl_factor() -> float:
 func _spawn_foam_particles(delta: float):
 	# 🔥 根據狀態調整生成率
 	var foam_rate = 500.0 if _state == WaveState.BREAKING else 200.0
+	
+	# 🔥 Optimization: Distance check for foam details
+	var cam = get_viewport().get_camera_3d()
+	if cam:
+		var dist = global_position.distance_to(cam.global_position)
+		if dist > 150.0: return # Too far for foam
+		if dist > 80.0: foam_rate *= 0.5 # Half rate for mid distance
+		
 	var spawn_count = int(foam_rate * delta)
 	var dir_norm = direction.normalized()
 	

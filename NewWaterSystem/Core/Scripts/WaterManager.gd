@@ -371,8 +371,8 @@ func set_breaking_wave_data(data: Dictionary):
 		breaking_waves[0] = data
 	
 	# 🔥 核心修復：立即更新 Shader (方案 A)
-	call_deferred("_update_breaking_wave_uniforms")
-	# 注意：如果每幀多個波浪更新，這裡可能會導致多次 GPU 上傳。
+	# call_deferred("_update_breaking_wave_uniforms") <--- REMOVED for performance
+	# Let _process() handle it once per frame.
 	# 但考慮到破碎波通常 < 3 個，這是可以接受的。
 
 
@@ -773,8 +773,8 @@ func get_wave_height_at(global_pos: Vector3) -> float:
 		var jac = _calculate_gerstner_jacobian(world_pos_2d, t)
 		
 		# 2. 如果接近折疊（J < 0.2），降低波高
-		# ✅ Scheme D: 更寬柔的衰減 (0.1 - 0.5)
-		var safety_mult = smoothstep(0.1, 0.5, jac)
+		# ✅ Fix: Relaxed safety check to prevent "concave" waves
+		var safety_mult = smoothstep(0.0, 0.2, jac)
 		
 		# 3. 應用安全係數
 		total_height += _calculate_gerstner_height(world_pos_2d, t) * safety_mult
@@ -916,8 +916,9 @@ func get_wave_height_with_tilt(global_pos: Vector3, tilt_factor: float = 0.0) ->
 		
 		# Jacobian 安全檢查
 		var jac = _calculate_gerstner_jacobian(world_pos_2d, t)
-		# ✅ Scheme D: 更寬柔的衰減 (0.1 - 0.5)
-		var safety_mult = smoothstep(0.1, 0.5, jac)
+		# ✅ Fix: Relaxed safety check to prevent "concave" waves (holes)
+		# Allow waves to be sharper before damping. Only damp if truly folding (< 0.1).
+		var safety_mult = smoothstep(0.0, 0.2, jac)
 		
 		result.height += gerstner.height * safety_mult
 		result.tilt = gerstner.tilt * safety_mult
