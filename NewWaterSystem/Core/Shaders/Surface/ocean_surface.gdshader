@@ -172,8 +172,9 @@ vec3 get_gerstner_normal_analytical(vec3 pos, float t, float wind_strength, vec2
         }
         
         // ✅ Standard Gerstner Normal Accumulation (Robust)
+        // 🔥 Fix: Use dh_df (derivative) for Y-axis to prevent normal discontinuity
         normal.x -= d.x * (w_steep * dh_df);
-        normal.y -= w_steep * h_raw; 
+        normal.y -= w_steep * dh_df; // 🔥 Fix: h_raw → dh_df
         normal.z -= d.y * (w_steep * dh_df);
     }
     
@@ -420,6 +421,11 @@ void vertex() {
 	for (int i = 0; i < breaking_wave_count; i++) {
 		vec3 wave_center = breaking_wave_data[i].xyz; // x, height, z
 		float b_width = max(breaking_wave_data[i].w, 0.01); // 🔥 Safety Force Min Width
+		
+		// 🔥 Early-Exit: Skip waves far from this vertex (Performance Fix)
+		float quick_dist = length(world_pos.xz - vec2(wave_center.x, wave_center.z));
+		if (quick_dist > b_width * 2.5) continue;
+		
 		float curl_strength = breaking_wave_params[i].x;
 		float break_point = breaking_wave_params[i].y;
 		
@@ -439,33 +445,10 @@ void vertex() {
 		float u = clamp(dist_along / b_width * 0.5 + 0.5, 0.0, 1.0);
 		float envelope = texture(envelope_tex, vec2(u, 0.0)).r;
 		
-		// 🔥 Modified: Trigger curl earlier (break_point - 0.3)
-		float curl_zone = smoothstep(break_point - 0.3, break_point + 0.2, u);
-		
-		// 🔥 基底高度：使用更平滑的抬升
-		float base_h = envelope * lateral_fade * wave_center.y;
-		VERTEX.y += base_h * (1.0 - curl_zone * 0.5); // 在進入捲曲區時稍微降低基底，騰出旋轉空間
-		
-		// 🌊 [Barrel Wave 2.0]：徑向旋轉邏輯
-		// 想像一個圓柱體，頂點隨著 u 的增加繞著圓柱旋轉
-		float barrel_angle = curl_zone * PI * 0.85; // 旋轉角度，0.85PI 剛好形成下扣的鉤子
-		float barrel_radius = wave_center.y * 0.6 * envelope * lateral_fade; // 捲管半徑
-		
-		// 計算旋轉偏移 (相對於波峰)
-		// cos 控制前衝 (XZ)，sin 控制上下 (Y)
-		vec3 rotate_offset = vec3(0.0);
-		rotate_offset.xz = dir_norm * (sin(barrel_angle) * barrel_radius);
-		rotate_offset.y = (cos(barrel_angle) - 1.0) * barrel_radius * 0.5; 
-		
-		// 🏚️ 刻畫空心管道 (Tube Space)
-		if (u > break_point - 0.2) {
-			float local_u = clamp((u - (break_point - 0.2)) / 0.5, 0.0, 1.0);
-			float tube_hollow = sin(local_u * PI) * (1.0 - abs(dist_across)/b_width);
-			rotate_offset.y += tube_hollow * barrel_radius * 0.4 * curl_strength;
-		}
-		
-		// 最終位移應用
-		VERTEX.xyz += rotate_offset;
+		// 🌊 [Simplified]：Height only - Curl handled by independent mesh
+		// No XZ projection to avoid mesh tearing
+		float base_height = wave_center.y * envelope * lateral_fade;
+		VERTEX.y += base_height;
 	}
 
 	VERTEX.y += swe_h * swe_strength * wave_weight * final_damp;

@@ -58,3 +58,6 @@ func stop_tornado():
 		water_manager.active_vortex = null
 	
 	print("[TornadoController] Tornado dissipated.")
+
+func is_active() -> bool:
+	return _is_active

@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="WeatherConfig" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://WeatherSystem/Core/WeatherConfig.gd" id="1_config"]
+
+[resource]
+script = ExtResource("1_config")
+
+# VFX Timing
+lightning_min_interval = 3.0
+lightning_max_interval = 12.0
+tornado_min_interval = 20.0
+tornado_max_interval = 60.0
+
+# Tornado Settings
+tornado_min_duration = 15.0
+tornado_max_duration = 40.0
+tornado_spawn_radius_x = -10.0
+tornado_spawn_radius_z = 10.0
+tornado_manual_spawn_radius = 15.0
+
+# Weather Transition
+default_transition_duration = 5.0

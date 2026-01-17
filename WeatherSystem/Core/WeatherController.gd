@@ -10,6 +10,14 @@ extends Node
 @export var default_weather: Resource # WeatherState
 @export var storm_weather: Resource # WeatherState
 
+@export_group("Configuration")
+@export var vfx_config: WeatherConfig
+@export var use_state_machine: bool = false
+
+signal weather_changed(from_state: WeatherState, to_state: WeatherState, duration: float)
+signal weather_transition_completed(state: WeatherState)
+signal storm_triggered(lightning: bool, tornado: bool)
+
 @export_group("Time of Day")
 @export_range(0, 1) var current_time_of_day: float = 0.3: # 0.0 to 1.0
 	set(v):
@@ -34,20 +42,34 @@ var _tornado_controller: TornadoController
 var _lightning_timer: float = 0.0
 var _tornado_timer: float = 0.0
 
+var _cached_env: Environment
+var _cached_sky: ProceduralSkyMaterial
+
+var _cached_wind_strength: float = -1.0
+var _cached_wind_direction: Vector2 = Vector2(1e6, 1e6)
+var _cached_wave_steepness: float = -1.0
+var _cached_fog_density: float = -1.0
+var _cached_rain_intensity: float = -1.0
+
 func manual_lightning():
 	if _lightning_system:
 		_lightning_system.trigger_flash()
 
 func manual_tornado(duration: float = 20.0):
 	if _tornado_controller:
-		var rand_pos = Vector3(randf_range(-15, 15), 0, randf_range(-15, 15))
+		var radius := vfx_config.tornado_manual_spawn_radius if vfx_config else 15.0
+		var rand_pos = Vector3(randf_range(-radius, radius), 0, randf_range(-radius, radius))
 		_tornado_controller.start_tornado(rand_pos, duration)
 
 func _ready():
 	_rain_controller = find_child("RainController")
 	_lightning_system = find_child("LightningSystem")
 	_tornado_controller = find_child("TornadoController")
-	
+
+	if world_env and world_env.environment:
+		_cached_env = world_env.environment
+		_cached_sky = _cached_env.sky.sky_material if _cached_env.sky else null
+
 	if default_weather:
 		apply_weather(default_weather, 0.0)
 	_update_lighting()
@@ -64,13 +86,14 @@ func _process(delta):
 
 func apply_weather(state: Resource, duration: float = 5.0):
 	if not state: return
+	var old_state = _current_state
 	_current_state = state
-	
+
 	if _tween:
 		_tween.kill()
-	
+
 	_tween = create_tween().set_parallel(true).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	
+
 	# Tween all relevant properties
 	if "wind_strength" in state:
 		_tween.tween_property(self, "active_wind_strength", state.wind_strength, duration)
@@ -84,16 +107,25 @@ func apply_weather(state: Resource, duration: float = 5.0):
 		_tween.tween_property(self, "active_fog_density", state.fog_density, duration)
 	if "rain_intensity" in state:
 		_tween.tween_property(self, "active_rain_intensity", state.rain_intensity, duration)
-	
-	# Reset timers when weather changes
-	_lightning_timer = randf_range(5.0, 15.0)
-	_tornado_timer = randf_range(10.0, 30.0)
+
+	weather_changed.emit(old_state, state, duration)
+
+	var lightning_min := vfx_config.lightning_min_interval if vfx_config else 3.0
+	var lightning_max := vfx_config.lightning_max_interval if vfx_config else 12.0
+	_lightning_timer = randf_range(lightning_min, lightning_max)
+
+	var tornado_min := vfx_config.tornado_min_interval if vfx_config else 10.0
+	var tornado_max := vfx_config.tornado_max_interval if vfx_config else 30.0
+	_tornado_timer = randf_range(tornado_min, tornado_max)
 	
 	# Stop ongoing tornado if clearing weather
 	if not state.storm_mode and _tornado_controller:
 		_tornado_controller.stop_tornado()
-	
+
 	print("[WeatherController] Transitioning to weather: ", state.name, " over ", duration, " seconds")
+
+	# Emit completion signal when transition finishes
+	_tween.tween_callback(func(): weather_transition_completed.emit(state))
 
 func _handle_weather_vfx(delta: float):
 	# 1. Lightning
@@ -102,46 +134,63 @@ func _handle_weather_vfx(delta: float):
 		if _lightning_timer <= 0:
 			if randf() < active_rain_intensity:
 				_lightning_system.trigger_flash()
-			_lightning_timer = randf_range(3.0, 12.0)
+				storm_triggered.emit(true, false)
+			var lightning_min := vfx_config.lightning_min_interval if vfx_config else 3.0
+			var lightning_max := vfx_config.lightning_max_interval if vfx_config else 12.0
+			_lightning_timer = randf_range(lightning_min, lightning_max)
 	
 	# 2. Tornado
 	if _tornado_controller and _current_state and "storm_mode" in _current_state and _current_state.storm_mode:
 		_tornado_timer -= delta
 		if _tornado_timer <= 0:
 			# Only spawn if no active tornado
-			if not _tornado_controller._is_active:
+			if not _tornado_controller.is_active():
 				# Random position within water bounds (demo: near center)
-				var rand_pos = Vector3(randf_range(-10, 10), 0, randf_range(-10, 10))
-				_tornado_controller.start_tornado(rand_pos, randf_range(15.0, 40.0))
-			_tornado_timer = randf_range(20.0, 60.0)
+				var radius_x := vfx_config.tornado_spawn_radius_x if vfx_config else -10.0
+				var radius_z := vfx_config.tornado_spawn_radius_z if vfx_config else 10.0
+				var rand_pos = Vector3(randf_range(radius_x, -radius_x), 0, randf_range(radius_x, radius_z))
+				var duration_min := vfx_config.tornado_min_duration if vfx_config else 15.0
+				var duration_max := vfx_config.tornado_max_duration if vfx_config else 40.0
+				_tornado_controller.start_tornado(rand_pos, randf_range(duration_min, duration_max))
+				storm_triggered.emit(false, true)
+			var tornado_min := vfx_config.tornado_min_interval if vfx_config else 20.0
+			var tornado_max := vfx_config.tornado_max_interval if vfx_config else 60.0
+			_tornado_timer = randf_range(tornado_min, tornado_max)
 
 func _apply_active_state_to_systems():
-	# Update Global Wind
-	if Engine.has_singleton("GlobalWind"):
-		var global_wind = Engine.get_singleton("GlobalWind")
-		global_wind.current_wind_strength = active_wind_strength
-		global_wind.current_wind_direction = active_wind_direction
-	elif has_node("/root/GlobalWind"): # Fallback for Autoload
-		var global_wind = get_node("/root/GlobalWind")
-		global_wind.current_wind_strength = active_wind_strength
-		global_wind.current_wind_direction = active_wind_direction
+	# Update Global Wind (only if changed)
+	if _cached_wind_strength != active_wind_strength or _cached_wind_direction != active_wind_direction:
+		_cached_wind_strength = active_wind_strength
+		_cached_wind_direction = active_wind_direction
+		if Engine.has_singleton("GlobalWind"):
+			var global_wind = Engine.get_singleton("GlobalWind")
+			global_wind.current_wind_strength = active_wind_strength
+			global_wind.current_wind_direction = active_wind_direction
+		elif has_node("/root/GlobalWind"):
+			var global_wind = get_node("/root/GlobalWind")
+			global_wind.current_wind_strength = active_wind_strength
+			global_wind.current_wind_direction = active_wind_direction
 
-	# Update Water Manager
+	# Update Water Manager (only if changed)
 	if water_manager:
-		water_manager.wind_strength = active_wind_strength
-		water_manager.wind_direction = active_wind_direction
-		water_manager.wave_steepness = active_wave_steepness
-		# Ensure rain intensity affects water (ripples/foam)
-		if "rain_intensity" in water_manager:
+		if water_manager.wind_strength != active_wind_strength or water_manager.wind_direction != active_wind_direction:
+			water_manager.wind_strength = active_wind_strength
+			water_manager.wind_direction = active_wind_direction
+		if _cached_wave_steepness != active_wave_steepness:
+			_cached_wave_steepness = active_wave_steepness
+			water_manager.wave_steepness = active_wave_steepness
+		if "rain_intensity" in water_manager and _cached_rain_intensity != active_rain_intensity:
 			water_manager.rain_intensity = active_rain_intensity
 
-	# Update Rain Controller
-	if _rain_controller:
+	# Update Rain Controller (only if changed)
+	if _rain_controller and _cached_rain_intensity != active_rain_intensity:
+		_cached_rain_intensity = active_rain_intensity
 		_rain_controller.set_intensity(active_rain_intensity)
 
-	# Environmental updates
-	if world_env and world_env.environment:
-		world_env.environment.volumetric_fog_density = active_fog_density
+	# Environmental updates (only if changed)
+	if _cached_env and _cached_fog_density != active_fog_density:
+		_cached_fog_density = active_fog_density
+		_cached_env.volumetric_fog_density = active_fog_density
 
 func _update_lighting():
 	if not sun_light: return
@@ -158,10 +207,10 @@ func _update_lighting():
 	sun_light.light_energy = max(0.0, day_factor * 1.5) * weather_intensity_mult
 	
 	# 2. Sky & Environment Colors
-	if world_env and world_env.environment:
-		var env = world_env.environment
-		var sky = env.sky.sky_material if env.sky else null
-		
+	if _cached_env:
+		var env = _cached_env
+		var sky = _cached_sky
+
 		var transition = clamp(day_factor + 0.2, 0.0, 1.0)
 		
 		# Night Colors
@@ -200,3 +249,13 @@ func _update_lighting():
 		var base_sun_color = Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.4, 0.1), sunset_lerp * 0.8)
 		# Stormy sun is dimmer and more gray
 		sun_light.light_color = base_sun_color.lerp(Color(0.6, 0.7, 0.8), active_rain_intensity * 0.5)
+
+func get_current_state() -> WeatherState:
+	return _current_state as WeatherState
+
+func is_transitioning() -> bool:
+	return _tween and _tween.is_valid()
+
+func get_weather_progress() -> float:
+	if not _tween: return 1.0
+	return 1.0 - _tween.get_total_elapsed_time() / _tween.get_total_duration()
