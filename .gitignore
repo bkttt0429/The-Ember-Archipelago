@@ -70,3 +70,8 @@ gd_files.txt
 
 # Obsidian
 .obsidian/workspace.json
+
+RagData/
+
+# AI Agent
+.agent/

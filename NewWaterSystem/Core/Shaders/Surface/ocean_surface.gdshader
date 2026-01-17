@@ -419,49 +419,52 @@ void vertex() {
 	// === Breaking Wave Curl Logic ===
 	for (int i = 0; i < breaking_wave_count; i++) {
 		vec3 wave_center = breaking_wave_data[i].xyz; // x, height, z
-		float b_width = max(breaking_wave_data[i].w, 0.01); // ✅ Safety Force Min Width
+		float b_width = max(breaking_wave_data[i].w, 0.01); // 🔥 Safety Force Min Width
 		float curl_strength = breaking_wave_params[i].x;
 		float break_point = breaking_wave_params[i].y;
 		
-		// 修正：世界坐標計算
-		// Vertex 已經偏移了，這裡使用原始 world_pos (尚未應用 displacement?)
-		// 實際上應該基於當前 Vertex 位置？
-		// 我們需要相對於波浪中心的偏移。
-		// world_pos 是基於初始 VERTEX 的。
-		
 		vec2 to_wave = world_pos.xz - vec2(wave_center.x, wave_center.z);
-		
 		vec2 dir_norm = normalize(breaking_wave_params[i].zw);
-		// Fallback to wind if zero (shouldn't happen with new logic, but safe)
 		if (length(dir_norm) < 0.1) dir_norm = normalize(wind_dir);
+		
 		float dist_along = dot(to_wave, dir_norm);
 		float dist_across = length(to_wave - dist_along * dir_norm);
 		
 		if (abs(dist_across) > b_width) continue;
 		
-		float lateral_fade = smoothstep(b_width, b_width * 0.5, abs(dist_across));
+		// 🔥 Modified: Smoother lateral fade
+		float lateral_fade = smoothstep(b_width, b_width * 0.3, abs(dist_across)); // From 0.5 to 0.3
 		
 		// Envelope (Sech approx)
 		float u = clamp(dist_along / b_width * 0.5 + 0.5, 0.0, 1.0);
 		float envelope = texture(envelope_tex, vec2(u, 0.0)).r;
 		
-		// Curl Zone
-		// u > break_point triggers forward curl
-		float curl_zone = smoothstep(break_point - 0.2, break_point + 0.1, u);
+		// 🔥 Modified: Trigger curl earlier (break_point - 0.3)
+		float curl_zone = smoothstep(break_point - 0.3, break_point + 0.2, u);
 		
-		// 1. Base Vertical Rise (The body of the wave)
-		float base_rise = envelope * lateral_fade * wave_center.y;
-		VERTEX.y += base_rise;
-		
-		// 2. Curl Displacement (Forward and Down)
+		// 🔥 Modified: Massively increased displacement (10-15x)
 		vec3 curl_offset = vec3(
-			dir_norm.x * curl_zone * curl_strength * 3.0,
-			-curl_zone * curl_strength * 1.5, // Downward curl
-			dir_norm.y * curl_zone * curl_strength * 3.0
+			dir_norm.x * curl_zone * curl_strength * 25.0, // 3.0 -> 25.0
+			-curl_zone * curl_strength * 15.0,             // 1.5 -> 15.0 (Downward)
+			dir_norm.y * curl_zone * curl_strength * 25.0
 		);
 		
-		// Apply curl scaling by height
-		VERTEX.xyz += curl_offset * envelope * lateral_fade * wave_center.y * 0.5; 
+		// 🔥 Modified: Aggressive Curl (Deformation)
+		// Create "Tube" effect near break point
+		if (u > break_point && u < break_point + 0.3) {
+			float tube_factor = smoothstep(0.0, 0.3, u - break_point);
+			float radial_offset = abs(dist_across) / b_width;
+			
+			// Curl Inward (Create tube space)
+			curl_offset.y += radial_offset * curl_strength * 20.0 * tube_factor;
+			
+			// Forward Lean
+			float forward_lean = (1.0 - radial_offset) * curl_strength * 10.0 * tube_factor;
+			curl_offset.xz += dir_norm * forward_lean;
+		}
+		
+		// 🔥 Modified: Removed * 0.5 attenuation
+		VERTEX.xyz += curl_offset * envelope * lateral_fade * wave_center.y; 
 	}
 
 	VERTEX.y += swe_h * swe_strength * wave_weight * final_damp;
@@ -747,6 +750,31 @@ void fragment() {
 	}
 	
 	ALBEDO = color;
+	
+	// 🔥 Breaking Wave Debug Visualization
+	if (breaking_wave_count > 0 && debug_show_markers) {
+		for (int i = 0; i < breaking_wave_count; i++) {
+			vec3 wave_center = breaking_wave_data[i].xyz;
+			float b_width = max(breaking_wave_data[i].w, 0.01);
+			
+			vec2 to_wave = v_world_pos.xz - vec2(wave_center.x, wave_center.z);
+			vec2 dir_norm = normalize(breaking_wave_params[i].zw);
+			float dist_along = dot(to_wave, dir_norm);
+			float dist_across = length(to_wave - dist_along * dir_norm);
+			
+			// 🔥 Core Zone (Green)
+			if (abs(dist_across) < b_width * 0.5 && abs(dist_along) < b_width) {
+				ALBEDO = mix(ALBEDO, vec3(0.0, 1.0, 0.0), 0.5);
+			}
+			
+			// 🔥 Curl Zone (Red)
+			float u = clamp(dist_along / b_width * 0.5 + 0.5, 0.0, 1.0);
+			float curl_zone = smoothstep(0.3, 0.7, u);
+			if (curl_zone > 0.5 && abs(dist_across) < b_width) {
+				ALBEDO = mix(ALBEDO, vec3(1.0, 0.0, 0.0), curl_zone * 0.7);
+			}
+		}
+	}
 	// 5.5 Visual Edge Softening
 	// Replaces hard clamp with smooth proximity fade
     // Combine depth fade with world-space edge fade

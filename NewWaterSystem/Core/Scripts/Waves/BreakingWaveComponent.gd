@@ -4,20 +4,22 @@ extends Node3D
 ## 管理單個破碎波浪的生命週期和形態
 
 @export_group("Wave Shape")
-@export var wave_height: float = 8.0
-@export var wave_width: float = 30.0
-@export var curl_strength: float = 0.7 # 0-1：捲曲強度
-@export var break_point: float = 0.6 # 0-1：破碎點位置
+@export var wave_height: float = 25.0
+@export var wave_width: float = 50.0
+@export var curl_strength: float = 1.5 # 0-1：捲曲強度
+@export var break_point: float = 0.5 # 0-1：破碎點位置
 
 @export_group("Motion")
-@export var wave_speed: float = 8.0
+@export var wave_speed: float = 12.0
 @export var direction: Vector2 = Vector2(1, 0)
-@export var lifespan: float = 10.0
+@export var lifespan: float = 15.0
 @export var loop: bool = false # Debug: Loop the wave
 
 var _age: float = 0.0
 var _start_pos: Vector2
 var _current_pos: Vector2
+var _target_pos: Vector2 # 🔥 Smooth Movement Target
+var _smooth_factor: float = 15.0
 var _water_manager: OceanWaterManager
 
 # 波浪狀態機
@@ -27,6 +29,7 @@ var _state: WaveState = WaveState.BUILDING
 func _ready():
 	_current_pos = Vector2(global_position.x, global_position.z)
 	_start_pos = _current_pos
+	_target_pos = _current_pos # 🔥 Init Target
 	
 	# 1. 嘗試從群組獲取 (最穩健)
 	_water_manager = get_tree().get_first_node_in_group("WaterSystem_Managers")
@@ -65,7 +68,9 @@ func _physics_process(delta):
 		_state = WaveState.DISSIPATING
 	
 	# 位置更新
-	_current_pos += direction.normalized() * wave_speed * delta
+	# 🔥 修復：平滑位置更新（指數衰減插值）
+	_target_pos += direction.normalized() * wave_speed * delta
+	_current_pos = _current_pos.lerp(_target_pos, _smooth_factor * delta)
 	
 	# 向 WaterManager 注入波浪數據
 	_inject_wave_data()
@@ -78,7 +83,8 @@ func _physics_process(delta):
 	if _age > lifespan:
 		if loop:
 			_age = 0.0
-			_current_pos = _start_pos
+			_target_pos = _start_pos
+			_current_pos = _start_pos # 🔥 Reset both
 			_state = WaveState.BUILDING
 			# print("Wave Loop Reset")
 		else:
@@ -97,6 +103,10 @@ func _inject_wave_data():
 		"direction": direction
 	}
 	_water_manager.set_breaking_wave_data(shader_data)
+	
+	# 🔥 Debug Print (Optional)
+	# if Engine.get_frames_drawn() % 120 == 0:
+	# 	print("💥 [Component] Height=%.1f | Curl=%.2f | Pos=%s" % [shader_data.height, shader_data.curl, shader_data.position])
 
 func _get_state_multiplier() -> float:
 	match _state:
@@ -115,25 +125,28 @@ func _get_curl_factor() -> float:
 	return 0.3
 
 func _spawn_foam_particles(delta: float):
-	# 在波峰產生泡沫粒子
-	var foam_rate = 100.0 # 每秒粒子數
+	# 🔥 根據狀態調整生成率
+	var foam_rate = 500.0 if _state == WaveState.BREAKING else 200.0
 	var spawn_count = int(foam_rate * delta)
 	var dir_norm = direction.normalized()
 	
-	# 計算波峰位置 (前進方向上的偏移)
-	# 波浪中心 _current_pos
-	# 波峰通常即是中心，或者稍微偏前/後取決於實現
-	
 	for i in range(spawn_count):
-		# 沿著波浪寬度分佈 (垂直於前進方向)
-		# 旋轉 90 度
 		var tangent = Vector2(-dir_norm.y, dir_norm.x)
-		var offset_width = randf_range(-wave_width * 0.4, wave_width * 0.4)
+		var offset_width = randf_range(-wave_width * 0.6, wave_width * 0.6) # 更寬分布
 		var offset_pos = _current_pos + tangent * offset_width
 		
-		# 調用泡沫系統
-		# 注意：Y 軸高度需要大致在波峰高度，這裡用 wave_height * 0.8
+		# 🔥 增加前方偏移（泡沫跟隨波浪前緣）
+		var forward_offset = dir_norm * wave_width * 0.3 * randf()
+		offset_pos += forward_offset
+		
+		# 🔥 更高的初始位置（模擬噴濺）
+		var spawn_height = wave_height * randf_range(0.8, 1.5)
+		
 		_water_manager.spawn_foam_particle(
-			Vector3(offset_pos.x, wave_height * 0.8 + global_position.y, offset_pos.y),
-			Vector3(randf_range(-2, 2), randf_range(3, 8), randf_range(-2, 2)) # 簡單的隨機速度
+			Vector3(offset_pos.x, spawn_height + global_position.y, offset_pos.y),
+			Vector3(
+				randf_range(-5, 5), # 橫向擴散
+				randf_range(5, 15), # 向上噴射
+				randf_range(-5, 5)
+			)
 		)
