@@ -1,10 +1,10 @@
 [gd_scene load_steps=12 format=3 uid="uid://cy8k6p3t1q0w3"]
 
 [ext_resource type="Script" uid="uid://cd6doksvbjqcw" path="res://NewWaterSystem/Core/Scripts/WaterManager.gd" id="1_water"]
-[ext_resource type="Script" uid="uid://crr33rfp6efcd" path="res://NewWaterSystem/Core/Scripts/CameraController.gd" id="2_cam"]
+[ext_resource type="Script" uid="uid://crr33rfp6efcd" path="res://NewWaterSystem/Demo/Scripts/CameraController.gd" id="2_cam"]
 [ext_resource type="Texture2D" uid="uid://u1pdrd2gf4aj" path="res://WaterSystem/VFX/textures/n_noise_2.tres" id="3_ls1lp"]
-[ext_resource type="Script" uid="uid://i56dwu2dccnx" path="res://NewWaterSystem/Core/Scripts/DemoUI.gd" id="3_ui"]
-[ext_resource type="Environment" uid="uid://cj5n6ylnth8yx" path="res://NewWaterSystem/scenes/SkillsDemo_env.tres" id="4_env"]
+[ext_resource type="Script" uid="uid://i56dwu2dccnx" path="res://NewWaterSystem/Demo/Scripts/DemoUI.gd" id="3_ui"]
+[ext_resource type="Environment" uid="uid://cj5n6ylnth8yx" path="res://NewWaterSystem/Demo/Scenes/SkillsDemo_env.tres" id="4_env"]
 
 [sub_resource type="FastNoiseLite" id="FastNoiseLite_4dpo3"]
 noise_type = 2

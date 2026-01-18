@@ -354,7 +354,6 @@ const MAX_BREAKING_WAVES = 3 # 同時最多3個（性能考量）
 # === 泡沫粒子系統接口 ===
 var foam_particles: Array[Dictionary] = []
 var MAX_FOAM_PARTICLES = 2000 # 可以動態調整 (LOD)
-var _foam_renderer: FoamParticleRenderer
 
 func set_breaking_wave_data(data: Dictionary):
 	# 檢查是否已存在（改為插值更新，避免瞬間跳變）
@@ -540,11 +539,6 @@ func _ready():
 	_cleanup()
 	_setup_simulation()
 
-	# 初始化泡沫渲染器 (Phase 2 Integration)
-	_foam_renderer = FoamParticleRenderer.new()
-	_foam_renderer.name = "FoamParticleRenderer"
-	_foam_renderer.max_particles = MAX_FOAM_PARTICLES
-	add_child(_foam_renderer)
 	
 	await get_tree().process_frame
 	_bake_obstacles()
@@ -1650,8 +1644,6 @@ func _process(delta):
 				weather_visual_tex.update(weather_image)
 				
 	# Update Foam Renderer Visuals
-	if _foam_renderer:
-		_foam_renderer.update_particles(foam_particles)
 	
 	# Only update breaking wave uniforms every frame if we have them
 	if not breaking_waves.is_empty():

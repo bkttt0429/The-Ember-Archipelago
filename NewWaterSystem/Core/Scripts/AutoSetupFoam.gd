@@ -75,7 +75,7 @@ func _run():
 	# If not found, try to create it?
 	if not foam_particles:
 		print("FoamParticleManager node not found. Creating one...")
-		var particle_script = load("res://NewWaterSystem/Core/Scripts/FoamParticleManager.gd")
+		var particle_script = load("res://NewWaterSystem/Core/Scripts/Foam/FoamParticleManager.gd")
 		if particle_script:
 			var node = Node3D.new()
 			node.name = "FoamParticleManager"
@@ -114,8 +114,8 @@ func _run():
 	var boat = _find_node_by_name(root, "Boat")
 	if boat:
 		print("Found Boat node.")
-		if not boat.get_script() or boat.get_script().resource_path != "res://NewWaterSystem/Core/Scripts/BoatAutoCircle.gd":
-			var boat_script = load("res://NewWaterSystem/Core/Scripts/BoatAutoCircle.gd")
+		if not boat.get_script() or boat.get_script().resource_path != "res://NewWaterSystem/Demo/Scripts/BoatAutoCircle.gd":
+			var boat_script = load("res://NewWaterSystem/Demo/Scripts/BoatAutoCircle.gd")
 			if boat_script:
 				boat.set_script(boat_script)
 				# Need to explicitly set values because assigning script at runtime resets them or they might be 0

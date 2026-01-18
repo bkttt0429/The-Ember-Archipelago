@@ -1,8 +1,8 @@
-[gd_scene load_steps=14 format=3 uid="uid://c8k2y4j8x501"]
+[gd_scene load_steps=15 format=3 uid="uid://c8k2y4j8x501"]
 
 [ext_resource type="Script" uid="uid://cd6doksvbjqcw" path="res://NewWaterSystem/Core/Scripts/WaterManager.gd" id="1_water"]
 [ext_resource type="Script" uid="uid://bh2iyp38itm6y" path="res://NewWaterSystem/Core/Scripts/Waves/BreakingWaveComponent.gd" id="2_wave"]
-[ext_resource type="Script" path="res://NewWaterSystem/Core/Scripts/Utils/FreeLookCamera.gd" id="3_cam"]
+[ext_resource type="Script" uid="uid://lkg8bxllytgg" path="res://NewWaterSystem/Demo/Scripts/FreeLookCamera.gd" id="3_cam"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_test"]
 
@@ -65,29 +65,22 @@ shadow_enabled = true
 
 [node name="OceanWaterManager" type="Node3D" parent="." groups=["WaterSystem_Managers"]]
 script = ExtResource("1_water")
-wind_strength = 2.0
-wind_direction = Vector2(1, 0)
-wave_steepness = 0.2
+sea_size = Vector2(256, 256)
 color_deep = Color(0, 0.1, 0.3, 1)
 color_shallow = Color(0, 0.6, 0.8, 1)
 foam_noise_tex = SubResource("NoiseTexture2D_vv8po")
+far_fade_start = 150.0
+far_fade_max = 250.0
 foam_crest_strength = 1.5
 foam_jacobian_bias = 0.15
 caustics_texture = SubResource("NoiseTexture2D_a8hrg")
 normal_map1 = SubResource("NoiseTexture2D_4a7co")
 normal_map2 = SubResource("NoiseTexture2D_kua33")
-sea_size = Vector2(256, 256)
-far_fade_start = 150.0
-far_fade_max = 250.0
+show_wireframe = true
 
 [node name="BreakingWave1" type="Node3D" parent="OceanWaterManager"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -20, 0, 0)
 script = ExtResource("2_wave")
-wave_height = 25.0
-wave_width = 50.0
-curl_strength = 1.5
-wave_speed = 12.0
-lifespan = 15.0
 loop = true
 
 [node name="TestCamera" type="Camera3D" parent="."]

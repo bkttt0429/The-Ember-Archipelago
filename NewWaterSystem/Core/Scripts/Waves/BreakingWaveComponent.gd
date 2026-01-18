@@ -156,12 +156,17 @@ func _get_state_multiplier() -> float:
 	return 0.0
 
 func _get_curl_factor() -> float:
-	# Curling 狀態達到最大捲曲
-	if _state == WaveState.CURLING:
-		return 1.0
-	elif _state == WaveState.BREAKING:
-		return 0.6 # 破碎時部分保持
-	return 0.3
+	# 對應物理算法中的 t 參數 (0-1)
+	match _state:
+		WaveState.BUILDING:
+			return lerpf(0.0, 0.4, _age / (lifespan * 0.3))
+		WaveState.CURLING:
+			return lerpf(0.4, 0.8, (_age - lifespan * 0.3) / (lifespan * 0.3))
+		WaveState.BREAKING:
+			return 1.0 # 完全破碎
+		WaveState.DISSIPATING:
+			return 0.7 # 逐漸消失時保持部分形狀
+	return 0.0
 
 func _spawn_foam_particles(delta: float):
 	# 🔥 根據狀態調整生成率
@@ -205,10 +210,12 @@ func _setup_barrel_mesh():
 	var barrel_radius = wave_height * 0.35 # 35% of height as tube radius
 	var barrel_length = wave_width * 0.7 # 70% of width as tube length
 	
-	# 🔥 Phase 1: Use enhanced generate with spiral parameters
-	var spiral_tightness = 0.3 # Logarithmic spiral tightness
-	var lip_droop = 0.4 * curl_strength # Lip droop based on curl
-	var mesh = BarrelMeshGen.generate(barrel_radius, barrel_length, 12, 8, spiral_tightness, lip_droop)
+	# 🔥 Phase 2: 使用物理剖面生成
+	# base_t: 決定整體破碎程度
+	# temporal_spread: 決定沿長度的演化跨度 (0.2 ~ 0.8 效果較佳)
+	var base_t = 0.7
+	var temporal_spread = 0.6
+	var mesh = BarrelMeshGen.generate(barrel_radius, barrel_length, 24, 16, base_t, temporal_spread)
 	
 	# Create MeshInstance3D
 	_barrel_mesh_instance = MeshInstance3D.new()
