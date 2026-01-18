@@ -817,6 +817,29 @@ func get_wave_height_at(global_pos: Vector3) -> float:
 		
 	return total_height
 
+## 🔥 Phase 1: 獲取基礎水面高度（不含破碎波貢獻）
+## 用於桶浪網格定位，避免自我參照造成的高度循環
+func get_base_water_height_at(global_pos: Vector3) -> float:
+	var total_height = global_position.y
+	
+	var t = physics_time
+	if not Engine.is_in_physics_frame():
+		t += accumulated_time
+	
+	var world_pos_2d = Vector2(global_pos.x, global_pos.z)
+	
+	# Gerstner waves only
+	if wind_strength > 0.001:
+		var jac = _calculate_gerstner_jacobian(world_pos_2d, t)
+		var safety_mult = smoothstep(0.0, 0.2, jac)
+		total_height += _calculate_gerstner_height(world_pos_2d, t) * safety_mult
+	
+	# Rogue wave (not breaking wave!)
+	if rogue_wave_present:
+		total_height += _calculate_rogue_wave_height(world_pos_2d)
+	
+	return total_height
+
 func _calculate_gerstner_height(pos_xz: Vector2, t: float) -> float:
 	var height_accum = 0.0
 	var base_angle = atan2(wind_direction.y, wind_direction.x)

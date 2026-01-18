@@ -271,6 +271,12 @@ varying vec3 v_wave_normal;
 varying vec3 v_world_pos;
 varying float v_edge_damp;
 
+// 🔥 Phase 1: Barrel Mesh Enhanced Varyings
+varying float v_arc_position;      // 0 = back (ocean), 1 = lip
+varying float v_edge_blend;        // 0 = blend with ocean, 1 = full barrel
+varying float v_water_thickness;   // Volumetric thickness for SSS
+varying vec3 v_tangent;            // Flow direction for animated normals
+
 // 1D Envelope Sampling for Rogue Wave
 float sample_envelope(float dist, float width) {
     float u = clamp((dist / width) * 0.5 + 0.5, 0.0, 1.0);
@@ -337,6 +343,14 @@ void vertex() {
 		v_wave_normal = (MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz;
 		v_edge_damp = 1.0;
 		v_jacobian = 0.0;
+		
+		// 🔥 Phase 1: Read enhanced vertex data from COLOR channel
+		// COLOR.r = edge_blend (0 = blend with ocean, 1 = full barrel)
+		// COLOR.g = water_thickness normalized (0-1 maps to 0-3 meters)
+		v_arc_position = UV.x;  // Arc position from UV
+		v_edge_blend = COLOR.r;
+		v_water_thickness = COLOR.g * 3.0;  // Denormalize to actual thickness
+		v_tangent = (MODEL_MATRIX * vec4(TANGENT.xyz, 0.0)).xyz;
 	} else {
 		v_swe_uv = (VERTEX.xz / sea_size) + 0.5;
 		v_swe_uv = clamp(v_swe_uv, 0.0, 1.0);
@@ -416,6 +430,12 @@ void vertex() {
 		VERTEX.y += fft_h * wind_strength * wave_weight * fft_scale * final_damp;
 		
 		v_world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+		
+		// 🔥 Phase 1: 設置默認值（非桶浪路徑）
+		v_arc_position = 0.0;
+		v_edge_blend = 1.0;  // 完全不透明
+		v_water_thickness = 2.0;
+		v_tangent = vec3(1.0, 0.0, 0.0);
 	}
 }
 
@@ -424,35 +444,52 @@ vec3 blend_normals(vec3 n1, vec3 n2) {
 }
 
 void fragment() {
-	// 🌊 桶浪模式：簡化的渲染路徑
+	// 🌊 桶浪模式：Phase 1 增強渲染路徑
 	if (is_barrel_mesh) {
 		// 使用世界空間法線和位置
 		vec3 world_normal = normalize(v_wave_normal);
 		vec3 view_dir = normalize(CAMERA_POSITION_WORLD - v_world_pos);
 		
-		// 基於弧形位置的深度模擬（使用法線的Y分量）
-		float arc_depth = clamp(1.0 - world_normal.y, 0.0, 1.0);
+		// 🔥 Phase 1: 使用真實的體積厚度 (來自頂點顏色)
+		float water_thickness = v_water_thickness;
+		float absorption = exp(-water_thickness * absorption_coeff);
 		
-		// 顏色混合：頂部淺色，底部深色
-		vec3 sea_color = mix(color_deep.rgb, color_shallow.rgb, arc_depth * 0.7 + 0.3);
+		// 🔥 Phase 1: 使用弧形位置計算深度效果
+		float arc_depth = v_arc_position;  // 0 = back, 1 = lip
 		
-		// 法線貼圖細節
-		vec2 detail_uv = v_world_pos.xz * normal_tile * 0.1 + TIME * normal_speed;
-		vec3 n1 = texture(normal_map1, detail_uv).rgb * 2.0 - 1.0;
-		vec3 n2 = texture(normal_map2, detail_uv * 1.2 - TIME * normal_speed * 0.7).rgb * 2.0 - 1.0;
-		vec3 detail_normal = normalize(vec3((n1.xy + n2.xy) * normal_scale * 0.3, 1.0));
+		// 顏色混合：底部深色，唇部淺色（薄水）
+		vec3 sea_color = mix(color_deep.rgb, color_shallow.rgb, absorption);
+		
+		// 🔥 Phase 1: 流動法線 (沿捲曲方向加速)
+		vec2 flow_dir = normalize(v_tangent.xz + vec2(0.001)); // 防止除零
+		float barrel_flow_speed = mix(0.5, 2.0, arc_depth);  // 唇部流動更快
+		vec2 flow_uv = v_world_pos.xz * normal_tile * 0.1;
+		flow_uv += flow_dir * TIME * normal_speed * barrel_flow_speed;
+		
+		// 🔥 Phase 1: 梯度法線強度
+		// 底部：標準強度，唇部：更強烈（混亂泡沫感）
+		float normal_intensity = mix(0.5, 1.2, smoothstep(0.5, 0.9, arc_depth));
+		
+		vec3 n1 = texture(normal_map1, flow_uv).rgb * 2.0 - 1.0;
+		vec3 n2 = texture(normal_map2, flow_uv * 1.2 - TIME * normal_speed * 0.7).rgb * 2.0 - 1.0;
+		vec3 detail_normal = normalize(vec3((n1.xy + n2.xy) * normal_intensity, 1.0));
 		
 		// 混合法線
-		vec3 final_normal = normalize(world_normal + detail_normal * 0.2);
+		vec3 final_normal = normalize(world_normal + detail_normal * 0.4);
 		NORMAL = normalize((VIEW_MATRIX * vec4(final_normal, 0.0)).xyz);
 		
 		// Fresnel
 		float fresnel = pow(1.0 - max(dot(NORMAL, VIEW), 0.0), 4.0);
 		
-		// 泡沫（沿著捲曲的唇部）
+		// 🔥 Phase 1: 泡沫區域化
 		vec2 foam_uv = v_world_pos.xz * 0.4 + TIME * 0.02;
 		float foam_noise_val = texture(foam_noise, foam_uv).r;
-		float lip_foam = smoothstep(0.3, 0.8, arc_depth) * foam_noise_val * 0.6;
+		// 唇部泡沫更強
+		float lip_foam_strength = smoothstep(0.6, 0.95, arc_depth);
+		float lip_foam = lip_foam_strength * foam_noise_val * 0.8;
+		// 加上邊緣泡沫
+		lip_foam += fresnel * 0.15 * foam_noise_val;
+		lip_foam = clamp(lip_foam, 0.0, 1.0);
 		
 		// 混合泡沫
 		sea_color = mix(sea_color, color_foam.rgb, lip_foam);
@@ -461,16 +498,28 @@ void fragment() {
 		METALLIC = metallic * (1.0 - lip_foam);
 		ROUGHNESS = mix(roughness, 0.6, lip_foam);
 		SPECULAR = specular;
-		ALPHA = 0.9;
+		
+		// 🔥 Phase 1: 透明度 - 提高整體可見度
+		// 底部邊緣 (edge_blend ≈ 0) 稍微更透明，與海面融合
+		float base_alpha = mix(0.85, 0.98, v_edge_blend);  // 🔥 提高不透明度
+		ALPHA = base_alpha + lip_foam * 0.02;
 		
 		// SSS 和 Fresnel 發光
 		vec3 fresnel_color = mix(sea_color, vec3(0.3, 0.5, 0.7), 0.3) * fresnel_strength;
 		EMISSION = fresnel_color * pow(fresnel, 5.0) * (1.0 - lip_foam);
 		
-		// SSS
-		float sss_mask = pow(arc_depth, 2.0);
+		// 🔥 Phase 1: 增強 SSS (基於厚度)
+		// 薄水 (唇部) 更多 SSS
+		float sss_thickness_factor = 1.0 - smoothstep(0.0, 1.5, water_thickness);
+		float sss_mask = sss_thickness_factor * arc_depth;
 		float sss_view = pow(max(dot(view_dir, -final_normal), 0.0), 3.0);
-		EMISSION += sss_color.rgb * sss_strength * sss_mask * (0.2 + 0.8 * sss_view) * (1.0 - lip_foam);
+		vec3 enhanced_sss = sss_color.rgb * sss_strength * 2.0 * sss_mask * (0.3 + 0.7 * sss_view);
+		EMISSION += enhanced_sss * (1.0 - lip_foam);
+		
+		// 🔥 Phase 1: 多重 Fresnel (內管道反射)
+		float fresnel_inner = pow(1.0 - max(dot(-final_normal, view_dir), 0.0), 3.0);
+		fresnel_inner *= smoothstep(0.3, 0.7, arc_depth) * 0.3; // 只在內部生效
+		EMISSION += vec3(0.2, 0.4, 0.5) * fresnel_inner * (1.0 - lip_foam);
 	} else {
 
 	// 1. Depth & Water Color - Using Linear Z Difference for robust Depth Fade

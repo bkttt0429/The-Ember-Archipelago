@@ -205,7 +205,10 @@ func _setup_barrel_mesh():
 	var barrel_radius = wave_height * 0.35 # 35% of height as tube radius
 	var barrel_length = wave_width * 0.7 # 70% of width as tube length
 	
-	var mesh = BarrelMeshGen.generate(barrel_radius, barrel_length, 12, 8)
+	# 🔥 Phase 1: Use enhanced generate with spiral parameters
+	var spiral_tightness = 0.3 # Logarithmic spiral tightness
+	var lip_droop = 0.4 * curl_strength # Lip droop based on curl
+	var mesh = BarrelMeshGen.generate(barrel_radius, barrel_length, 12, 8, spiral_tightness, lip_droop)
 	
 	# Create MeshInstance3D
 	_barrel_mesh_instance = MeshInstance3D.new()
@@ -226,17 +229,18 @@ func _setup_barrel_mesh():
 		if water_plane and water_plane is MeshInstance3D:
 			var ocean_mat = water_plane.get_surface_override_material(0)
 			if ocean_mat and ocean_mat is ShaderMaterial:
-				# 複製所有 shader 參數
+				# 🔥 Phase 1: 複製所有必要 shader 參數（包括 absorption_coeff）
 				for param_name in ["color_deep", "color_shallow", "color_foam",
 									"normal_map1", "normal_map2", "foam_noise", "foam_noise_tex",
 									"sss_strength", "sss_color", "roughness", "metallic",
 									"fresnel_strength", "wind_strength", "wind_dir",
-									"normal_tile", "normal_scale", "normal_speed"]:
+									"normal_tile", "normal_scale", "normal_speed",
+									"absorption_coeff", "specular"]:
 					var val = ocean_mat.get_shader_parameter(param_name)
 					if val != null:
 						barrel_mat.set_shader_parameter(param_name, val)
 				
-				print("[BarrelWave] 成功複製海面材質參數")
+				print("[BarrelWave] 成功複製海面材質參數 (Phase 1 Enhanced)")
 	
 	_barrel_mesh_instance.material_override = barrel_mat
 	_barrel_mesh_instance.visible = false
@@ -275,46 +279,42 @@ func _update_barrel_mesh():
 	var dir_norm = direction.normalized()
 	var wave_forward = Vector3(dir_norm.x, 0, dir_norm.y).normalized()
 	
-	# 獲取波峰高度
+	# 🔥 獲取基礎水面高度（不含破碎波自身貢獻，避免自我參照）
 	var water_y = 0.0
 	if _water_manager:
-		water_y = _water_manager.get_wave_height_at(Vector3(_current_pos.x, 0, _current_pos.y))
+		water_y = _water_manager.get_base_water_height_at(Vector3(_current_pos.x, 0, _current_pos.y))
 	
-	# 🔥 位置：底部對齊波峰，稍微往下讓弧形接觸海面
+	# 🔥 修正：網格底部 (Y=0 in local space) 直接放在海面高度
+	# 網格已經設計為底部在 Y=0，所以 mesh_pos.y = water_y 即可對齊
 	var mesh_pos = Vector3(
 		_current_pos.x,
-		water_y - wave_height * 0.1, # 稍微下移讓底部接觸海面
+		water_y, # 🔥 直接使用水面高度，網格底部已對齊 Y=0
 		_current_pos.y
 	)
 	
-	# 🔥 旋轉：使用 look_at 邏輯
-	# 網格生成時：
-	#   - X 軸：弧形展開方向 (0° 在 -X，180° 在 +X)
-	#   - Y 軸：高度
-	#   - Z 軸：波冠延伸
-	# 我們想要：
-	#   - 弧形展開方向 = 波浪前進方向
-	#   - 波冠延伸 = 垂直於波浪方向
+	# 🔥 修正旋轉：網格生成時的坐標系
+	# 本地 X 軸：波浪前進方向 (指向 wave_forward)
+	# 本地 Y 軸：向上 (指向 Vector3.UP)
+	# 本地 Z 軸：沿波冠延伸 (指向 wave_right)
 	
 	# 計算波冠方向（垂直於波浪方向，在水平面上）
 	var wave_right = wave_forward.cross(Vector3.UP).normalized()
 	
-	# 構建 Basis：
-	# - 第一列 (X): 波浪方向（弧形展開）
-	# - 第二列 (Y): 上方
-	# - 第三列 (Z): 波冠方向（延伸）
+	# 🔥 修正：Basis 的列順序是 (X, Y, Z)
+	# 第一列 = 本地 X 軸指向的世界方向 = wave_forward
+	# 第二列 = 本地 Y 軸指向的世界方向 = UP
+	# 第三列 = 本地 Z 軸指向的世界方向 = wave_right
 	var mesh_basis = Basis(wave_forward, Vector3.UP, wave_right)
 	
 	_barrel_mesh_instance.global_transform = Transform3D(mesh_basis, mesh_pos)
 	_barrel_collision_body.global_transform = _barrel_mesh_instance.global_transform
 	
-	# 🌊 生命週期：縮放和透明度
+	# 🌊 生命週期：透明度（移除縮放，保持完整大小）
 	var state_mult = _get_state_multiplier()
-	var curl_mult = _get_curl_factor()
 	
-	var scale_val = lerp(0.5, 1.0, curl_mult) * state_mult
-	_barrel_mesh_instance.scale = Vector3.ONE * max(scale_val, 0.05)
-	_barrel_collision_body.scale = _barrel_mesh_instance.scale
+	# 🔥 修正：不再縮小網格，保持完整大小
+	_barrel_mesh_instance.scale = Vector3.ONE
+	_barrel_collision_body.scale = Vector3.ONE
 	
 	# 透明度淡出
 	var barrel_mat = _barrel_mesh_instance.material_override as ShaderMaterial
