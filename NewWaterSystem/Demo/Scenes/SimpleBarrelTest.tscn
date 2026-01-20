@@ -1,0 +1,64 @@
+[gd_scene load_steps=10 format=3 uid="uid://c8q4j5k6l7m8"]
+
+[ext_resource type="Shader" path="res://NewWaterSystem/Core/Shaders/SimpleBarrelTest.gdshader" id="1_shader"]
+[ext_resource type="Shader" path="res://NewWaterSystem/Core/Shaders/SprayParticles.gdshader" id="2_spray_shader"]
+[ext_resource type="Script" path="res://NewWaterSystem/Demo/Scenes/UnifiedWaveTest.gd" id="3_script"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_barrel"]
+render_priority = 0
+shader = ExtResource("1_shader")
+shader_parameter/time_scale = 1.0
+shader_parameter/wave_height = 2.0
+shader_parameter/steepness = 0.8
+shader_parameter/wave_direction = Vector2(1, 0.5)
+shader_parameter/breaking_threshold = 0.6
+shader_parameter/curl_force = 1.5
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_test"]
+size = Vector2(50, 50)
+subdivide_width = 200
+subdivide_depth = 200
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_spray"]
+shader = ExtResource("2_spray_shader")
+shader_parameter/time_scale = 1.0
+shader_parameter/wave_height = 2.0
+shader_parameter/steepness = 0.8
+shader_parameter/wave_direction = Vector2(1, 0.5)
+shader_parameter/breaking_threshold = 0.6
+shader_parameter/curl_force = 1.5
+shader_parameter/initial_speed = 8.0
+shader_parameter/spread = 0.8
+shader_parameter/gravity = 9.8
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_particle"]
+transparency = 1
+shading_mode = 0
+vertex_color_use_as_albedo = true
+albedo_color = Color(1, 1, 1, 0.8)
+billboard_mode = 3
+billboard_keep_scale = true
+particles_anim_h_frames = 1
+particles_anim_v_frames = 1
+particles_anim_loop = false
+
+[sub_resource type="QuadMesh" id="QuadMesh_particle"]
+material = SubResource("StandardMaterial3D_particle")
+size = Vector2(0.3, 0.3)
+
+[node name="SimpleBarrelTest" type="Node3D"]
+script = ExtResource("3_script")
+
+[node name="BarrelWaveMesh" type="MeshInstance3D" parent="."]
+mesh = SubResource("PlaneMesh_test")
+surface_material_override/0 = SubResource("ShaderMaterial_barrel")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.707107, -0.5, 0.5, 0, 0.707107, 0.707107, -0.707107, -0.5, 0.5, 0, 10, 0)
+
+[node name="SprayParticles" type="GPUParticles3D" parent="."]
+amount = 5000
+lifetime = 2.0
+process_material = SubResource("ShaderMaterial_spray")
+draw_pass_1 = SubResource("QuadMesh_particle")
+visibility_aabb = AABB(-25, 0, -25, 50, 10, 50)

@@ -1,0 +1,101 @@
+[gd_scene format=3 uid="uid://c43djo2nun36i"]
+
+[ext_resource type="PlaneMesh" uid="uid://enn723a8bp5i" path="res://Development/Scripts/Systems/WaterSystem/VFX/Materials/WaterMesh.tres" id="2_mesh"]
+[ext_resource type="Script" uid="uid://b0r5f6xj40guo" path="res://Development/Scripts/Systems/WaterSystem/Core/WaterController.gd" id="3_controller"]
+[ext_resource type="Material" uid="uid://cf5yq4x0wcvie" path="res://Development/Scripts/Systems/WaterSystem/VFX/Materials/WaterMaterial.tres" id="4_material"]
+[ext_resource type="PackedScene" path="res://Development/Scripts/Systems/WaterSystem/Scenes/Prefabs/FloatingBox.tscn" id="5_box"]
+[ext_resource type="Script" uid="uid://b8jajjb5hnjyo" path="res://Development/Scripts/Systems/WaterSystem/VFX/WaveSplashDetector.gd" id="6_detector"]
+[ext_resource type="PackedScene" uid="uid://d3yq8j2num46l" path="res://Development/Scripts/Systems/WaterSystem/VFX/RippleSystem/RippleViewport.tscn" id="7_ripple_vp"]
+[ext_resource type="Script" uid="uid://cj6v3ixmkq8p6" path="res://Development/Scripts/Systems/WaterSystem/VFX/RippleSystem/RippleManager.gd" id="8_ripple_man"]
+[ext_resource type="PackedScene" uid="uid://ck6m7v2n0p3w" path="res://Development/Scripts/Systems/WaterSystem/Scenes/Prefabs/Waterspout.tscn" id="9_spout"]
+[ext_resource type="PackedScene" path="res://Development/Scripts/Systems/WaterSystem/Scenes/Prefabs/StylizedShip.tscn" id="10_ship"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_main"]
+sky_top_color = Color(0.2, 0.5, 0.9, 1)
+sky_horizon_color = Color(0.6, 0.7, 0.8, 1)
+ground_bottom_color = Color(0.1, 0.1, 0.1, 1)
+ground_horizon_color = Color(0.6, 0.7, 0.8, 1)
+sun_angle_max = 60.0
+
+[sub_resource type="Sky" id="Sky_main"]
+sky_material = SubResource("ProceduralSkyMaterial_main")
+
+[sub_resource type="Environment" id="Environment_main"]
+background_mode = 2
+sky = SubResource("Sky_main")
+ambient_light_source = 3
+ambient_light_sky_contribution = 0.8
+tonemap_mode = 2
+glow_enabled = true
+glow_intensity = 0.5
+
+[sub_resource type="Environment" id="Environment_foam"]
+background_mode = 1
+
+[node name="WaterTest" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_main")
+
+[node name="FoamViewport" type="SubViewport" parent="."]
+transparent_bg = true
+canvas_cull_mask = 4293918720
+render_target_update_mode = 4
+
+[node name="Base" type="Node3D" parent="FoamViewport"]
+
+[node name="FoamCamera" type="Camera3D" parent="FoamViewport/Base"]
+transform = Transform3D(1, 0, 0, 0, -4.37114e-08, 1, 0, -1, -4.37114e-08, 0, 17.697075, 19.099249)
+cull_mask = 2
+environment = SubResource("Environment_foam")
+projection = 1
+size = 51.2
+
+[node name="RippleViewport" parent="." instance=ExtResource("7_ripple_vp")]
+
+[node name="RippleManager" type="Node" parent="." node_paths=PackedStringArray("ripple_viewport")]
+script = ExtResource("8_ripple_man")
+water_material = ExtResource("4_material")
+ripple_viewport = NodePath("../RippleViewport")
+
+[node name="Water" type="MeshInstance3D" parent="."]
+mesh = ExtResource("2_mesh")
+surface_material_override/0 = ExtResource("4_material")
+script = ExtResource("3_controller")
+shallow_color = Color(0.3585563, 0.6622128, 0.96571237, 1)
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, -0.5, 0.866025, 0, -0.866025, -0.5, 0, 10, 0)
+light_energy = 2.0
+shadow_enabled = true
+
+[node name="FloatingBox" parent="." instance=ExtResource("5_box")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.23555183, 4.999999, 12.801153)
+
+[node name="StylizedShip" parent="." instance=ExtResource("10_ship")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -18.43615, 2.85338, 51.72168)
+
+[node name="Waterspout" parent="." instance=ExtResource("9_spout")]
+
+[node name="Rock" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -9.922884, -1, 0)
+size = Vector3(5, 5, 5)
+
+[node name="SplashD1" type="Node3D" parent="Rock"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.6, 1, 0)
+script = ExtResource("6_detector")
+
+[node name="SplashD2" type="Node3D" parent="Rock"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.6, 1, 0)
+script = ExtResource("6_detector")
+
+[node name="SplashD3" type="Node3D" parent="Rock"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 2.6)
+script = ExtResource("6_detector")
+
+[node name="SplashD4" type="Node3D" parent="Rock"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, -2.6)
+script = ExtResource("6_detector")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.8239777, 0.5666222, 0, -0.5666222, 0.8239777, -1.6862583, 18.445538, 22.7705)

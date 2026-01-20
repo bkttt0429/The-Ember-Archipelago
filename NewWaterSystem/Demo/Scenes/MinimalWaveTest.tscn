@@ -1,0 +1,82 @@
+[gd_scene format=3 uid="uid://c3ffi46wci064"]
+
+[ext_resource type="Script" uid="uid://cd6doksvbjqcw" path="res://NewWaterSystem/Core/Scripts/WaterManager.gd" id="1_water"]
+[ext_resource type="Script" uid="uid://lkg8bxllytgg" path="res://NewWaterSystem/Demo/Scripts/FreeLookCamera.gd" id="2_cam"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_1"]
+
+[sub_resource type="Sky" id="Sky_1"]
+sky_material = SubResource("ProceduralSkyMaterial_1")
+
+[sub_resource type="Environment" id="Environment_1"]
+background_mode = 2
+sky = SubResource("Sky_1")
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_v0wq3"]
+seed = -1325201301
+frequency = 0.05
+fractal_octaves = 3
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_toudt"]
+width = 256
+height = 256
+noise = SubResource("FastNoiseLite_v0wq3")
+seamless = true
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_0hfep"]
+noise_type = 2
+seed = 2106621623
+frequency = 0.05
+fractal_type = 0
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_02ssh"]
+noise = SubResource("FastNoiseLite_0hfep")
+seamless = true
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_0lmsx"]
+seed = 12345
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_25ncv"]
+noise = SubResource("FastNoiseLite_0lmsx")
+seamless = true
+as_normal_map = true
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_jk02u"]
+seed = 67890
+frequency = 0.08
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_wwcy3"]
+noise = SubResource("FastNoiseLite_jk02u")
+seamless = true
+as_normal_map = true
+
+[node name="MinimalWaveTest" type="Node3D" unique_id=535356419]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1715659128]
+environment = SubResource("Environment_1")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=739572001]
+transform = Transform3D(-0.866, -0.433, 0.25, 0, 0.5, 0.866, -0.5, 0.75, -0.433, 0, 20, 0)
+shadow_enabled = true
+
+[node name="OceanWaterManager" type="Node3D" parent="." unique_id=2124517210 groups=["WaterSystem_Managers"]]
+script = ExtResource("1_water")
+sea_size = Vector2(64, 64)
+wind_strength = 5.0
+wave_steepness = 0.45
+foam_noise_tex = SubResource("NoiseTexture2D_toudt")
+foam_crest_strength = 1.5
+foam_jacobian_bias = 0.15
+caustics_texture = SubResource("NoiseTexture2D_02ssh")
+normal_map1 = SubResource("NoiseTexture2D_25ncv")
+normal_map2 = SubResource("NoiseTexture2D_wwcy3")
+show_wireframe = true
+
+[node name="TestCamera" type="Camera3D" parent="." unique_id=210286185]
+transform = Transform3D(1, 0, 0, 0, 0.7, 0.7, 0, -0.7, 0.7, 0, 25, 40)
+script = ExtResource("2_cam")
+
+[node name="DebugLabel" type="Label3D" parent="." unique_id=1932839022]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 15, 0)
+text = "TEST: No Horizontal Disp, No Curl"

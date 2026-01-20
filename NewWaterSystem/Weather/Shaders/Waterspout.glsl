@@ -14,7 +14,7 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 // Bindings
 // ============================================================================
 // SWE height field (Read/Write)
-layout(r16f, set = 0, binding = 0) uniform image2D swe_height;
+layout(rgba32f, set = 0, binding = 0) uniform image2D swe_height;
 
 // Weather influence map (RGBA = HeightDelta/ForceX/ForceY/Intensity)
 layout(rgba16f, set = 0, binding = 1) uniform image2D weather_influence;
@@ -128,7 +128,11 @@ void main() {
     // ========================================================================
     // Write Results
     // ========================================================================
-    imageStore(swe_height, grid_pos, vec4(new_height, 0.0, 0.0, 1.0));
+    vec4 current_sim = imageLoad(swe_height, grid_pos);
+    float total_h = max(new_height + 1.0, 0.01);
+    vec2 next_mom = total_force * total_h;
+    
+    imageStore(swe_height, grid_pos, vec4(new_height, next_mom.x, next_mom.y, current_sim.a));
     
     vec4 weather_data = vec4(
         total_displacement,    // R: Height delta
@@ -142,7 +146,11 @@ void main() {
     if (r_norm > CORE_RATIO * 0.8 && r_norm < CORE_RATIO * 1.2) {
         float eyewall = sin(params.time * 10.0 + angle * 8.0);
         new_height += eyewall * params.intensity * 0.8;
-        imageStore(swe_height, grid_pos, vec4(new_height, 0.0, 0.0, 1.0));
+        
+        // Re-read current state to be safe (or just use current_sim.a)
+        float total_h_eye = max(new_height + 1.0, 0.01);
+        vec2 next_mom_eye = total_force * total_h_eye;
+        imageStore(swe_height, grid_pos, vec4(new_height, next_mom_eye.x, next_mom_eye.y, current_sim.a));
     }
 }
 

@@ -47,8 +47,8 @@ player/
 │   ├── WorldEventBus.gd         # 事件總線
 │   └── PlayerSignals.gd         # 低頻 Signal 集中
 └── managers/
-    ├── PlayerSimulationManager.gd # 系統註冊與更新
-    └── PlayerSpawnManager.gd       # 生成與重生
+	├── PlayerSimulationManager.gd # 系統註冊與更新
+	└── PlayerSpawnManager.gd       # 生成與重生
 ```
 
 ---
@@ -67,7 +67,7 @@ player/
 
 ```
 Input → Client CommandQueue → Server Validate → Server Simulate
-    → Snapshot + Event → Client Reconcile → Animation/UI
+	→ Snapshot + Event → Client Reconcile → Animation/UI
 ```
 
 ### 3.1 權威原則

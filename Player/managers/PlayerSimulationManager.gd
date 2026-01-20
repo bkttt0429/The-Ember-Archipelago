@@ -82,7 +82,7 @@ func _assign_update_groups() -> void:
     process_systems = []
     physics_systems = []
     for system in systems:
-        var system_name := system.get_class()
+        var system_name: String = system.get_class()
         if system_name in [
             "MovementSystem",
             "PhysicsInteractionSystem",

@@ -1,7 +1,6 @@
-[gd_scene load_steps=15 format=3 uid="uid://c8k2y4j8x501"]
+[gd_scene format=3 uid="uid://c8k2y4j8x501"]
 
 [ext_resource type="Script" uid="uid://cd6doksvbjqcw" path="res://NewWaterSystem/Core/Scripts/WaterManager.gd" id="1_water"]
-[ext_resource type="Script" uid="uid://bh2iyp38itm6y" path="res://NewWaterSystem/Core/Scripts/Waves/BreakingWaveComponent.gd" id="2_wave"]
 [ext_resource type="Script" uid="uid://lkg8bxllytgg" path="res://NewWaterSystem/Demo/Scripts/FreeLookCamera.gd" id="3_cam"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_test"]
@@ -54,35 +53,40 @@ noise = SubResource("FastNoiseLite_7hmhy")
 seamless = true
 as_normal_map = true
 
-[node name="BreakingWaveDemo" type="Node3D"]
+[node name="BreakingWaveDemo" type="Node3D" unique_id=1199022127]
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=394643749]
 environment = SubResource("Environment_test")
 
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=386722766]
 transform = Transform3D(-0.866023, -0.433016, 0.250001, 0, 0.499998, 0.866027, -0.500003, 0.749999, -0.43301, 0, 0, 0)
 shadow_enabled = true
 
-[node name="OceanWaterManager" type="Node3D" parent="." groups=["WaterSystem_Managers"]]
+[node name="OceanWaterManager" type="Node3D" parent="." unique_id=329086321 groups=["WaterSystem_Managers"]]
 script = ExtResource("1_water")
-sea_size = Vector2(256, 256)
-color_deep = Color(0, 0.1, 0.3, 1)
-color_shallow = Color(0, 0.6, 0.8, 1)
+sea_size = Vector2(128, 128)
+wind_strength = 5.0
+wave_steepness = 0.2
+wave_length = 50.0
+horizontal_displacement_scale = 0.75
+wave_chaos = 0.2
+peak_sharpness = 1.2
+color_deep = Color(0, 0.2, 0.4, 1)
+color_shallow = Color(0, 0.8, 0.9, 1)
 foam_noise_tex = SubResource("NoiseTexture2D_vv8po")
-far_fade_start = 150.0
-far_fade_max = 250.0
-foam_crest_strength = 1.5
+fresnel_strength = 0.8
+foam_crest_strength = 4.0
 foam_jacobian_bias = 0.15
 caustics_texture = SubResource("NoiseTexture2D_a8hrg")
 normal_map1 = SubResource("NoiseTexture2D_4a7co")
 normal_map2 = SubResource("NoiseTexture2D_kua33")
+normal_scale = 0.5
 show_wireframe = true
+rogue_wave_present = true
+rogue_wave_height = 5.0
+rogue_wave_width = 50.0
+rogue_wave_speed = 10.0
 
-[node name="BreakingWave1" type="Node3D" parent="OceanWaterManager"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -20, 0, 0)
-script = ExtResource("2_wave")
-loop = true
-
-[node name="TestCamera" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0.866025, 0.5, 0, -0.5, 0.866025, 0, 40, 80)
+[node name="TestCamera" type="Camera3D" parent="." unique_id=238793496]
+transform = Transform3D(-0.9839857, -0.13577588, 0.11548628, -0.033824462, 0.77835774, 0.6269093, -0.17500879, 0.6129635, -0.7704854, -14.015774, 13.876667, -23.974373)
 script = ExtResource("3_cam")

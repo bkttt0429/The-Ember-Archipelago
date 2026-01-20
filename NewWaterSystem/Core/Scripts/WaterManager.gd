@@ -5,11 +5,28 @@ extends Node3D
 ## WaterManager - Modular Interactive Water System (SWE + Gerstner)
 ## Manages GPU-based SWE simulation and provides height queries.
 
+enum SimulationPrecision {Half_FP16, Full_FP32}
+enum SimulationFPS {FPS_30, FPS_60, Full_Speed}
+enum SolverType {LaxFriedrichs, MacCormack}
+
+@export_group("Performance & Precision")
+@export var solver_type: SolverType = SolverType.LaxFriedrichs:
+	set(v):
+		solver_type = v
+		if is_node_ready(): _request_restart()
+
+@export var simulation_precision: SimulationPrecision = SimulationPrecision.Half_FP16:
+	set(v):
+		simulation_precision = v
+		if is_node_ready(): _request_restart()
+
+@export var simulation_fps: SimulationFPS = SimulationFPS.FPS_60
+
 @export_group("Simulation Grid")
 @export var grid_res: int = 128:
 	set(v):
 		grid_res = v
-		_request_restart()
+		if is_node_ready(): _request_restart()
 @export var use_lod: bool = false:
 	set(v):
 		use_lod = v
@@ -22,6 +39,10 @@ extends Node3D
 		_update_shader_params_deferred()
 @export var propagation_speed: float = 20.0
 @export var damping: float = 0.9 # Increased stability
+@export var simulation_gravity: float = 9.81:
+	set(v): simulation_gravity = v; _update_shader_params_deferred()
+@export var simulation_base_depth: float = 1.0:
+	set(v): simulation_base_depth = v; _update_shader_params_deferred()
 
 @export_group("Physical Interaction")
 @export var interact_strength: float = 50.0
@@ -48,89 +69,17 @@ extends Node3D
 		wave_chaos = v
 		_update_shader_params_deferred()
 
+## Direct wave height multiplier (1.0 = normal, 2.0 = double height)
+@export_range(0.5, 5.0, 0.1) var wave_height_multiplier: float = 1.0:
+	set(v):
+		wave_height_multiplier = v
+		_update_shader_params_deferred()
+
 @export var peak_sharpness: float = 1.0:
 	set(v):
 		peak_sharpness = v
 		_update_shader_params_deferred()
 
-# ==============================================================================
-# Presets (Barrel Waves)
-# ==============================================================================
-
-@export_group("Preset Configurations")
-@export var apply_deep_barrel: bool = false:
-	set(v):
-		if v and is_inside_tree():
-			call_deferred("apply_deep_ocean_barrel_preset")
-			apply_deep_barrel = false
-
-@export var apply_surf_barrel: bool = false:
-	set(v):
-		if v and is_inside_tree():
-			call_deferred("apply_surfing_barrel_preset")
-			apply_surf_barrel = false
-
-## 應用深海巨浪預設
-func apply_deep_ocean_barrel_preset():
-	wind_strength = 8.0
-	wave_length = 80.0 # Increased from 40.0 to match wind scale
-	wave_steepness = 0.18
-	horizontal_displacement_scale = 0.7 # ✅ Lower for stability in big waves
-	peak_sharpness = 1.1 # ✅ Reduced from 1.8 for safety
-	wave_chaos = 0.25 # Reduced from 0.4 to prevent messy intersection
-	
-	rogue_wave_present = true
-	rogue_wave_height = 6.0 # ✅ Reduced from 8.0
-	rogue_wave_width = 40.0 # ✅ Increased width for smoother slope
-	rogue_wave_speed = 12.0
-	
-	color_deep = Color(0.0, 0.1, 0.3)
-	color_shallow = Color(0.0, 0.6, 0.8)
-	foam_crest_strength = 5.0
-	fresnel_strength = 0.9
-	
-	print("[WaterManager] Deep Ocean Barrel Preset Applied (Anti-Spike)")
-	
-	# Visual Fixes
-	normal_scale = 0.5
-	normal_tile = 10.0
-	roughness = 0.25
-	foam_jacobian_bias = 0.15
-	normal_speed = 0.25
-	
-	# Reset fluid simulation to prevent artifact explosion from sudden parameter changes
-	call_deferred("_reset_swe_texture")
-
-## 應用衝浪巨浪預設
-func apply_surfing_barrel_preset():
-	wind_strength = 6.0
-	wave_length = 50.0
-	wave_steepness = 0.20
-	horizontal_displacement_scale = 0.75 # ✅ Lower for stability
-	peak_sharpness = 1.2 # ✅ Reduced from 2.0
-	wave_chaos = 0.2
-	
-	rogue_wave_present = true
-	rogue_wave_height = 5.0 # ✅ Reduced from 6.0
-	rogue_wave_width = 50.0 # ✅ Increased width
-	rogue_wave_speed = 10.0
-	
-	color_deep = Color(0.0, 0.2, 0.4)
-	color_shallow = Color(0.0, 0.8, 0.9)
-	foam_crest_strength = 4.0
-	fresnel_strength = 0.8
-	
-	print("[WaterManager] Surfing Barrel Preset Applied (Anti-Spike)")
-
-	# Visual Fixes
-	normal_scale = 0.5
-	normal_tile = 10.0
-	roughness = 0.25
-	foam_jacobian_bias = 0.15
-	normal_speed = 0.25
-	
-	# Reset fluid simulation to prevent artifact explosion from sudden parameter changes
-	call_deferred("_reset_swe_texture")
 
 @export_group("Visual Style")
 @export var color_deep: Color = Color(0.01, 0.2, 0.4): # Clear Blue
@@ -315,6 +264,7 @@ var interaction_points: Array = []
 # Updated Paths for NewStructure
 # Updated Paths for NewStructure
 const SOLVER_PATH = "res://NewWaterSystem/Core/Shaders/Internal/water_interaction.glsl"
+const SOLVER_MACCORMACK_PATH = "res://NewWaterSystem/Core/Shaders/Internal/water_solver_maccormack.glsl"
 const SURFACE_SHADER_PATH = "res://NewWaterSystem/Core/Shaders/Surface/ocean_surface.gdshader"
 const VORTEX_SHADER_PATH = "res://NewWaterSystem/Weather/Shaders/Vortex.glsl"
 const WATERSPOUT_SHADER_PATH = "res://NewWaterSystem/Weather/Shaders/Waterspout.glsl"
@@ -347,52 +297,10 @@ var _is_initialized: bool = false
 
 var _idle_timer: float = 0.0
 
-# === 新增：破碎波浪系統 ===
-var breaking_waves: Array[Dictionary] = [] # 存儲所有活動的破碎波
-const MAX_BREAKING_WAVES = 3 # 同時最多3個（性能考量）
-
 # === 泡沫粒子系統接口 ===
 var foam_particles: Array[Dictionary] = []
 var MAX_FOAM_PARTICLES = 2000 # 可以動態調整 (LOD)
 
-func set_breaking_wave_data(data: Dictionary):
-	# 檢查是否已存在（改為插值更新，避免瞬間跳變）
-	for i in range(breaking_waves.size()):
-		if breaking_waves[i].position.distance_to(data.position) < 10.0:
-			# 🔥 修復：使用 lerp 平滑數據，解決 "波浪瞬間下降一小格" 的問題
-			var old = breaking_waves[i]
-			breaking_waves[i].position = old.position.lerp(data.position, 0.3)
-			breaking_waves[i].height = lerp(old.height, data.height, 0.2)
-			breaking_waves[i].width = lerp(old.width, data.width, 0.2)
-			breaking_waves[i].curl = lerp(old.curl, data.curl, 0.2)
-			breaking_waves[i].break_point = lerp(old.break_point, data.break_point, 0.2)
-			breaking_waves[i].direction = old.direction.lerp(data.direction, 0.2)
-			return
-	
-	# 添加新波浪
-	if breaking_waves.size() < MAX_BREAKING_WAVES:
-		breaking_waves.append(data)
-	else:
-		# 替換最老的
-		breaking_waves[0] = data
-	
-	# 🔥 核心修復：立即更新 Shader (方案 A)
-	# call_deferred("_update_breaking_wave_uniforms") <--- REMOVED for performance
-	# Let _process() handle it once per frame.
-	# 但考慮到破碎波通常 < 3 個，這是可以接受的。
-
-
-func get_breaking_wave_at(pos_xz: Vector2) -> Dictionary:
-	var closest_wave = {}
-	var min_dist = INF
-	
-	for wave in breaking_waves:
-		var dist = pos_xz.distance_to(wave.position)
-		if dist < min_dist and dist < wave.width * 1.5:
-			min_dist = dist
-			closest_wave = wave
-	
-	return closest_wave
 
 func spawn_foam_particle(pos: Vector3, velocity: Vector3):
 	if foam_particles.size() >= MAX_FOAM_PARTICLES:
@@ -495,10 +403,12 @@ func _update_shader_params_deferred():
 
 
 func _request_restart():
+	if not is_inside_tree(): return
 	print("[WaterManager] Requesting simulation restart...")
 	_cleanup()
 	_setup_simulation()
-	_bake_obstacles()
+	if get_world_3d():
+		_bake_obstacles()
 	_setup_visuals()
 	_update_shader_parameters()
 	interaction_points.clear()
@@ -626,6 +536,7 @@ func _ready():
 	# ================================
 	
 	_is_initialized = true
+	
 
 # ==============================================================================
 # Physics & Buoyancy Interface (CPU Side)
@@ -784,26 +695,6 @@ func get_wave_height_at(global_pos: Vector3) -> float:
 		# 3. 應用安全係數
 		total_height += _calculate_gerstner_height(world_pos_2d, t) * safety_mult
 	
-	# 3. Breaking Wave Positive Peak (CPU Sync)
-	for w in breaking_waves:
-		var pos = w.get("position", Vector2.ZERO)
-		var height = w.get("height", 0.0)
-		var b_width = w.get("width", 50.0)
-		var dir = w.get("direction", wind_direction)
-		
-		var to_wave = world_pos_2d - pos
-		var dist_along = to_wave.dot(dir)
-		var dist_across = (to_wave - dist_along * dir).length()
-		
-		if abs(dist_across) < b_width:
-			var lateral_fade = smoothstep(b_width, b_width * 0.3, abs(dist_across))
-			# Sech approximation for envelope: 1.0 / cosh(x)
-			# u maps from -1 to 1 across the wave width
-			var u = dist_along / (b_width * 0.5)
-			var envelope = 1.0 / (exp(u) + exp(-u)) * 2.0 # 2.0 / (e^u + e^-u)
-			envelope = clamp(envelope, 0.0, 1.0)
-			
-			total_height += height * envelope * lateral_fade
 
 	# 4. Rogue Wave
 	if rogue_wave_present:
@@ -1214,18 +1105,34 @@ func _setup_simulation():
 	rd = RenderingServer.get_rendering_device()
 	if not rd: return
 	
-	shader_rid = _load_compute_shader(SOLVER_PATH)
+	var shader_path = SOLVER_PATH
+	if solver_type == SolverType.MacCormack:
+		shader_path = SOLVER_MACCORMACK_PATH
+		print("[WaterManager] Using MacCormack Solver (High Fidelity)")
+	else:
+		print("[WaterManager] Using Lax-Friedrichs Solver (Standard)")
+		
+	shader_rid = _load_compute_shader(shader_path)
 	if shader_rid.is_valid():
 		pipeline_rid = rd.compute_pipeline_create(shader_rid)
 	
 	var fmt = RDTextureFormat.new()
 	fmt.width = grid_res
 	fmt.height = grid_res
-	fmt.format = RenderingDevice.DATA_FORMAT_R32G32B32A32_SFLOAT
+	
+	if simulation_precision == SimulationPrecision.Half_FP16:
+		fmt.format = RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT
+		print("[WaterManager] Simulation Precision: FP16 (Optimized)")
+	else:
+		fmt.format = RenderingDevice.DATA_FORMAT_R32G32B32A32_SFLOAT
+		print("[WaterManager] Simulation Precision: FP32 (High Quality)")
+		
 	fmt.usage_bits = RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT | RenderingDevice.TEXTURE_USAGE_STORAGE_BIT | RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT | RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT
 	
 	var data = PackedByteArray()
-	data.resize(grid_res * grid_res * 16)
+	# Calculate size based on precision
+	var bytes_per_pixel = 16 if simulation_precision == SimulationPrecision.Full_FP32 else 8
+	data.resize(grid_res * grid_res * bytes_per_pixel)
 	data.fill(0)
 	sim_texture_A = rd.texture_create(fmt, RDTextureView.new(), [data])
 	sim_texture_B = rd.texture_create(fmt, RDTextureView.new(), [data])
@@ -1292,7 +1199,7 @@ func _bake_obstacles():
 	for y in range(grid_res):
 		for x in range(grid_res):
 			var col = sim_image.get_pixel(x, y)
-			col.b = 0.0
+			col.a = 0.0
 			sim_image.set_pixel(x, y, col)
 	
 	for y in range(grid_res):
@@ -1309,7 +1216,7 @@ func _bake_obstacles():
 			if result:
 				if result.position.y > global_position.y - 2.0:
 					var col = sim_image.get_pixel(x, y)
-					col.b = 1.0
+					col.a = 1.0
 					sim_image.set_pixel(x, y, col)
 					obstacles_hit += 1
 	
@@ -1333,7 +1240,17 @@ func _setup_weather_pipeline():
 	fmt.usage_bits = RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT | RenderingDevice.TEXTURE_USAGE_STORAGE_BIT | RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT | RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT
 	
 	var data = PackedByteArray()
-	data.resize(grid_res * grid_res * 8) # 2 bytes per channel * 4 channels
+	var bytes_per_pixel = 16 if simulation_precision == SimulationPrecision.Full_FP32 else 8
+	data.resize(grid_res * grid_res * bytes_per_pixel / 2) # Weather is R16 or R32 based? Actually code says R16G16B16A16 so 8 bytes
+	# Wait, original code for weather was R16G16B16A16_SFLOAT which is 8 bytes per pixel (64 bits total)
+	# The original resize was grid_res * grid_res * 8
+	# We should keep weather texture efficient, maybe always FP16 is enough for weather?
+	# Let's keep weather texture as is or match precision. 
+	# Original code: fmt.format = RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT
+	
+	# Let's stick to original weather settings for now to avoid breaking weather logic,
+	# unless user wants full control.
+	data.resize(grid_res * grid_res * 8)
 	data.fill(0)
 	weather_texture = rd.texture_create(fmt, RDTextureView.new(), [data])
 	
@@ -1515,6 +1432,7 @@ func _update_shader_parameters():
 	mat.set_shader_parameter("wave_length", wave_length)
 	mat.set_shader_parameter("horizontal_displacement_scale", horizontal_displacement_scale)
 	mat.set_shader_parameter("wave_chaos", wave_chaos)
+	mat.set_shader_parameter("wave_height_multiplier", wave_height_multiplier)
 	mat.set_shader_parameter("swe_strength", swe_strength)
 	mat.set_shader_parameter("debug_show_markers", debug_show_markers)
 	mat.set_shader_parameter("color_deep", color_deep)
@@ -1569,6 +1487,7 @@ func _update_shader_parameters():
 	mat.set_shader_parameter("far_fade_max", far_fade_max)
 	mat.set_shader_parameter("debug_view", debug_view)
 	mat.set_shader_parameter("debug_mesh_only", debug_mesh_only)
+
 	
 	# Initial Rogue Wave State
 	if rogue_wave_present:
@@ -1576,18 +1495,7 @@ func _update_shader_parameters():
 	else:
 		mat.set_shader_parameter("rogue_wave_data", Vector4(0, 0, 0, 1))
 	
-	# === Breaking Waves Uniforms ===
-	# max 3 waves: breaking_wave_data[3] (vec4: x,y,z=pos+height, w=width)
-	# breaking_wave_params[3] (vec4: x=curl, y=break_point, z=state, w=unused)
-	
-	# Note: GDScript arrays to GLSL uniforms (arrays of vec4) need careful packing.
-	# Godot 4 expects PackedFloat32Array or similar if the shader defines it as uniform vec4 name[size].
-	# However, set_shader_parameter sometimes handles Array of Vectors.
-	
-	# Let's pack manually to ensure safety if standard array fails, 
-	# but `uniform vec4` array usually takes Array[Vector4] or similar.
-	
-	_update_breaking_wave_uniforms()
+
 	# Reuse weather_visual_tex (which now contains foam splats in alpha)
 	mat.set_shader_parameter("foam_particle_texture", weather_visual_tex)
 	# Reuse weather_visual_tex (which now contains foam splats in alpha)
@@ -1598,7 +1506,19 @@ func _update_shader_parameters():
 			cascade.set_surface_override_material(0, mat)
 	
 	mat.set_shader_parameter("physics_time", physics_time)
-	var render_alpha = accumulated_time / (1.0 / 60.0)
+	
+	# Calculate interpolation factor (alpha) for smooth rendering
+	# If running at 60FPS (update_rate ~0.016), accumulated_time varies 0..0.016
+	# If running at 30FPS (update_rate ~0.033), accumulated_time varies 0..0.033
+	# render_alpha should be 0..1 representing how far we are into the CURRENT update interval
+	
+	var target_update_rate = 1.0 / 60.0 # Default reference
+	if simulation_fps == SimulationFPS.FPS_30:
+		target_update_rate = 1.0 / 30.0
+	elif simulation_fps == SimulationFPS.FPS_60:
+		target_update_rate = 1.0 / 60.0
+	
+	var render_alpha = clamp(accumulated_time / target_update_rate, 0.0, 1.0)
 	mat.set_shader_parameter("render_alpha", render_alpha)
 
 func _process(delta):
@@ -1645,10 +1565,7 @@ func _process(delta):
 				
 	# Update Foam Renderer Visuals
 	
-	# Only update breaking wave uniforms every frame if we have them
-	if not breaking_waves.is_empty():
-		_update_breaking_wave_uniforms()
-	
+
 	var sim_delta = min(delta, 0.033)
 	
 	# Rogue Wave Animation
@@ -1686,7 +1603,28 @@ func _process(delta):
 			if mat:
 				mat.set_shader_parameter("rogue_wave_data", Vector4(0, 0, 0, 1))
 
-	_run_compute(sim_delta)
+	# FPS Throttling Logic
+	var should_update_physics = true
+	var update_rate = 1.0 / 60.0 # Default
+	
+	if simulation_fps == SimulationFPS.FPS_30:
+		update_rate = 1.0 / 30.0
+	elif simulation_fps == SimulationFPS.FPS_60:
+		update_rate = 1.0 / 60.0
+	else:
+		update_rate = delta # Full speed
+		
+	# Accumulator for fixed step within variable frame rate if needed, 
+	# but here we just want to skip frames.
+	# Simple frame skipper:
+	if simulation_fps == SimulationFPS.FPS_30:
+		# Run every 2nd frame roughly, or accumulate time
+		if Engine.get_frames_drawn() % 2 != 0:
+			should_update_physics = false
+			
+	if should_update_physics:
+		_run_compute(update_rate if simulation_fps != SimulationFPS.Full_Speed else delta)
+		
 	interaction_points.clear()
 
 func _physics_process(delta):
@@ -1717,82 +1655,6 @@ func _physics_process(delta):
 			
 			if not wind_direction.is_equal_approx(gw.current_wind_direction):
 				wind_direction = wind_direction.lerp(gw.current_wind_direction, delta * 0.5).normalized()
-
-func _update_breaking_wave_uniforms():
-	if not is_inside_tree(): return
-	
-	# 🔥 優先獲取 LOD 或 WaterPlane
-	var target_mat = null
-	if use_lod and has_node("OceanLOD"):
-		var lod = $OceanLOD
-		if lod.has_method("get") and lod.cascades and lod.cascades.size() > 0:
-			# Get first cascade material
-			if lod.cascades[0]:
-				target_mat = lod.cascades[0].get_surface_override_material(0)
-	
-	if not target_mat:
-		var mesh_inst = get_node_or_null("WaterPlane")
-		if mesh_inst:
-			target_mat = mesh_inst.get_surface_override_material(0)
-	
-	if not target_mat:
-		# If no material found yet, try finding any child with material if using LOD but cascades might be different?
-		# Actually, if use_lod is true but OceanLOD node missing/not ready, fallback.
-		return # Silently return if not ready
-	
-	var bw_data_list = []
-	var bw_params_list = []
-	bw_data_list.resize(3)
-	bw_data_list.fill(Vector4(0, -999, 0, 0.01))
-	bw_params_list.resize(3)
-	bw_params_list.fill(Vector4(0, 0, 0, 0))
-	
-	for i in range(min(breaking_waves.size(), 3)):
-		var w = breaking_waves[i]
-		
-		# 🔥 安全讀取（防止 Key 錯誤）
-		var pos = w.get("position", Vector2.ZERO)
-		var height = w.get("height", 0.0)
-		var width = max(w.get("width", 1.0), 0.01) # 防除零
-		var curl = w.get("curl", 0.0)
-		var bp = w.get("break_point", 0.5)
-		var dir = w.get("direction", wind_direction)
-		
-		if not pos is Vector2:
-			push_error("[WaterManager] breaking_waves[%d].position 不是 Vector2: %s" % [i, pos])
-			continue
-		
-		bw_data_list[i] = Vector4(pos.x, height, pos.y, width)
-		bw_params_list[i] = Vector4(curl, bp, dir.x, dir.y)
-	
-	# Apply to target mat found
-	target_mat.set_shader_parameter("breaking_wave_count", min(breaking_waves.size(), 3))
-	target_mat.set_shader_parameter("breaking_wave_data", bw_data_list)
-	target_mat.set_shader_parameter("breaking_wave_params", bw_params_list)
-
-	# 🔥 修復：同步到 LOD Cascades (全部)
-	if use_lod and has_node("OceanLOD"):
-		var lod = $OceanLOD
-		if lod.has_method("get") and lod.cascades:
-			for cascade in lod.cascades:
-				if cascade:
-					cascade.set_surface_override_material(0, target_mat) # Or set params individually if materials differ? Usually shared or same shader.
-					# Better: set params on the cascade's material if unique, or ensure they share material.
-					# Implementation assumes they might share or need update. 
-					# To be safe, let's update params on all valid materials.
-					var c_mat = cascade.get_surface_override_material(0)
-					if c_mat and c_mat != target_mat:
-						c_mat.set_shader_parameter("breaking_wave_count", min(breaking_waves.size(), 3))
-						c_mat.set_shader_parameter("breaking_wave_data", bw_data_list)
-						c_mat.set_shader_parameter("breaking_wave_params", bw_params_list)
-
-	# 🔥 Debug 輸出（可選）
-	if breaking_waves.size() > 0 and Engine.get_frames_drawn() % 60 == 0:
-		print("🌊 [Uniform更新] Count=%d | Pos=%s | Height=%.1f" % [
-			breaking_waves.size(),
-			bw_data_list[0],
-			breaking_waves[0].get("height", 0)
-		])
 
 
 ## 自動優化參數（安全助手）
@@ -1862,10 +1724,7 @@ func _input(event):
 			_request_restart()
 		elif event.keycode == KEY_J: # J = JONSWAP Debug
 			_print_jonswap_debug()
-		elif event.keycode == KEY_1:
-			apply_deep_ocean_barrel_preset()
-		elif event.keycode == KEY_2:
-			apply_surfing_barrel_preset()
+
 
 func _print_jonswap_debug():
 	var layers = _get_optimized_wave_layers()
@@ -1909,6 +1768,10 @@ func _run_compute(dt):
 	pc.put_float(_time)
 	pc.put_float(sea_size.x)
 	pc.put_float(sea_size.y)
+	pc.put_float(simulation_gravity)
+	pc.put_float(simulation_base_depth)
+	pc.put_float(0.0) # Padding
+	pc.put_float(0.0) # Padding
 	
 	if not pipeline_rid.is_valid(): return
 	var active_set = uniform_set_A if current_sim_idx == 0 else uniform_set_B

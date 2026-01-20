@@ -1,0 +1,78 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" uid="uid://b30ko8jciiqm7" path="res://Development/Scripts/Systems/WaterSystem/Physics/Buoyancy/BuoyantCell.gd" id="1_buoyantcell"]
+[ext_resource type="Script" uid="uid://diwwhdjjk1fht" path="res://Development/Scripts/Systems/WaterSystem/Physics/Buoyancy/FluidDrag.gd" id="2_fluiddrag"]
+[ext_resource type="Script" uid="uid://wwn4jhvbr52i" path="res://Development/Scripts/Systems/WaterSystem/Physics/Buoyancy/MassCalculation.gd" id="3_masscalc"]
+
+
+[sub_resource type="BoxMesh" id="BoxMesh_hull"]
+size = Vector3(2, 1, 4)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ship"]
+albedo_color = Color(0.4, 0.25, 0.1, 1)
+
+[sub_resource type="BoxMesh" id="BoxMesh_bow"]
+size = Vector3(1.5, 1, 2)
+
+[sub_resource type="BoxMesh" id="BoxMesh_stern"]
+size = Vector3(1.8, 1, 1.5)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_ship_collision"]
+size = Vector3(2, 1, 6)
+
+[sub_resource type="PrismMesh" id="PrismMesh_sail"]
+left_to_right = 0.0
+size = Vector3(2, 3, 0.1)
+
+[node name="StylizedShip" type="RigidBody3D"]
+center_of_mass_mode = 1
+
+[node name="Visual" type="Node3D" parent="."]
+
+[node name="HullMesh" type="MeshInstance3D" parent="Visual"]
+mesh = SubResource("BoxMesh_hull")
+surface_material_override/0 = SubResource("StandardMaterial3D_ship")
+
+[node name="BowMesh" type="MeshInstance3D" parent="Visual"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 2.5)
+mesh = SubResource("BoxMesh_bow")
+surface_material_override/0 = SubResource("StandardMaterial3D_ship")
+
+[node name="Sail" type="MeshInstance3D" parent="Visual"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0)
+mesh = SubResource("PrismMesh_sail")
+
+[node name="BuoyantCell_Hull" type="MeshInstance3D" parent="."]
+mesh = SubResource("BoxMesh_hull")
+script = ExtResource("1_buoyantcell")
+cell_density_kg_per_m3 = 600.0
+
+[node name="BuoyantCell_Bow" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 2.5)
+mesh = SubResource("BoxMesh_bow")
+script = ExtResource("1_buoyantcell")
+cell_density_kg_per_m3 = 500.0
+
+[node name="BuoyantCell_Stern" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -2.5)
+mesh = SubResource("BoxMesh_stern")
+script = ExtResource("1_buoyantcell")
+cell_density_kg_per_m3 = 700.0
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0.2)
+shape = SubResource("BoxShape3D_ship_collision")
+
+[node name="FluidDrag" type="Node" parent="."]
+script = ExtResource("2_fluiddrag")
+drag_coef_axial = 0.15
+drag_coef_lateral = 1.5
+drag_coef_vertical = 1.0
+drag_coef_yaw = 500.0
+drag_coef_pitch = 300.0
+drag_coef_roll = 200.0
+
+[node name="MassCalculation" type="Node" parent="."]
+script = ExtResource("3_masscalc")
+auto_calculate_on_ready = true
+debug = true

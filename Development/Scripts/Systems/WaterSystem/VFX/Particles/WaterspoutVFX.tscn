@@ -1,0 +1,147 @@
+[gd_scene format=3 uid="uid://d1x6j8n4y2m3u"]
+
+[ext_resource type="Shader" uid="uid://owmm4nldt4d5" path="res://Development/Scripts/Systems/WaterSystem/VFX/ShaderFiles/waterspout_funnel.gdshader" id="1_funnel_shader"]
+
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_spiral"]
+transparency = 1
+shading_mode = 0
+albedo_color = Color(0.9, 0.95, 1, 0.8)
+roughness = 0.2
+billboard_mode = 3
+particles_anim_h_frames = 1
+particles_anim_v_frames = 1
+particles_anim_loop = false
+
+[sub_resource type="ParticleProcessMaterial" id="ParticleProcessMaterial_spiral"]
+emission_shape = 6
+emission_ring_axis = Vector3(0, 1, 0)
+emission_ring_height = 0.0
+emission_ring_radius = 5.0
+emission_ring_inner_radius = 2.0
+direction = Vector3(0, 1, 0)
+spread = 10.0
+initial_velocity_min = 8.0
+initial_velocity_max = 15.0
+orbit_velocity_min = 2.0
+orbit_velocity_max = 4.0
+gravity = Vector3(0, -2, 0)
+scale_min = 0.1
+scale_max = 0.3
+color = Color(1, 1, 1, 0.8)
+
+[sub_resource type="BoxMesh" id="BoxMesh_spiral"]
+material = SubResource("StandardMaterial3D_spiral")
+size = Vector3(0.2, 0.2, 0.2)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_mist"]
+transparency = 1
+shading_mode = 0
+albedo_color = Color(1, 1, 1, 0.1)
+billboard_mode = 3
+particles_anim_h_frames = 1
+particles_anim_v_frames = 1
+particles_anim_loop = false
+
+[sub_resource type="ParticleProcessMaterial" id="ParticleProcessMaterial_mist"]
+emission_shape = 3
+emission_box_extents = Vector3(6, 4, 6)
+direction = Vector3(0, 1, 0)
+spread = 180.0
+initial_velocity_min = 0.5
+initial_velocity_max = 2.0
+gravity = Vector3(0, 0.2, 0)
+scale_min = 4.0
+scale_max = 8.0
+
+[sub_resource type="QuadMesh" id="QuadMesh_mist"]
+material = SubResource("StandardMaterial3D_mist")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_shockwave"]
+transparency = 1
+shading_mode = 0
+albedo_color = Color(1, 1, 1, 0.5)
+billboard_mode = 3
+particles_anim_h_frames = 1
+particles_anim_v_frames = 1
+particles_anim_loop = false
+
+[sub_resource type="Curve" id="Curve_shockwave"]
+_data = [Vector2(0, 0.1), 0.0, 5.0, 0, 0, Vector2(1, 10.0), 0.0, 0.0, 0, 0]
+point_count = 2
+
+[sub_resource type="CurveTexture" id="CurveTexture_shockwave"]
+curve = SubResource("Curve_shockwave")
+
+[sub_resource type="ParticleProcessMaterial" id="ParticleProcessMaterial_shockwave"]
+direction = Vector3(0, 0, 0)
+gravity = Vector3(0, 0, 0)
+scale_curve = SubResource("CurveTexture_shockwave")
+color = Color(1, 1, 1, 0.5)
+
+[sub_resource type="TorusMesh" id="TorusMesh_shockwave"]
+material = SubResource("StandardMaterial3D_shockwave")
+inner_radius = 5.0
+outer_radius = 5.5
+rings = 64
+ring_segments = 6
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_funnel"]
+noise_type = 2
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_funnel"]
+seamless = true
+noise = SubResource("FastNoiseLite_funnel")
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_funnel"]
+render_priority = 0
+shader = ExtResource("1_funnel_shader")
+shader_parameter/albedo = Color(0.6, 0.8, 1, 1)
+shader_parameter/speed = 3.0
+shader_parameter/swirl_strength = 2.5
+shader_parameter/taper = 0.6
+shader_parameter/wobble = 0.4
+shader_parameter/sync_time = 0.0
+shader_parameter/proximity_fade_distance = 3.0
+shader_parameter/noise_tex = SubResource("NoiseTexture2D_funnel")
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_funnel"]
+material = SubResource("ShaderMaterial_funnel")
+top_radius = 3.0
+bottom_radius = 1.0
+height = 25.0
+radial_segments = 32
+rings = 16
+cap_top = false
+cap_bottom = false
+
+[node name="WaterspoutVFX" type="Node3D"]
+
+[node name="Funnel" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 12.5, 0)
+mesh = SubResource("CylinderMesh_funnel")
+
+[node name="SpiralColumn" type="GPUParticles3D" parent="."]
+amount = 1000
+lifetime = 2.5
+preprocess = 0.5
+visibility_aabb = AABB(-50, -10, -50, 100, 100, 100)
+process_material = SubResource("ParticleProcessMaterial_spiral")
+draw_pass_1 = SubResource("BoxMesh_spiral")
+
+[node name="Mist" type="GPUParticles3D" parent="."]
+amount = 300
+lifetime = 5.0
+preprocess = 1.0
+visibility_aabb = AABB(-50, -10, -50, 100, 50, 100)
+process_material = SubResource("ParticleProcessMaterial_mist")
+draw_pass_1 = SubResource("QuadMesh_mist")
+
+[node name="Shockwave" type="GPUParticles3D" parent="."]
+amount = 10
+lifetime = 3.0
+preprocess = 1.0
+visibility_aabb = AABB(-100, -5, -100, 200, 10, 200)
+process_material = SubResource("ParticleProcessMaterial_shockwave")
+draw_pass_1 = SubResource("TorusMesh_shockwave")

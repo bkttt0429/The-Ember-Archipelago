@@ -1,7 +1,7 @@
 class_name GeopoliticsDebugView
 extends ColorRect
 
-const FactionNodeScene = preload("res://Development/Scripts/Systems/Geopolitics/Debug/FactionNodeUI.tscn")
+const FactionNodeScene = preload("res://Development/Scripts/Systems/Geopolitics/UI/FactionNodeUI.tscn")
 
 @onready var factions_container = $FactionsContainer
 @onready var status_label = $StatusLabel
@@ -67,21 +67,21 @@ func _draw():
 			var diplomacy = rel["diplomacy_value"]
 			
 			# Color: -1.0 (Red) -> 0.0 (Gray) -> 1.0 (Green)
-			var color = Color.GRAY
+			var line_color = Color.GRAY
 			if diplomacy > 0:
-				color = Color.GRAY.lerp(Color.GREEN, diplomacy)
+				line_color = Color.GRAY.lerp(Color.GREEN, diplomacy)
 			else:
-				color = Color.GRAY.lerp(Color.RED, -diplomacy)
+				line_color = Color.GRAY.lerp(Color.RED, -diplomacy)
 			
 			var node_b = ui_nodes[faction_b]
 			var center_b = node_b.get_global_rect().get_center() - get_global_position()
 			
-			draw_line(center_a, center_b, color, 2.0)
+			draw_line(center_a, center_b, line_color, 2.0)
 
-func _on_relation_changed(a, b, value):
+func _on_relation_changed(_a, _b, _value):
 	queue_redraw()
 
-func _on_trade_status_changed(a, b, status):
+func _on_trade_status_changed(_a, _b, _status):
 	queue_redraw()
 
 func _on_invasion_declared(aggressor, target, reason):

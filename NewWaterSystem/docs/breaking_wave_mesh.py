@@ -13,6 +13,8 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import cm
 import matplotlib.colors as mcolors
+import io
+
 
 # ============================================================
 # 1. 物理模型：淺水波破碎演化
@@ -151,10 +153,10 @@ def generate_breaking_sequence(num_profiles=12):
 # ============================================================
 
 
-def generate_3d_wave_mesh(profiles, y_extent=2.0):
+def generate_3d_wave_mesh(profiles, y_extent=2.0, base_t=0.0, phase_strength=0.35):
     """
     將 2D 輪廓序列延伸為 3D 網格
-    沿 Y 軸（波浪延伸方向）複製
+    沿 Y 軸（波浪延伸方向）複製，並加入破碎時序偏移
     """
     num_profiles = len(profiles)
     num_points = len(profiles[0][0])
@@ -166,12 +168,29 @@ def generate_3d_wave_mesh(profiles, y_extent=2.0):
     T = np.zeros((num_profiles, num_points))  # 用於著色
 
     y_values = np.linspace(-y_extent / 2, y_extent / 2, num_profiles)
+    y_max = max(abs(y_values[0]), abs(y_values[-1]))
 
     for i, (x_prof, z_prof, t) in enumerate(profiles):
-        X[i, :] = x_prof
-        Y[i, :] = y_values[i]
-        Z[i, :] = z_prof
-        T[i, :] = t  # 時間參數用於顏色
+        y = y_values[i]
+        # Right-to-left: +Y 先破，-Y 後破
+        phase = (y / y_max) * phase_strength if y_max > 0.0 else 0.0
+        t_row = np.clip(base_t + phase, 0.0, 1.0)
+
+        # Recompute profile with per-row phase
+        params = {
+            "amplitude": 0.6 * (1 + t_row * 0.5),
+            "x0": -1.5 + t_row * 1.0,
+            "width": 0.8,
+            "bottom_slope": 0.1,
+            "curl_factor": 1.2,
+        }
+        x_prof_row = x_prof.copy()
+        x_row, z_row = breaking_wave_profile(x_prof_row, t_row, params)
+
+        X[i, :] = x_row
+        Y[i, :] = y
+        Z[i, :] = z_row
+        T[i, :] = t_row
 
     return X, Y, Z, T
 
@@ -181,7 +200,7 @@ def generate_3d_wave_mesh(profiles, y_extent=2.0):
 # ============================================================
 
 
-def visualize_breaking_wave():
+def visualize_breaking_wave(base_t=0.0, phase_strength=0.35):
     """
     可視化破碎波演化
     包含 2D 輪廓序列和 3D 網格視圖
@@ -228,7 +247,9 @@ def visualize_breaking_wave():
     ax2 = fig.add_subplot(1, 2, 2, projection="3d")
     ax2.set_title("3D Wave Mesh\n3D 波浪網格", fontsize=14)
 
-    X, Y, Z, T = generate_3d_wave_mesh(profiles, y_extent=3.0)
+    X, Y, Z, T = generate_3d_wave_mesh(
+        profiles, y_extent=3.0, base_t=base_t, phase_strength=phase_strength
+    )
 
     # 使用時間參數著色
     colors = cm.get_cmap("ocean")((1 - T) * 0.8 + 0.1)
@@ -272,7 +293,9 @@ def visualize_breaking_wave():
 # ============================================================
 
 
-def generate_animation_frames(output_dir=None, num_frames=30):
+def generate_animation_frames(
+    output_dir=None, num_frames=30, phase_strength=0.35, y_extent=3.0
+):
     """
     生成破碎波動畫幀序列
     可用於後續 GIF 或視頻製作
@@ -284,46 +307,41 @@ def generate_animation_frames(output_dir=None, num_frames=30):
 
     os.makedirs(output_dir, exist_ok=True)
 
-    params = {
-        "amplitude": 0.6,
-        "x0": -2.0,
-        "width": 0.8,
-        "bottom_slope": 0.1,
-        "curl_factor": 1.5,
-    }
-
-    x_base = np.linspace(-3.0, 1.0, 200)
+    profiles = generate_breaking_sequence(num_profiles=15)
 
     for frame in range(num_frames):
-        t = frame / (num_frames - 1)
+        base_t = frame / (num_frames - 1)
 
-        fig, ax = plt.subplots(figsize=(10, 6))
+        fig = plt.figure(figsize=(10, 6))
+        ax = fig.add_subplot(1, 1, 1, projection="3d")
+        ax.set_title(f"Breaking Wave - t = {base_t:.2f}", fontsize=12)
 
-        # 當前時間步
-        params_t = params.copy()
-        params_t["x0"] = params["x0"] + t * 1.5
-        params_t["amplitude"] = params["amplitude"] * (1 + t * 0.6)
+        X, Y, Z, T = generate_3d_wave_mesh(
+            profiles, y_extent=y_extent, base_t=base_t, phase_strength=phase_strength
+        )
+        colors = cm.get_cmap("ocean")((1 - T) * 0.8 + 0.1)
 
-        x = x_base.copy()
-        x_prof, z_prof = breaking_wave_profile(x, t, params_t)
+        ax.plot_surface(
+            X,
+            Y,
+            Z,
+            facecolors=colors,
+            edgecolor="navy",
+            linewidth=0.3,
+            alpha=0.9,
+            shade=True,
+        )
 
-        # 繪製
-        ax.fill_between(x_prof, 0, z_prof, color="deepskyblue", alpha=0.6)
-        ax.plot(x_prof, z_prof, "b-", linewidth=2)
-
-        # 海底
-        ax.axhline(y=0, color="brown", linewidth=2)
-        ax.fill_between([-3, 1], [-0.15, -0.15], [0, 0], color="sandybrown", alpha=0.5)
-
+        ax.set_xlabel("X (m)")
+        ax.set_ylabel("Y (沿波浪方向)")
+        ax.set_zlabel("Z (高度)")
         ax.set_xlim(-3, 1)
-        ax.set_ylim(-0.15, 1.2)
-        ax.set_aspect("equal")
-        ax.set_title(f"Breaking Wave - t = {t:.2f}", fontsize=14)
-        ax.set_xlabel("x (m)")
-        ax.set_ylabel("z (m)")
+        ax.set_ylim(-y_extent / 2, y_extent / 2)
+        ax.set_zlim(-0.1, 1.3)
+        ax.view_init(elev=25, azim=-45)
 
         frame_path = os.path.join(output_dir, f"frame_{frame:03d}.png")
-        plt.savefig(frame_path, dpi=100, bbox_inches="tight")
+        plt.savefig(frame_path, dpi=120, bbox_inches="tight")
         plt.close(fig)
 
         print(f"Generated: {frame_path}")

@@ -1,0 +1,23 @@
+[gd_scene format=3 uid="uid://b6j6iqv1gevat"]
+
+[ext_resource type="Script" uid="uid://bmmfe6fmycpxr" path="res://addons/godot-smashthemesh-main/godot-smashthemesh-main/addons/smash_the_mesh/stm_instance.gd" id="1_fbfcf"]
+[ext_resource type="ArrayMesh" uid="uid://bsf5k0c3rctc5" path="res://Assets/Models/kenney_pirate-kit/Models/OBJ format/cannon-mobile.obj" id="3_grmeg"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_lhwea"]
+
+[node name="Node3D" type="Node3D" unique_id=1493094419]
+
+[node name="STMInstance3D" type="MeshInstance3D" parent="." unique_id=2053964339]
+script = ExtResource("1_fbfcf")
+chunk_inner_material = SubResource("StandardMaterial3D_lhwea")
+metadata/_custom_type_script = "uid://bmmfe6fmycpxr"
+
+[node name="CannonMobile" type="MeshInstance3D" parent="." unique_id=2024127409]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 11.7255535, 0, -4.3423557)
+mesh = ExtResource("3_grmeg")
+
+[node name="Camera3D" type="Camera3D" parent="." unique_id=1399714870]
+transform = Transform3D(-0.99708486, 0, -0.076301426, 0, 1, 0, 0.076301426, 0, -0.99708486, 11.847855, 4.051943, -10.672148)
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=893174608]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.632407, 2.2552004, 0)

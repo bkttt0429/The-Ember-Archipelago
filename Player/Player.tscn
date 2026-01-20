@@ -1,18 +1,46 @@
-[gd_scene load_steps=3 format=3 uid="uid://b8y4k2d9v1x5"]
+[gd_scene format=3 uid="uid://b8y4k2eav1x5"]
 
-[ext_resource type="Script" path="res://Player/PlayerController.gd" id="1_script"]
+[ext_resource type="Script" uid="uid://dyytyuq0ja2a4" path="res://Player/PlayerController.gd" id="1_script"]
+[ext_resource type="PackedScene" uid="uid://d3gh3ncpekdoc" path="res://Player/assets/Models/FBX/Characters_Captain_Barbarossa.fbx" id="2_model"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
+radius = 0.4
+height = 1.8
 
-[node name="Player" type="CharacterBody3D" node_paths=PackedStringArray("camera_mount")]
+[node name="Player" type="CharacterBody3D" unique_id=176975663 node_paths=PackedStringArray("camera_mount", "visuals", "ground_ray", "interaction_ray", "animation_tree")]
+collision_layer = 2
 script = ExtResource("1_script")
-camera_mount = NodePath("Head")
+camera_mount = NodePath("Head/SpringArm3D")
+visuals = NodePath("Visuals")
+ground_ray = NodePath("GroundRay")
+interaction_ray = NodePath("Head/InteractionRay")
+animation_tree = NodePath("AnimationTree")
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=829325867]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
 shape = SubResource("CapsuleShape3D_player")
 
-[node name="Head" type="Node3D" parent="."]
+[node name="AnimationTree" type="AnimationTree" parent="." unique_id=463921576]
+root_node = NodePath("../Visuals/Characters_Barbarossa")
+anim_player = NodePath("../Visuals/Characters_Barbarossa/AnimationPlayer")
+
+[node name="Visuals" type="Node3D" parent="." unique_id=539072415]
+
+[node name="Characters_Barbarossa" parent="Visuals" unique_id=1337342720 instance=ExtResource("2_model")]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 0)
+
+[node name="Head" type="Node3D" parent="." unique_id=1089258712]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.6, 0)
 
-[node name="Camera3D" type="Camera3D" parent="Head"]
+[node name="SpringArm3D" type="SpringArm3D" parent="Head" unique_id=345986795]
+spring_length = 3.0
+margin = 0.2
+
+[node name="Camera3D" type="Camera3D" parent="Head/SpringArm3D" unique_id=800286029]
+
+[node name="InteractionRay" type="RayCast3D" parent="Head" unique_id=1172546301]
+target_position = Vector3(0, 0, -2.5)
+
+[node name="GroundRay" type="RayCast3D" parent="." unique_id=1769162565]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 0)
+target_position = Vector3(0, -0.5, 0)

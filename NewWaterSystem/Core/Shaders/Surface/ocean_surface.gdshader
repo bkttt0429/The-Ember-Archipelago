@@ -1,5 +1,5 @@
 shader_type spatial;
-render_mode blend_mix, cull_back, diffuse_burley, specular_schlick_ggx, alpha_to_coverage, depth_draw_always;
+render_mode blend_mix, cull_disabled, diffuse_burley, specular_schlick_ggx, alpha_to_coverage, depth_draw_always;
 
 // Varying for Jacobian (Foam)
 varying float v_jacobian;
@@ -195,6 +195,8 @@ uniform vec2 wind_dir = vec2(1.0, 0.5);
 uniform float wave_steepness = 0.2;
 uniform float wave_length = 10.0;
 uniform float wave_chaos = 0.5; 
+uniform float wave_height_multiplier = 1.0;  // Direct height control (1.0 = normal) 
+
 uniform vec4 color_deep : source_color = vec4(0.004, 0.016, 0.047, 1.0); 
 uniform vec4 color_shallow : source_color = vec4(0.0, 0.73, 0.99, 1.0);  
 uniform vec4 color_foam : source_color = vec4(1.0, 1.0, 1.0, 1.0);
@@ -235,10 +237,6 @@ uniform float normal_scale : hint_range(0.0, 2.0) = 0.7;
 uniform float normal_speed : hint_range(0.0, 0.5) = 0.1;
 uniform vec4 rogue_wave_data = vec4(0.0, 0.0, 0.0, 1.0); // x,y: pos, z: height, w: width
 
-// === Breaking Wave Uniforms ===
-uniform int breaking_wave_count = 0;
-uniform vec4 breaking_wave_data[3];  // xyz=pos+height, w=width
-uniform vec4 breaking_wave_params[3];  // x=curl, y=break_point, z=state, w=unused
 
 // === Volumetric & Particle Foam ===
 uniform sampler2D foam_particle_texture : hint_default_black;
@@ -261,7 +259,6 @@ uniform float far_fade_start : hint_range(0.0, 500.0) = 150.0;
 uniform float far_fade_max : hint_range(0.0, 1000.0) = 300.0;
 uniform bool debug_view = false;
 uniform bool debug_mesh_only = false;
-uniform bool is_barrel_mesh = false;  // 🌊 桶浪模式：跳過所有頂點位移
 
 
 
@@ -270,12 +267,6 @@ varying vec2 v_swe_uv;
 varying vec3 v_wave_normal;
 varying vec3 v_world_pos;
 varying float v_edge_damp;
-
-// 🔥 Phase 1: Barrel Mesh Enhanced Varyings
-varying float v_arc_position;      // 0 = back (ocean), 1 = lip
-varying float v_edge_blend;        // 0 = blend with ocean, 1 = full barrel
-varying float v_water_thickness;   // Volumetric thickness for SSS
-varying vec3 v_tangent;            // Flow direction for animated normals
 
 // 1D Envelope Sampling for Rogue Wave
 float sample_envelope(float dist, float width) {
@@ -337,29 +328,15 @@ void vertex() {
 	vec3 world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	v_world_pos = world_pos;
 	
-	// 🌊 桶浪模式：跳過所有位移，只設置必要的 varying
-	if (is_barrel_mesh) {
-		v_swe_uv = vec2(0.5);
-		v_wave_normal = (MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz;
-		v_edge_damp = 1.0;
-		v_jacobian = 0.0;
-		
-		// 🔥 Phase 1: Read enhanced vertex data from COLOR channel
-		// COLOR.r = edge_blend (0 = blend with ocean, 1 = full barrel)
-		// COLOR.g = water_thickness normalized (0-1 maps to 0-3 meters)
-		v_arc_position = UV.x;  // Arc position from UV
-		v_edge_blend = COLOR.r;
-		v_water_thickness = COLOR.g * 3.0;  // Denormalize to actual thickness
-		v_tangent = (MODEL_MATRIX * vec4(TANGENT.xyz, 0.0)).xyz;
-	} else {
-		v_swe_uv = (VERTEX.xz / sea_size) + 0.5;
-		v_swe_uv = clamp(v_swe_uv, 0.0, 1.0);
-		float cam_dist = length(world_pos - manager_world_pos); // Or CAMERA_POSITION_WORLD if available
-		
-		// Sample SWE for displacement
-		vec4 swe_sample = texture(swe_texture, v_swe_uv);
-		float swe_h = swe_sample.r;
-		float is_obstacle = swe_sample.b;
+	// Standard Ocean Surface Vertex Logic
+	v_swe_uv = (VERTEX.xz / sea_size) + 0.5;
+	v_swe_uv = clamp(v_swe_uv, 0.0, 1.0);
+	float cam_dist = length(world_pos - manager_world_pos); // Or CAMERA_POSITION_WORLD if available
+	
+	// Sample SWE for displacement
+	vec4 swe_sample = texture(swe_texture, v_swe_uv);
+	float swe_h = swe_sample.r;
+		float is_obstacle = swe_sample.a;
 		float wave_weight = 1.0 - is_obstacle;
 		
 		// Time Interpolation for smooth vertex movement
@@ -416,13 +393,15 @@ void vertex() {
 		wave_disp.xz *= h_damp;
 		wave_disp.y *= final_damp;
 		
-		VERTEX.xyz += wave_disp; 
+		// Apply manual height multiplier
+		wave_disp.y *= wave_height_multiplier;
 		
-		// 🌊 Breaking Wave Heightfield DISABLED
-		// The barrel mesh (independent procedural mesh) now handles the curl effect
-		// Keeping this commented out for reference:
-		// for (int i = 0; i < breaking_wave_count; i++) { ... VERTEX.y += base_height; }
+		// === Breaking Wave Logic Removed ===
 
+		
+		// 🔥 Global Sea Level Floor
+		
+		VERTEX.xyz += wave_disp; 
 		VERTEX.y += swe_h * swe_strength * wave_weight * final_damp;
 		
 		vec2 fft_uv = (world_pos.xz / sea_size) + 0.5;
@@ -430,13 +409,6 @@ void vertex() {
 		VERTEX.y += fft_h * wind_strength * wave_weight * fft_scale * final_damp;
 		
 		v_world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-		
-		// 🔥 Phase 1: 設置默認值（非桶浪路徑）
-		v_arc_position = 0.0;
-		v_edge_blend = 1.0;  // 完全不透明
-		v_water_thickness = 2.0;
-		v_tangent = vec3(1.0, 0.0, 0.0);
-	}
 }
 
 vec3 blend_normals(vec3 n1, vec3 n2) {
@@ -444,84 +416,6 @@ vec3 blend_normals(vec3 n1, vec3 n2) {
 }
 
 void fragment() {
-	// 🌊 桶浪模式：Phase 1 增強渲染路徑
-	if (is_barrel_mesh) {
-		// 使用世界空間法線和位置
-		vec3 world_normal = normalize(v_wave_normal);
-		vec3 view_dir = normalize(CAMERA_POSITION_WORLD - v_world_pos);
-		
-		// 🔥 Phase 1: 使用真實的體積厚度 (來自頂點顏色)
-		float water_thickness = v_water_thickness;
-		float absorption = exp(-water_thickness * absorption_coeff);
-		
-		// 🔥 Phase 1: 使用弧形位置計算深度效果
-		float arc_depth = v_arc_position;  // 0 = back, 1 = lip
-		
-		// 顏色混合：底部深色，唇部淺色（薄水）
-		vec3 sea_color = mix(color_deep.rgb, color_shallow.rgb, absorption);
-		
-		// 🔥 Phase 1: 流動法線 (沿捲曲方向加速)
-		vec2 flow_dir = normalize(v_tangent.xz + vec2(0.001)); // 防止除零
-		float barrel_flow_speed = mix(0.5, 2.0, arc_depth);  // 唇部流動更快
-		vec2 flow_uv = v_world_pos.xz * normal_tile * 0.1;
-		flow_uv += flow_dir * TIME * normal_speed * barrel_flow_speed;
-		
-		// 🔥 Phase 1: 梯度法線強度
-		// 底部：標準強度，唇部：更強烈（混亂泡沫感）
-		float normal_intensity = mix(0.5, 1.2, smoothstep(0.5, 0.9, arc_depth));
-		
-		vec3 n1 = texture(normal_map1, flow_uv).rgb * 2.0 - 1.0;
-		vec3 n2 = texture(normal_map2, flow_uv * 1.2 - TIME * normal_speed * 0.7).rgb * 2.0 - 1.0;
-		vec3 detail_normal = normalize(vec3((n1.xy + n2.xy) * normal_intensity, 1.0));
-		
-		// 混合法線
-		vec3 final_normal = normalize(world_normal + detail_normal * 0.4);
-		NORMAL = normalize((VIEW_MATRIX * vec4(final_normal, 0.0)).xyz);
-		
-		// Fresnel
-		float fresnel = pow(1.0 - max(dot(NORMAL, VIEW), 0.0), 4.0);
-		
-		// 🔥 Phase 1: 泡沫區域化
-		vec2 foam_uv = v_world_pos.xz * 0.4 + TIME * 0.02;
-		float foam_noise_val = texture(foam_noise, foam_uv).r;
-		// 唇部泡沫更強
-		float lip_foam_strength = smoothstep(0.6, 0.95, arc_depth);
-		float lip_foam = lip_foam_strength * foam_noise_val * 0.8;
-		// 加上邊緣泡沫
-		lip_foam += fresnel * 0.15 * foam_noise_val;
-		lip_foam = clamp(lip_foam, 0.0, 1.0);
-		
-		// 混合泡沫
-		sea_color = mix(sea_color, color_foam.rgb, lip_foam);
-		
-		ALBEDO = sea_color;
-		METALLIC = metallic * (1.0 - lip_foam);
-		ROUGHNESS = mix(roughness, 0.6, lip_foam);
-		SPECULAR = specular;
-		
-		// 🔥 Phase 1: 透明度 - 提高整體可見度
-		// 底部邊緣 (edge_blend ≈ 0) 稍微更透明，與海面融合
-		float base_alpha = mix(0.85, 0.98, v_edge_blend);  // 🔥 提高不透明度
-		ALPHA = base_alpha + lip_foam * 0.02;
-		
-		// SSS 和 Fresnel 發光
-		vec3 fresnel_color = mix(sea_color, vec3(0.3, 0.5, 0.7), 0.3) * fresnel_strength;
-		EMISSION = fresnel_color * pow(fresnel, 5.0) * (1.0 - lip_foam);
-		
-		// 🔥 Phase 1: 增強 SSS (基於厚度)
-		// 薄水 (唇部) 更多 SSS
-		float sss_thickness_factor = 1.0 - smoothstep(0.0, 1.5, water_thickness);
-		float sss_mask = sss_thickness_factor * arc_depth;
-		float sss_view = pow(max(dot(view_dir, -final_normal), 0.0), 3.0);
-		vec3 enhanced_sss = sss_color.rgb * sss_strength * 2.0 * sss_mask * (0.3 + 0.7 * sss_view);
-		EMISSION += enhanced_sss * (1.0 - lip_foam);
-		
-		// 🔥 Phase 1: 多重 Fresnel (內管道反射)
-		float fresnel_inner = pow(1.0 - max(dot(-final_normal, view_dir), 0.0), 3.0);
-		fresnel_inner *= smoothstep(0.3, 0.7, arc_depth) * 0.3; // 只在內部生效
-		EMISSION += vec3(0.2, 0.4, 0.5) * fresnel_inner * (1.0 - lip_foam);
-	} else {
-
 	// 1. Depth & Water Color - Using Linear Z Difference for robust Depth Fade
 	float depth_raw = texture(depth_texture, SCREEN_UV).r;
 	vec3 ndc = vec3(SCREEN_UV * 2.0 - 1.0, depth_raw);
@@ -791,30 +685,6 @@ void fragment() {
 	
 	ALBEDO = color;
 	
-	// 🔥 Breaking Wave Debug Visualization
-	if (breaking_wave_count > 0 && debug_show_markers) {
-		for (int i = 0; i < breaking_wave_count; i++) {
-			vec3 wave_center = breaking_wave_data[i].xyz;
-			float b_width = max(breaking_wave_data[i].w, 0.01);
-			
-			vec2 to_wave = v_world_pos.xz - vec2(wave_center.x, wave_center.z);
-			vec2 dir_norm = normalize(breaking_wave_params[i].zw);
-			float dist_along = dot(to_wave, dir_norm);
-			float dist_across = length(to_wave - dist_along * dir_norm);
-			
-			// 🔥 Core Zone (Green)
-			if (abs(dist_across) < b_width * 0.5 && abs(dist_along) < b_width) {
-				ALBEDO = mix(ALBEDO, vec3(0.0, 1.0, 0.0), 0.5);
-			}
-			
-			// 🔥 Curl Zone (Red)
-			float u = clamp(dist_along / b_width * 0.5 + 0.5, 0.0, 1.0);
-			float curl_zone = smoothstep(0.3, 0.7, u);
-			if (curl_zone > 0.5 && abs(dist_across) < b_width) {
-				ALBEDO = mix(ALBEDO, vec3(1.0, 0.0, 0.0), curl_zone * 0.7);
-			}
-		}
-	}
 	// 5.5 Visual Edge Softening
 	// Replaces hard clamp with smooth proximity fade
     // Combine depth fade with world-space edge fade
@@ -869,15 +739,4 @@ void fragment() {
 	} else {
 		EMISSION = vec3(0.0);
 	}
-	// 🔥 Break Wave Debug Visualization (Moved)
-	if (debug_show_markers && breaking_wave_count > 0) {
-		vec2 test_pos = breaking_wave_data[0].xz;
-		float test_dist = length(v_world_pos.xz - test_pos);
-		if (test_dist < breaking_wave_data[0].w) {
-			ALBEDO = vec3(1.0, 0.0, 0.0); // Red Marker
-			ALPHA = 0.5; // Semi-transparent to see shape
-			EMISSION = vec3(0.5, 0.0, 0.0);
-		}
-	}
-	} // end else (non-barrel mesh)
 }
