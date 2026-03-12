@@ -3583,11 +3583,17 @@ func _debug_bone_after_ik() -> void:
 	
 	# ★ 樓梯上持續禁用腳部 IK（ShapeCast 在階梯邊緣不穩定）
 	if _foot_ik_system:
-		var should_ik = not stair.on_stairs
+		# 任何樓梯相關狀態都關 IK：on_stairs / 寬限期 / 樓梯動畫中
+		var on_stairs_any = stair.on_stairs or stair.grace_timer > 0 or (anim_tree and not anim_tree.active)
+		var should_ik = not on_stairs_any
 		if _foot_ik_system.ik_enabled != should_ik:
 			_foot_ik_system.ik_enabled = should_ik
 			if verbose_debug:
-				print(">>> [FootIK] %s (樓梯=%s)" % ["ON" if should_ik else "OFF", stair.on_stairs])
+				print(">>> [FootIK] %s (stairs=%s grace=%.2f animTree=%s)" % [
+					"ON" if should_ik else "OFF",
+					stair.on_stairs, stair.grace_timer,
+					str(anim_tree.active) if anim_tree else "null"
+				])
 	
 	var right_foot_idx = _skeleton.find_bone("RightFoot")
 	if right_foot_idx >= 0:
