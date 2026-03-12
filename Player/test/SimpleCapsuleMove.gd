@@ -169,7 +169,50 @@ class StateGround extends PlayerState:
 			return
 		
 		p._process_horizontal_movement(delta)
-		p._process_stair_physics(delta)
+		
+		# ══════ 物理管線（明確執行順序，move_and_slide 只在這裡呼叫一次） ══════
+		# Step 1: 偵測樓梯
+		p._detect_stairs()
+		
+		# Step 2: 樓梯上升時壓制正 Y 速度
+		p.stair.step_up_offset = 0.0
+		if p.stair.on_stairs and p.stair.ascending and not p._is_jumping:
+			p.velocity.y = min(p.velocity.y, 0.0)
+		
+		# Step 3: SnapUp（跨上台階）
+		if p.movement_data.step_enabled and not p._is_jumping and not p._is_landing:
+			if p.is_on_floor() or p.ground.snapped_to_stairs_last_frame or (p.stair.on_stairs and p.stair.ascending):
+				p._snap_up_stairs_check(delta)
+		
+		# Step 4: ★ move_and_slide() — 唯一一處 ★
+		var saved_snap = p.floor_snap_length
+		if (p.stair.on_stairs and p.stair.ascending) or p.ground.snapped_to_stairs_last_frame:
+			p.floor_snap_length = 1.0
+		var pre_y = p.global_position.y
+		p.move_and_slide()
+		p.floor_snap_length = saved_snap
+		var post_mas_y = p.global_position.y
+		
+		# Step 5: SnapDown（跨下台階）
+		p._snap_down_stairs_check()
+		var post_sd_y = p.global_position.y
+		
+		# Step 6: 落地偵測
+		if p.air.jump_grace_timer <= 0 and not p.ground.was_on_floor and p.is_on_floor():
+			if (p.air.jump_phase == p.JumpPhase.LOOP or p._is_falling or p._is_jumping) and p.air.jump_to_type != p.JumpToType.TO_STAGE:
+				p._set_motion_state(MovementEnums.MotionState.LANDING)
+				p.air.landing_timer = p.LAND_ANIMATION_DURATION
+				p._trigger_land_animation()
+			p.air.air_time = 0.0
+			p.air.fall_velocity_peak = 0.0
+		
+		# Step 7: Debug 紀錄
+		if p.stair.on_stairs and p.stair.ascending:
+			var md = post_mas_y - pre_y
+			var sd = post_sd_y - post_mas_y
+			if abs(md) > 0.005 or abs(sd) > 0.005:
+				if p.verbose_debug: print(">>> [PhysDelta] pre=%.3f →MAS→ %.3f (Δ%.3f) →SD→ %.3f (Δ%.3f) step_up=%.3f snapped=%s" % [pre_y, post_mas_y, md, post_sd_y, sd, p.stair.step_up_offset, p.ground.snapped_to_stairs_last_frame])
+		# ══════ 物理管線結束 ══════
 		
 		p._update_stair_animation(delta)
 		if p.stair.step_up_offset <= 0.0:
@@ -1204,8 +1247,10 @@ func _process_horizontal_movement(delta: float) -> void:
 		velocity.x = move_toward(velocity.x, target_velocity.x, rate * delta)
 		velocity.z = move_toward(velocity.z, target_velocity.z, rate * delta)
 
-## 樓梯物理 + move_and_slide
+## [DEPRECATED] 樓梯物理 — 已內聯到 StateGround.physics_update 管線中
+## 保留此函數以防外部呼叫，但 StateGround 不再使用
 func _process_stair_physics(delta: float) -> void:
+	push_warning("_process_stair_physics is deprecated - logic moved to StateGround pipeline")
 	_detect_stairs()
 	stair.step_up_offset = 0.0
 	if stair.on_stairs and stair.ascending and not _is_jumping:
