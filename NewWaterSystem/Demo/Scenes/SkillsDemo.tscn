@@ -6,7 +6,6 @@
 [ext_resource type="Script" uid="uid://dx0nbi0efuan5" path="res://NewWaterSystem/Demo/Scripts/DemoUI.gd" id="3_ui"]
 [ext_resource type="Environment" uid="uid://cj5n6ylnth8yx" path="res://NewWaterSystem/Demo/Scenes/SkillsDemo_env.tres" id="4_env"]
 
-
 [sub_resource type="FastNoiseLite" id="FastNoiseLite_4dpo3"]
 noise_type = 2
 seed = -1249523238
@@ -35,19 +34,20 @@ noise = SubResource("FastNoiseLite_t846j")
 seamless = true
 as_normal_map = true
 
-[node name="SkillsDemo" type="Node3D"]
+[node name="SkillsDemo" type="Node3D" unique_id=619861118]
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1639644418]
 environment = ExtResource("4_env")
 
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=417187773]
 transform = Transform3D(0.7071068, 0.49999994, -0.5000001, 0, 0.70710695, 0.7071067, 0.7071068, -0.49999994, 0.5000001, 0, 10, 30.19041)
 light_energy = 1.062
 shadow_enabled = true
 
-[node name="OceanWaterManager" type="Node3D" parent="."]
+[node name="OceanWaterManager" type="Node3D" parent="." unique_id=1338245408]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -1.3933754)
 script = ExtResource("1_water")
+wind_strength = 8.0
 foam_noise_tex = ExtResource("3_ls1lp")
 foam_crest_strength = 1.5
 foam_jacobian_bias = 0.15
@@ -56,10 +56,10 @@ normal_map1 = SubResource("NoiseTexture2D_rsolk")
 normal_map2 = SubResource("NoiseTexture2D_0j8w3")
 normal_scale = 0.5
 
-[node name="Camera3D" type="Camera3D" parent="."]
+[node name="Camera3D" type="Camera3D" parent="." unique_id=443456511]
 transform = Transform3D(1, 0, 0, 0, 0.866025, 0.5, 0, -0.5, 0.866025, 0, 15, 25)
 script = ExtResource("2_cam")
 speed = 20.0
 
-[node name="DemoUI" type="CanvasLayer" parent="."]
+[node name="DemoUI" type="CanvasLayer" parent="." unique_id=2146741655]
 script = ExtResource("3_ui")

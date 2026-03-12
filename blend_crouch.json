@@ -1,0 +1,14 @@
+[
+    {
+        "line": 1281,
+        "text": "anim_tree.set(\"parameters/movement/Blend2/blend_amount\", _stance_value)"
+    },
+    {
+        "line": 1301,
+        "text": "anim_tree.set(\"parameters/movement/crouch_movement/blend_position\", _blend_position)"
+    },
+    {
+        "line": 1587,
+        "text": "anim_tree.set(\"parameters/movement/crouch_movement/blend_position\", Vector2.ZERO)"
+    }
+]

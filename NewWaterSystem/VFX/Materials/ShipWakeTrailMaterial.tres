@@ -1,0 +1,15 @@
+[gd_resource type="ShaderMaterial" format=3 uid="uid://detqxlt5gn7gu"]
+
+[ext_resource type="Shader" uid="uid://bsxdkjpw8qlsq" path="res://NewWaterSystem/VFX/Shaders/wake_trail.gdshader" id="1_shader"]
+[ext_resource type="Texture2D" path="res://NewWaterSystem/VFX/Textures/foam_1.png" id="2_foam"]
+
+[resource]
+render_priority = 0
+shader = ExtResource("1_shader")
+shader_parameter/foam_texture = ExtResource("2_foam")
+shader_parameter/flow_speed_1 = Vector2(0.3, -1.5)
+shader_parameter/flow_speed_2 = Vector2(-0.2, -1.0)
+shader_parameter/uv_scale = Vector2(1, 3)
+shader_parameter/base_color = Color(0.92, 0.96, 1.0, 0.85)
+shader_parameter/erosion_threshold = 0.55
+shader_parameter/normal_strength = 0.6

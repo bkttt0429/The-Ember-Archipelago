@@ -2,6 +2,35 @@
 
 [ext_resource type="Script" uid="uid://cd6doksvbjqcw" path="res://NewWaterSystem/Core/Scripts/WaterManager.gd" id="1_water"]
 [ext_resource type="Script" uid="uid://g6acq2s84iol" path="res://NewWaterSystem/Demo/Scripts/CameraController.gd" id="2_k5h3k"]
+[ext_resource type="Script" uid="uid://lyt8cp781ya6" path="res://NewWaterSystem/Demo/Scripts/TestPlayerController.gd" id="3_player"]
+[ext_resource type="Script" uid="uid://c526jdcf7ql4r" path="res://NewWaterSystem/Core/Scripts/ShipBuoyancyDriver.gd" id="4_buoyancy"]
+[ext_resource type="Script" uid="uid://crytavj6xhb0g" path="res://NewWaterSystem/Core/Scripts/ShipWakeEmitter.gd" id="5_emitter"]
+[ext_resource type="Script" path="res://NewWaterSystem/VFX/WakeParticleEmitter.gd" id="6_wake_particles"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_ocean"]
+sky_top_color = Color(0.3, 0.5, 0.9, 1)
+sky_horizon_color = Color(0.6, 0.75, 0.95, 1)
+ground_bottom_color = Color(0.15, 0.2, 0.25, 1)
+ground_horizon_color = Color(0.4, 0.5, 0.6, 1)
+
+[sub_resource type="Sky" id="Sky_ocean"]
+sky_material = SubResource("ProceduralSkyMaterial_ocean")
+
+[sub_resource type="Environment" id="Environment_ocean"]
+background_mode = 2
+sky = SubResource("Sky_ocean")
+ambient_light_source = 2
+ambient_light_color = Color(1, 1, 1, 1)
+ambient_light_sky_contribution = 0.6
+tonemap_mode = 2
+tonemap_white = 1.5
+ssr_enabled = true
+ssao_enabled = true
+ssao_radius = 2.0
+ssao_intensity = 1.5
+glow_enabled = true
+glow_intensity = 0.5
+glow_bloom = 0.1
 
 [sub_resource type="FastNoiseLite" id="FastNoiseLite_foam"]
 noise_type = 2
@@ -40,30 +69,184 @@ noise = SubResource("FastNoiseLite_7c0x3")
 seamless = true
 as_normal_map = true
 
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
+radius = 0.4
+height = 1.8
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_player"]
+radius = 0.4
+height = 1.8
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_player"]
+albedo_color = Color(1, 0.5, 0.2, 1)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_crate"]
+size = Vector3(2, 1, 2)
+
+[sub_resource type="BoxMesh" id="BoxMesh_crate"]
+size = Vector3(2, 1, 2)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_crate"]
+albedo_color = Color(0.55, 0.35, 0.15, 1)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_barrel"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_barrel"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_barrel"]
+albedo_color = Color(0.2, 0.6, 0.3, 1)
+
 [node name="BarrelWaveIntegrationTest" type="Node3D" unique_id=530311673]
 
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=11116956]
+environment = SubResource("Environment_ocean")
+
 [node name="OceanWaterManager" type="Node3D" parent="." unique_id=605320537 groups=["WaterSystem_Managers"]]
+transform = Transform3D(0.99998534, 0.005418063, -8.274469e-05, -0.0054182746, 0.99998134, -0.0028198983, 6.7466e-05, 0.0028203053, 0.999996, 0, 0, 0)
 script = ExtResource("1_water")
 sea_size = Vector2(128, 128)
-wind_strength = 5.0
-wave_steepness = 0.4
+wave_steepness = 0.35
 wave_length = 25.0
-wave_height_multiplier = 1.5
-enable_barrel_spawner = true
-barrel_height_threshold = 1.2
+color_deep = Color(0.02, 0.12, 0.3, 1)
+color_shallow = Color(0, 0.6, 0.7, 1)
+absorption_coeff = 0.35
 foam_noise_tex = SubResource("NoiseTexture2D_foam")
-foam_crest_strength = 1.5
-foam_jacobian_bias = 0.15
+fresnel_strength = 0.3
+reflection_strength = 0.25
+sss_strength = 0.2
+sss_color = Color(0, 0.5, 0.4, 1)
+enable_barrel_spawner = true
+foam_crest_strength = 1.2
+foam_jacobian_bias = 0.22
 caustics_texture = SubResource("NoiseTexture2D_eh7ql")
 normal_map1 = SubResource("NoiseTexture2D_normal")
 normal_map2 = SubResource("NoiseTexture2D_imtfe")
-show_wireframe = true
+normal_scale = 1.5
+normal_tile = 12.0
+ripple_follow_target = NodePath("../TestPlayer")
+ripple_normal_strength = 3.0
+debug_show_markers = true
+debug_ripple_display = true
+fft_scale = 1.5
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=808044731]
-transform = Transform3D(0.866025, -0.353553, 0.353553, 0, 0.707107, 0.707107, -0.5, -0.612372, 0.612372, 20, 30, 20)
+transform = Transform3D(1, 0, 0, 0, 0.173648, 0.984808, 0, -0.984808, 0.173648, 0, 50, 0)
+light_color = Color(1, 0.98, 0.95, 1)
+light_energy = 1.5
 shadow_enabled = true
 
 [node name="Camera3D" type="Camera3D" parent="." unique_id=1359464259]
 transform = Transform3D(0.984808, -0.122788, 0.122788, 0, 0.707107, 0.707107, -0.173648, -0.696364, 0.696364, 15, 12, 25)
 fov = 60.0
 script = ExtResource("2_k5h3k")
+
+[node name="TestPlayer" type="CharacterBody3D" parent="." unique_id=1469974065]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.32249355, 0)
+collision_layer = 1048576
+script = ExtResource("3_player")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="TestPlayer" unique_id=714093292]
+shape = SubResource("CapsuleShape3D_player")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="TestPlayer" unique_id=1954153315]
+layers = 524288
+mesh = SubResource("CapsuleMesh_player")
+surface_material_override/0 = SubResource("StandardMaterial3D_player")
+
+[node name="PlayerWakeEmitter" type="Node3D" parent="TestPlayer" node_paths=PackedStringArray("water_manager")]
+script = ExtResource("5_emitter")
+water_manager = NodePath("../../OceanWaterManager")
+wake_strength_multiplier = -0.8
+wake_radius = 0.3
+drop_interval_meters = 0.15
+min_speed = 0.3
+
+[node name="WakeParticleEmitter" type="Node3D" parent="TestPlayer"]
+script = ExtResource("6_wake_particles")
+emit_rate = 60.0
+particle_lifetime = 6.0
+wake_width = 1.0
+min_speed = 0.5
+particle_size_min = 0.08
+particle_size_max = 0.4
+foam_color = Color(0.95, 0.97, 1.0, 0.75)
+
+[node name="FloatingCrate" type="RigidBody3D" parent="." unique_id=593110870]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 2, 5)
+mass = 50.0
+linear_damp = 0.5
+angular_damp = 1.0
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="FloatingCrate" unique_id=973832838]
+shape = SubResource("BoxShape3D_crate")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="FloatingCrate" unique_id=1582049694]
+mesh = SubResource("BoxMesh_crate")
+surface_material_override/0 = SubResource("StandardMaterial3D_crate")
+
+[node name="BuoyancyDriver" type="Node3D" parent="FloatingCrate" unique_id=32304245]
+script = ExtResource("4_buoyancy")
+buoyancy_force = 120.0
+water_drag = 2.0
+
+[node name="OceanBuoyancySampler3D" type="OceanBuoyancySampler3D" parent="FloatingCrate/BuoyancyDriver" unique_id=790372898 groups=["ocean_samplers"]]
+physics_time = 35.416668
+wind_dir = Vector2(1, 0.5)
+wave_length = 25.0
+wave_steepness = 0.35
+wave_chaos = 0.25
+
+[node name="FloaterFrontLeft" type="Marker3D" parent="FloatingCrate/BuoyancyDriver" unique_id=1576621971]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.9, -0.5, -0.9)
+
+[node name="FloaterFrontRight" type="Marker3D" parent="FloatingCrate/BuoyancyDriver" unique_id=356289449]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.9, -0.5, -0.9)
+
+[node name="FloaterBackLeft" type="Marker3D" parent="FloatingCrate/BuoyancyDriver" unique_id=1908391461]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.9, -0.5, 0.9)
+
+[node name="FloaterBackRight" type="Marker3D" parent="FloatingCrate/BuoyancyDriver" unique_id=616327353]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.9, -0.5, 0.9)
+
+[node name="ShipWakeEmitter" type="Node3D" parent="FloatingCrate" unique_id=338447309 node_paths=PackedStringArray("water_manager")]
+script = ExtResource("5_emitter")
+water_manager = NodePath("../../OceanWaterManager")
+wake_strength_multiplier = -1.5
+wake_radius = 1.0
+
+[node name="FloatingBarrel" type="RigidBody3D" parent="." unique_id=176322681]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5, 3, -3)
+mass = 20.0
+linear_damp = 0.8
+angular_damp = 1.5
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="FloatingBarrel" unique_id=1962171457]
+shape = SubResource("BoxShape3D_barrel")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="FloatingBarrel" unique_id=1594207659]
+mesh = SubResource("BoxMesh_barrel")
+surface_material_override/0 = SubResource("StandardMaterial3D_barrel")
+
+[node name="BuoyancyDriver" type="Node3D" parent="FloatingBarrel" unique_id=753652583]
+script = ExtResource("4_buoyancy")
+buoyancy_force = 80.0
+water_drag = 3.0
+
+[node name="OceanBuoyancySampler3D" type="OceanBuoyancySampler3D" parent="FloatingBarrel/BuoyancyDriver" unique_id=1360620206 groups=["ocean_samplers"]]
+physics_time = 35.416668
+wind_dir = Vector2(1, 0.5)
+wave_length = 25.0
+wave_steepness = 0.35
+wave_chaos = 0.25
+
+[node name="FloaterFrontLeft" type="Marker3D" parent="FloatingBarrel/BuoyancyDriver" unique_id=1442874087]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.45, -0.5, -0.45)
+
+[node name="FloaterFrontRight" type="Marker3D" parent="FloatingBarrel/BuoyancyDriver" unique_id=243818196]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.45, -0.5, -0.45)
+
+[node name="FloaterBackLeft" type="Marker3D" parent="FloatingBarrel/BuoyancyDriver" unique_id=362883329]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.45, -0.5, 0.45)
+
+[node name="FloaterBackRight" type="Marker3D" parent="FloatingBarrel/BuoyancyDriver" unique_id=1391540673]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.45, -0.5, 0.45)

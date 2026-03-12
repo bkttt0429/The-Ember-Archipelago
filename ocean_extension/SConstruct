@@ -1,0 +1,41 @@
+#!/usr/bin/env python
+import os
+import sys
+from SCons.Environment import Environment
+
+env = Environment()
+
+# Setup godot-cpp
+# pointing to the existing godot-cpp in godot-motion-matching
+godot_cpp_path = "../addons/godot-motion-matching/godot-cpp"
+
+if not os.path.exists(godot_cpp_path):
+    print(f"Error: godot-cpp not found at {godot_cpp_path}")
+    sys.exit(1)
+
+env = SConscript(os.path.join(godot_cpp_path, "SConstruct"), {"env": env})
+
+# Our extension configuration
+libname = "ocean_extension"
+src_dir = "src/"
+env.Append(CPPPATH=[src_dir])
+
+sources = Glob('src/*.cpp')
+
+if env["platform"] == "macos":
+    library = env.SharedLibrary(
+        f"bin/macos/{libname}.{env['target']}.framework/{libname}.{env['target']}",
+        source=sources,
+    )
+elif env["platform"] == "windows":
+    library = env.SharedLibrary(
+        f"bin/win64/{libname}{env['suffix']}{env['SHLIBSUFFIX']}",
+        source=sources,
+    )
+else: # linux or others
+    library = env.SharedLibrary(
+        f"bin/linux/{libname}{env['suffix']}{env['SHLIBSUFFIX']}",
+        source=sources,
+    )
+
+Default(library)

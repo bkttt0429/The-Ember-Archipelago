@@ -1,0 +1,40 @@
+[gd_scene format=3 uid="uid://b14k55cdlgclt"]
+
+[ext_resource type="PackedScene" uid="uid://s7dri8iysrrc" path="res://Assets/3D/Characters/Player/Human.fbx" id="1_model"]
+[ext_resource type="AnimationLibrary" uid="uid://bmit6ovhoatey" path="res://Player/animations/movement.res" id="2_anim_lib"]
+
+[sub_resource type="AnimationNodeAnimation" id="AnimationNodeAnimation_1"]
+animation = &"movement/Idle"
+
+[sub_resource type="AnimationNodeAnimation" id="AnimationNodeAnimation_4p7sc"]
+animation = &"movement/walking"
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_1"]
+advance_mode = 2
+
+[sub_resource type="AnimationNodeStateMachine" id="AnimationNodeStateMachine_1"]
+states/Idle/node = SubResource("AnimationNodeAnimation_1")
+states/Idle/position = Vector2(311, 100)
+states/Start/position = Vector2(83, 100)
+states/movement_walking/node = SubResource("AnimationNodeAnimation_4p7sc")
+states/movement_walking/position = Vector2(431.6, 206.4)
+transitions = ["Start", "Idle", SubResource("AnimationNodeStateMachineTransition_1")]
+
+[node name="AnimationTestSimple" type="Node3D" unique_id=702287807]
+
+[node name="Human" parent="." unique_id=1563094699 instance=ExtResource("1_model")]
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="." unique_id=1518039514]
+root_node = NodePath("../Human")
+libraries/movement = ExtResource("2_anim_lib")
+
+[node name="AnimationTree" type="AnimationTree" parent="." unique_id=994265027]
+root_node = NodePath("../Human")
+tree_root = SubResource("AnimationNodeStateMachine_1")
+anim_player = NodePath("../AnimationPlayer")
+
+[node name="Camera3D" type="Camera3D" parent="." unique_id=2041197299]
+transform = Transform3D(1, 0, 0, 0, 0.965926, 0.258819, 0, -0.258819, 0.965926, 0, 1.5, 3)
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=227164301]
+transform = Transform3D(0.866025, 0.25, -0.433013, 0, 0.866025, 0.5, 0.5, -0.433013, 0.75, 0, 5, 0)

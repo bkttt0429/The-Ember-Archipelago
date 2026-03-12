@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://wo20mfahk5j7"
+path="res://.godot/imported/water_solver_maccormack.glsl-744faa130001ea0347056c3d1a5eb534.res"
+
+[deps]
+
+source_file="res://NewWaterSystem/Core/Shaders/Internal/water_solver_maccormack.glsl"
+dest_files=["res://.godot/imported/water_solver_maccormack.glsl-744faa130001ea0347056c3d1a5eb534.res"]
+
+[params]
+

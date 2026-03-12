@@ -15,18 +15,94 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 [application]
 
 config/name="星海餘燼：漂浮群島"
-run/main_scene="uid://c8k2y4j8x501"
-config/features=PackedStringArray("4.6")
+run/main_scene="uid://mjlbecvr5l3"
+config/features=PackedStringArray("4.6", "C#")
 config/icon="res://icon.svg"
 
 [autoload]
 
 GlobalWind="*res://WeatherSystem/Core/GlobalWind.gd"
+mm_loader="*res://addons/material_maker/engine/loader.gd"
+mm_renderer="*res://addons/material_maker/engine/multi_renderer.gd"
+mm_deps="*res://addons/material_maker/engine/dependencies.gd"
+mm_io_types="*res://addons/material_maker/engine/io_types.gd"
+mm_logger="*res://addons/material_maker/engine/logger.gd"
+mm_preprocessor="*res://addons/material_maker/engine/preprocessor.gd"
+mm_globals="*res://addons/material_maker/engine/mm_globals.gd"
+mm_sdf_builder="*res://addons/material_maker/sdf_builder/sdf_builder.gd"
+DestructionManager="*uid://b5vpikm7vgiwe"
+PhantomCameraManager="*uid://duq6jhf6unyis"
+McpClientAutoload="*res://addons/mcp_client/McpClient.cs"
+
+[debug_draw_3d]
+
+settings/addon_root_folder="res://addons/debug_draw_3d"
+
+[dotnet]
+
+project/assembly_name="Ember_of_Star_Islands"
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/godot-smashthemesh-main/godot-smashthemesh-main/addons/smash_the_mesh/plugin.cfg")
+enabled=PackedStringArray("res://addons/Advanced-Movement-System-Godot-bc16f8f621d8c5465bda81bef48235fc08bde35e/Advanced-Movement-System-Godot-bc16f8f621d8c5465bda81bef48235fc08bde35e/addons/AMSG/plugin.cfg", "res://addons/destruction_system/plugin.cfg", "res://addons/godot_mcp/plugin.cfg", "res://addons/material_maker/plugin.cfg", "res://addons/phantom_camera/plugin.cfg", "res://addons/smash_the_mesh/plugin.cfg")
+
+[input]
+
+jump={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":0,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":32,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+left={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":0,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":65,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+right={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":0,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":68,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+forward={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":0,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":87,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+backward={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":0,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":83,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+sprint={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":0,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":4194325,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+walk={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":0,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":4194326,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+camera_mode_switch={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":0,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":86,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+crouch={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":0,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":67,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
 
 [physics]
 
 3d/physics_engine="Jolt Physics"
+common/physics_interpolation=true
+
+[rendering]
+
+environment/defaults/default_clear_color=Color(0.3, 0.5, 0.8, 1)
+
+[xr]
+
+shaders/enabled=true

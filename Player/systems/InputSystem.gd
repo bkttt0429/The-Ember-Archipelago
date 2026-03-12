@@ -2,6 +2,7 @@ extends RefCounted
 class_name InputSystem
 
 var ecs_world: Node = null
+var movement_profile: MovementProfile = null
 
 func set_world(world: Node) -> void:
 	ecs_world = world
@@ -45,22 +46,38 @@ func update(_delta: float) -> void:
 		# 4. 更新本地移動向量 (供動畫使用)
 		if movement:
 			movement.move_vector = Vector2(move_right - move_left, move_forward - move_back)
+			
+			# 5. 量化移動量 (魂系列風格：0 / 0.5 / 1)
+			# 讓動畫過渡更乾淨，避免微小輸入造成的抖動
+			var raw_amount = absf(move_forward - move_back) + absf(move_right - move_left)
+			if raw_amount > 0.5:
+				movement.move_amount = 1.0 # 跑步
+			elif raw_amount > 0.1:
+				movement.move_amount = 0.5 # 走路
+			else:
+				movement.move_amount = 0.0 # 靜止
 
 		
-		# 判斷移動模式與速度
+		# 判斷移動模式與速度 (從 MovementProfile 讀取)
 		if _is_action_pressed("sprint"):
 			intent.mode = "sprint"
-			intent.desired_speed = 8.0
 		elif _is_action_pressed("crouch"):
 			intent.mode = "crouch"
-			intent.desired_speed = 2.5
 		else:
 			intent.mode = "walk"
-			intent.desired_speed = 5.0
 			
 		if movement and movement.is_swimming:
 			intent.mode = "swim"
-			intent.desired_speed = 3.5
+		
+		# 從 MovementProfile Resource 讀取速度 (如有)，否則使用預設值
+		if movement_profile:
+			intent.desired_speed = movement_profile.get_speed_for_mode(intent.mode)
+		else:
+			match intent.mode:
+				"sprint": intent.desired_speed = 12.0
+				"crouch": intent.desired_speed = 2.5
+				"swim": intent.desired_speed = 3.5
+				_: intent.desired_speed = 5.0
 		
 		# 動作標記
 		intent.wants_jump = _is_action_just_pressed("jump", "ui_accept")

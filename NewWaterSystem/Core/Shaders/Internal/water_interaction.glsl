@@ -97,26 +97,33 @@ void main() {
     float HU = max(H0 + qU.x, h_eps);
     float HD = max(H0 + qD.x, h_eps);
 
-    // Velocities
-    float uC = huC / HC; float vC = hvC / HC;
-    float uL = qL.y / HL; float vL = qL.z / HL;
-    float uR = qR.y / HR; float vR = qR.z / HR;
-    float uU = qU.y / HU; float vU = qU.z / HU;
-    float uD = qD.y / HD; float vD = qD.z / HD;
+    // Velocities (使用 safe_H 避免乾涸狀態下除以接近 0 導致速度爆衝)
+    float safe_H = 0.1;
+    float HC_vel = max(HC, safe_H);
+    float HL_vel = max(HL, safe_H);
+    float HR_vel = max(HR, safe_H);
+    float HU_vel = max(HU, safe_H);
+    float HD_vel = max(HD, safe_H);
+
+    float uC = huC / HC_vel; float vC = hvC / HC_vel;
+    float uL = qL.y / HL_vel; float vL = qL.z / HL_vel;
+    float uR = qR.y / HR_vel; float vR = qR.z / HR_vel;
+    float uU = qU.y / HU_vel; float vU = qU.z / HU_vel;
+    float uD = qD.y / HD_vel; float vD = qD.z / HD_vel;
 
     // Wave Speed c = sqrt(gH)
     float cC = sqrt(g * HC);
     float alphaX = max(abs(uC) + cC, max(abs(uL) + sqrt(g*HL), abs(uR) + sqrt(g*HR)));
     float alphaY = max(abs(vC) + cC, max(abs(vU) + sqrt(g*HU), abs(vD) + sqrt(g*HD)));
 
-    // X-Direction Flux F = [hu, hu^2/H + 0.5gh^2, huv/H]
-    vec3 F_L = vec3(qL.y, qL.y * uL + 0.5 * g * qL.x * qL.x, qL.y * vL);
-    vec3 F_R = vec3(qR.y, qR.y * uR + 0.5 * g * qR.x * qR.x, qR.y * vR);
+    // X-Direction Flux F = [hu, hu^2/H + 0.5gH^2, huv/H]
+    vec3 F_L = vec3(qL.y, qL.y * uL + 0.5 * g * HL * HL, qL.y * vL);
+    vec3 F_R = vec3(qR.y, qR.y * uR + 0.5 * g * HR * HR, qR.y * vR);
     vec3 dF_dx = (F_R - F_L) / (2.0 * dx) - 0.5 * alphaX * (qR - 2.0 * vec3(hC, huC, hvC) + qL) / dx;
 
-    // Y-Direction Flux G = [hv, huv/H, hv^2/H + 0.5gh^2]
-    vec3 G_U = vec3(qU.z, qU.y * vU, qU.z * vU + 0.5 * g * qU.x * qU.x);
-    vec3 G_D = vec3(qD.z, qD.y * vD, qD.z * vD + 0.5 * g * qD.x * qD.x);
+    // Y-Direction Flux G = [hv, huv/H, hv^2/H + 0.5gH^2]
+    vec3 G_U = vec3(qU.z, qU.y * vU, qU.z * vU + 0.5 * g * HU * HU);
+    vec3 G_D = vec3(qD.z, qD.y * vD, qD.z * vD + 0.5 * g * HD * HD);
     vec3 dG_dy = (G_D - G_U) / (2.0 * dx) - 0.5 * alphaY * (qD - 2.0 * vec3(hC, huC, hvC) + qU) / dx;
 
     // 6. Update Rule
@@ -162,7 +169,9 @@ void main() {
                     next_h += s * gauss * params.dt;
                 } else {
                     // IMPACT MODE
-                    next_h += strength * gauss * params.dt;
+                    // ★ 限制單次施加的最大力量，避免深坑爆炸
+                    float impact = clamp(strength * gauss * params.dt, -0.5, 0.5);
+                    next_h += impact;
                 }
             }
         }
@@ -188,10 +197,19 @@ void main() {
         }
     }
 
-    // Final Safety Clamp
-    next_h = clamp(next_h, -5.0, 5.0);
-    next_hu = clamp(next_hu, -10.0, 10.0);
-    next_hv = clamp(next_hv, -10.0, 10.0);
+    // Final Safety Clamp (Stricter bounds to prevent NaNs / grids of white dots)
+    // 嚴防乾涸狀態 (Dry State)：水位絕對不能低於海床 (-H0)
+    float min_h = -H0 + 0.05;
+    next_h = clamp(next_h, min_h, 4.0);
+    
+    // 如果水非常淺，強制消除動量，避免殘留的速度形成不穩定的薄水膜
+    if (next_h <= min_h + 0.05) {
+        next_hu *= 0.5;
+        next_hv *= 0.5;
+    }
+    
+    next_hu = clamp(next_hu, -3.0, 3.0);
+    next_hv = clamp(next_hv, -3.0, 3.0);
 
     // Save to OUTPUT texture (R=h, G=hu, B=hv, A=is_obstacle)
     imageStore(tex_out, global_id, vec4(next_h, next_hu, next_hv, is_obstacle));

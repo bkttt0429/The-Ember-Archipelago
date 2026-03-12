@@ -1,0 +1,13 @@
+[configuration]
+
+entry_symbol = "ocean_extension_library_init"
+compatibility_minimum = 4.3
+
+[libraries]
+
+macos.debug = "res://ocean_extension/bin/macos/ocean_extension.template_debug.framework/ocean_extension.template_debug"
+macos.release = "res://ocean_extension/bin/macos/ocean_extension.template_release.framework/ocean_extension.template_release"
+windows.debug.x86_64 = "res://ocean_extension/bin/win64/ocean_extension.windows.template_debug.x86_64.dll"
+windows.release.x86_64 = "res://ocean_extension/bin/win64/ocean_extension.windows.template_release.x86_64.dll"
+linux.debug.x86_64 = "res://ocean_extension/bin/linux/ocean_extension.linux.template_debug.x86_64.so"
+linux.release.x86_64 = "res://ocean_extension/bin/linux/ocean_extension.linux.template_release.x86_64.so"

@@ -1,46 +1,164 @@
-[gd_scene format=3 uid="uid://b8y4k2eav1x5"]
+[gd_scene format=3 uid="uid://disguawe26pw5"]
 
 [ext_resource type="Script" uid="uid://dyytyuq0ja2a4" path="res://Player/PlayerController.gd" id="1_script"]
-[ext_resource type="PackedScene" uid="uid://d3gh3ncpekdoc" path="res://Player/assets/Models/FBX/Characters_Captain_Barbarossa.fbx" id="2_model"]
+[ext_resource type="PackedScene" uid="uid://s7dri8iysrrc" path="res://Assets/3D/Characters/Player/Human.fbx" id="2_model"]
+[ext_resource type="AnimationLibrary" uid="uid://bmit6ovhoatey" path="res://Player/animations/movement.res" id="5_anim_lib"]
+[ext_resource type="Script" uid="uid://b77xmb4uwom15" path="res://Player/debug/AnimDebugLabel.gd" id="6_debug"]
+[ext_resource type="Script" path="res://Player/systems/OrientationWarpingSystem.gd" id="7_orientation"]
 
-[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
-radius = 0.4
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_1"]
+radius = 0.35
 height = 1.8
 
-[node name="Player" type="CharacterBody3D" unique_id=176975663 node_paths=PackedStringArray("camera_mount", "visuals", "ground_ray", "interaction_ray", "animation_tree")]
-collision_layer = 2
+[sub_resource type="AnimationNodeAnimation" id="anim_idle"]
+animation = &"movement/Idle"
+
+[sub_resource type="AnimationNodeAnimation" id="anim_walk_f"]
+animation = &"movement/Walk_Forward"
+
+[sub_resource type="AnimationNodeAnimation" id="anim_run_b"]
+animation = &"movement/Run_Backward"
+
+[sub_resource type="AnimationNodeAnimation" id="anim_run_l"]
+animation = &"movement/Run_Left"
+
+[sub_resource type="AnimationNodeAnimation" id="anim_run_r"]
+animation = &"movement/Run_Right"
+
+[sub_resource type="AnimationNodeAnimation" id="anim_run_fl"]
+animation = &"movement/Run_ForwardLeft"
+
+[sub_resource type="AnimationNodeAnimation" id="anim_run_fr"]
+animation = &"movement/Run_ForwardRight"
+
+[sub_resource type="AnimationNodeAnimation" id="anim_run_bl"]
+animation = &"movement/Run_BackwardLeft"
+
+[sub_resource type="AnimationNodeAnimation" id="anim_run_br"]
+animation = &"movement/Run_BackwardRight"
+
+[sub_resource type="AnimationNodeAnimation" id="anim_walk_b"]
+animation = &"movement/Walk_Backward"
+
+[sub_resource type="AnimationNodeAnimation" id="anim_walk_l"]
+animation = &"movement/Walk_Left"
+
+[sub_resource type="AnimationNodeAnimation" id="anim_walk_r"]
+animation = &"movement/Walk_Right"
+
+[sub_resource type="AnimationNodeAnimation" id="anim_walk_fl"]
+animation = &"movement/Walk_ForwardLeft"
+
+[sub_resource type="AnimationNodeAnimation" id="anim_walk_fr"]
+animation = &"movement/Walk_ForwardRight"
+
+[sub_resource type="AnimationNodeAnimation" id="anim_walk_bl"]
+animation = &"movement/Walk_BackwardLeft"
+
+[sub_resource type="AnimationNodeAnimation" id="anim_walk_br"]
+animation = &"movement/Walk_BackwardRight"
+
+[sub_resource type="AnimationNodeAnimation" id="anim_run_f"]
+animation = &"movement/Run_Forward"
+
+[sub_resource type="AnimationNodeBlendSpace2D" id="blendspace_movement"]
+blend_point_0/node = SubResource("anim_idle")
+blend_point_0/pos = Vector2(0, 0)
+blend_point_1/node = SubResource("anim_walk_f")
+blend_point_1/pos = Vector2(0, 0.5)
+blend_point_2/node = SubResource("anim_walk_b")
+blend_point_2/pos = Vector2(0, -0.5)
+blend_point_3/node = SubResource("anim_walk_l")
+blend_point_3/pos = Vector2(-0.5, 0)
+blend_point_4/node = SubResource("anim_walk_r")
+blend_point_4/pos = Vector2(0.5, 0)
+blend_point_5/node = SubResource("anim_walk_fl")
+blend_point_5/pos = Vector2(-0.35, 0.35)
+blend_point_6/node = SubResource("anim_walk_fr")
+blend_point_6/pos = Vector2(0.35, 0.35)
+blend_point_7/node = SubResource("anim_walk_bl")
+blend_point_7/pos = Vector2(-0.35, -0.35)
+blend_point_8/node = SubResource("anim_walk_br")
+blend_point_8/pos = Vector2(0.35, -0.35)
+blend_point_9/node = SubResource("anim_run_f")
+blend_point_9/pos = Vector2(0, 1)
+blend_point_10/node = SubResource("anim_run_b")
+blend_point_10/pos = Vector2(0, -1)
+blend_point_11/node = SubResource("anim_run_l")
+blend_point_11/pos = Vector2(-1, 0)
+blend_point_12/node = SubResource("anim_run_r")
+blend_point_12/pos = Vector2(1, 0)
+blend_point_13/node = SubResource("anim_run_fl")
+blend_point_13/pos = Vector2(-0.707, 0.707)
+blend_point_14/node = SubResource("anim_run_fr")
+blend_point_14/pos = Vector2(0.707, 0.707)
+blend_point_15/node = SubResource("anim_run_bl")
+blend_point_15/pos = Vector2(-0.707, -0.707)
+blend_point_16/node = SubResource("anim_run_br")
+blend_point_16/pos = Vector2(0.707, -0.707)
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="trans_start"]
+advance_mode = 2
+
+[sub_resource type="AnimationNodeStateMachine" id="root_state_machine"]
+states/movement/node = SubResource("blendspace_movement")
+states/movement/position = Vector2(400, 100)
+transitions = ["Start", "movement", SubResource("trans_start")]
+
+[node name="Player" type="CharacterBody3D" unique_id=964840397]
 script = ExtResource("1_script")
-camera_mount = NodePath("Head/SpringArm3D")
-visuals = NodePath("Visuals")
-ground_ray = NodePath("GroundRay")
-interaction_ray = NodePath("Head/InteractionRay")
-animation_tree = NodePath("AnimationTree")
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=829325867]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1416899167]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
-shape = SubResource("CapsuleShape3D_player")
+shape = SubResource("CapsuleShape3D_1")
 
-[node name="AnimationTree" type="AnimationTree" parent="." unique_id=463921576]
-root_node = NodePath("../Visuals/Characters_Barbarossa")
-anim_player = NodePath("../Visuals/Characters_Barbarossa/AnimationPlayer")
+[node name="Visuals" type="Node3D" parent="." unique_id=1833948005]
 
-[node name="Visuals" type="Node3D" parent="." unique_id=539072415]
+[node name="Human" parent="Visuals" unique_id=2059871467 instance=ExtResource("2_model")]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, 0)
 
-[node name="Characters_Barbarossa" parent="Visuals" unique_id=1337342720 instance=ExtResource("2_model")]
-transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 0)
+[node name="AnimationPlayer" type="AnimationPlayer" parent="." unique_id=1883261353]
+root_node = NodePath("../Visuals/Human")
+libraries/movement = ExtResource("5_anim_lib")
 
-[node name="Head" type="Node3D" parent="." unique_id=1089258712]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.6, 0)
+[node name="AnimationTree" type="AnimationTree" parent="." unique_id=992653777]
+root_node = NodePath("../Visuals/Human")
+tree_root = SubResource("root_state_machine")
+anim_player = NodePath("../AnimationPlayer")
+parameters/movement/blend_position = Vector2(0, 0)
 
-[node name="SpringArm3D" type="SpringArm3D" parent="Head" unique_id=345986795]
-spring_length = 3.0
-margin = 0.2
+[node name="CameraMount" type="Node3D" parent="." unique_id=2135744058]
+unique_name_in_owner = true
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 0)
 
-[node name="Camera3D" type="Camera3D" parent="Head/SpringArm3D" unique_id=800286029]
+[node name="SpringArm3D" type="SpringArm3D" parent="CameraMount" unique_id=375070035]
+transform = Transform3D(-1, 0, 0, 0, 0.965926, 0.258819, 0, 0.258819, -0.965926, 0, 0, 0)
+spring_length = 5.0
+margin = 0.4
 
-[node name="InteractionRay" type="RayCast3D" parent="Head" unique_id=1172546301]
-target_position = Vector3(0, 0, -2.5)
+[node name="Camera3D" type="Camera3D" parent="CameraMount/SpringArm3D" unique_id=1977215329]
+current = true
+fov = 55.0
 
-[node name="GroundRay" type="RayCast3D" parent="." unique_id=1769162565]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 0)
-target_position = Vector3(0, -0.5, 0)
+[node name="DebugHUD" type="CanvasLayer" parent="." unique_id=1277000382]
+
+[node name="AnimDebugLabel" type="Label" parent="DebugHUD" unique_id=379391936]
+offset_left = 20.0
+offset_top = 20.0
+offset_right = 320.0
+offset_bottom = 200.0
+theme_override_colors/font_color = Color(0, 1, 0, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 1)
+theme_override_constants/shadow_offset_x = 2
+theme_override_constants/shadow_offset_y = 2
+theme_override_font_sizes/font_size = 16
+text = "Debug Info"
+script = ExtResource("6_debug")
+
+[node name="OrientationWarping" type="Node3D" parent="."]
+script = ExtResource("7_orientation")
+character_node = NodePath("..")
+orientation_enabled = true
+smooth_speed = 10.0
+max_orientation_angle = 90.0
+min_speed_threshold = 0.5

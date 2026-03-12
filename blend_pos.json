@@ -1,0 +1,46 @@
+[
+    {
+        "line": 676,
+        "text": "var _blend_position: Vector2 = Vector2.ZERO # BlendSpace \u4f4d\u7f6e (\u5e73\u6ed1\u904e\u6e21)"
+    },
+    {
+        "line": 1297,
+        "text": "_blend_position = _blend_position.lerp(target_blend_pos, BLEND_SMOOTH_SPEED * delta)"
+    },
+    {
+        "line": 1299,
+        "text": "# \u7ad9\u7acb\u548c\u8e72\u4e0b\u90fd\u7528 BlendSpace2D\uff0c\u5171\u7528\u540c\u4e00\u500b blend_position"
+    },
+    {
+        "line": 1300,
+        "text": "anim_tree.set(\"parameters/movement/stand/blend_position\", _blend_position)"
+    },
+    {
+        "line": 1301,
+        "text": "anim_tree.set(\"parameters/movement/crouch/blend_position\", _blend_position)"
+    },
+    {
+        "line": 1585,
+        "text": "_blend_position = Vector2.ZERO"
+    },
+    {
+        "line": 1586,
+        "text": "anim_tree.set(\"parameters/movement/stand/blend_position\", Vector2.ZERO)"
+    },
+    {
+        "line": 1587,
+        "text": "anim_tree.set(\"parameters/movement/crouch/blend_position\", Vector2.ZERO)"
+    },
+    {
+        "line": 1774,
+        "text": "## \u4f7f\u7528 _blend_position \u5224\u65b7\uff1a"
+    },
+    {
+        "line": 5082,
+        "text": "_blend_position = Vector2.ZERO"
+    },
+    {
+        "line": 5083,
+        "text": "anim_tree.set(\"parameters/movement/stand/blend_position\", Vector2.ZERO)"
+    }
+]

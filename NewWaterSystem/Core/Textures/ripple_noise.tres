@@ -1,0 +1,20 @@
+[gd_resource type="NoiseTexture2D" load_steps=3 format=3]
+
+[sub_resource type="Gradient" id="Gradient_ripple"]
+offsets = PackedFloat32Array(0, 0.3, 0.5, 0.7, 1)
+colors = PackedColorArray(0.5, 0.5, 0.5, 1, 0.6, 0.6, 0.6, 1, 0.5, 0.5, 0.5, 1, 0.4, 0.4, 0.4, 1, 0.5, 0.5, 0.5, 1)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_ripple"]
+noise_type = 3
+frequency = 0.05
+fractal_octaves = 4
+fractal_lacunarity = 2.0
+fractal_gain = 0.5
+
+[resource]
+width = 512
+height = 512
+seamless = true
+seamless_blend_skirt = 0.3
+color_ramp = SubResource("Gradient_ripple")
+noise = SubResource("FastNoiseLite_ripple")

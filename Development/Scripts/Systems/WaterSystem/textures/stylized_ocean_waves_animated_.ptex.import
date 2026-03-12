@@ -1,0 +1,16 @@
+[remap]
+
+importer="material_maker.import"
+type="StandardMaterial3D"
+uid="uid://dix4j7adpu2x2"
+path="res://.godot/imported/stylized_ocean_waves_animated_.ptex-a099b0cfc16253b40fc890f4d7952678.tres"
+
+[deps]
+
+source_file="res://Development/Scripts/Systems/WaterSystem/textures/stylized_ocean_waves_animated_.ptex"
+dest_files=["res://.godot/imported/stylized_ocean_waves_animated_.ptex-a099b0cfc16253b40fc890f4d7952678.tres"]
+
+[params]
+
+render=false
+scale=1.0

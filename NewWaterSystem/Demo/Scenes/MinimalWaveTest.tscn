@@ -63,8 +63,7 @@ shadow_enabled = true
 [node name="OceanWaterManager" type="Node3D" parent="." unique_id=2124517210 groups=["WaterSystem_Managers"]]
 script = ExtResource("1_water")
 sea_size = Vector2(64, 64)
-wind_strength = 5.0
-wave_steepness = 0.45
+peak_sharpness = 2.830188679245283
 foam_noise_tex = SubResource("NoiseTexture2D_toudt")
 foam_crest_strength = 1.5
 foam_jacobian_bias = 0.15

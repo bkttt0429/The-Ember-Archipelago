@@ -1,0 +1,31 @@
+[gd_resource type="Resource" script_class="MovementData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://Player/test/MovementData.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+walk_speed = 3.5
+sprint_speed = 6.0
+crouch_speed = 1.8
+ground_acceleration = 12.0
+ground_deceleration = 15.0
+air_acceleration = 3.0
+air_deceleration = 2.0
+use_exponential_curve = true
+use_velocity_curves = false
+curve_duration_accel = 0.3
+curve_duration_decel = 0.25
+jump_velocity = 6.0
+gravity = 20.0
+coyote_time = 0.15
+jump_buffer_time = 0.1
+jump_hold_force = 30.0
+jump_hold_max_time = 0.12
+variable_jump_height = true
+turn_rate = 540.0
+turn_threshold_angle = 60.0
+turn_speed = 180.0
+body_lean_enabled = true
+body_lean_amount = 5.0
+body_lean_smooth = 8.0
+turn_momentum_enabled = true

@@ -1,0 +1,60 @@
+[gd_scene load_steps=8 format=3 uid="uid://test_water_clean"]
+
+[ext_resource type="Script" path="res://NewWaterSystem/Core/Scripts/WaterManager.gd" id="1_water"]
+[ext_resource type="Script" path="res://NewWaterSystem/Demo/Scripts/FreeLookCamera.gd" id="2_camera"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_1"]
+sky_top_color = Color(0.2, 0.4, 0.9, 1)
+sky_horizon_color = Color(0.55, 0.7, 0.95, 1)
+ground_bottom_color = Color(0.1, 0.12, 0.15, 1)
+ground_horizon_color = Color(0.35, 0.45, 0.55, 1)
+sun_angle_max = 30.0
+sun_curve = 0.1
+
+[sub_resource type="Sky" id="Sky_1"]
+sky_material = SubResource("ProceduralSkyMaterial_1")
+
+[sub_resource type="Environment" id="Environment_1"]
+background_mode = 2
+sky = SubResource("Sky_1")
+ambient_light_source = 2
+ambient_light_color = Color(1, 1, 1, 1)
+ambient_light_sky_contribution = 0.5
+ambient_light_energy = 1.0
+tonemap_mode = 2
+tonemap_white = 1.2
+ssr_enabled = true
+ssr_max_steps = 64
+ssao_enabled = true
+glow_enabled = true
+glow_intensity = 0.4
+glow_bloom = 0.1
+
+[node name="WaterTestScene" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_1")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.5, 0.866025, 0, -0.866025, 0.5, 0, 100, 0)
+light_color = Color(1, 0.98, 0.94, 1)
+light_energy = 1.3
+shadow_enabled = true
+
+[node name="OceanWaterManager" type="Node3D" parent="." groups=["WaterSystem_Managers"]]
+script = ExtResource("1_water")
+sea_size = Vector2(100, 100)
+tile_count = Vector2i(1, 1)
+subdivision = 128
+wind_strength = 3.0
+wind_direction = Vector2(1, 0.3)
+wave_steepness = 0.35
+color_deep = Color(0.02, 0.15, 0.35, 1)
+color_shallow = Color(0.1, 0.45, 0.6, 1)
+water_transparency = 0.6
+show_wireframe = false
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.9, 0.44, 0, -0.44, 0.9, 0, 15, 40)
+fov = 65.0
+script = ExtResource("2_camera")

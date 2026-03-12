@@ -1,0 +1,18 @@
+[
+  {
+    "line": 4542,
+    "text": "func _detect_stairs() -> void:"
+  },
+  {
+    "line": 4765,
+    "text": "func _snap_up_stairs_check(_delta: float) -> void:"
+  },
+  {
+    "line": 4882,
+    "text": "func _snap_down_stairs_check() -> void:"
+  },
+  {
+    "line": 4947,
+    "text": "func _update_stair_animation(delta: float) -> void:"
+  }
+]

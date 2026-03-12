@@ -1,12 +1,12 @@
-[gd_scene load_steps=24 format=3 uid="uid://dkvaw5yscsf5x"]
+[gd_scene format=3 uid="uid://dkvaw5yscsf5x"]
 
 [ext_resource type="Script" uid="uid://cd6doksvbjqcw" path="res://NewWaterSystem/Core/Scripts/WaterManager.gd" id="1_water_mgr"]
 [ext_resource type="PackedScene" path="res://NewWaterSystem/Demo/Prefabs/Boat.tscn" id="2_boat_scn"]
 [ext_resource type="Script" uid="uid://css7xbwpeb3rs" path="res://NewWaterSystem/Core/Scripts/Foam/FoamParticleManager.gd" id="3_1uimi"]
-[ext_resource type="Script" uid="uid://pp2c7j3kkflv" path="res://NewWaterSystem/Demo/Scripts/ViewSwitcher.gd" id="3_view_switch"]
+[ext_resource type="Script" uid="uid://luhpk2vb22b3" path="res://NewWaterSystem/Demo/Scripts/ViewSwitcher.gd" id="3_view_switch"]
 [ext_resource type="Environment" uid="uid://cj5n6ylnth8yx" path="res://NewWaterSystem/Demo/Scenes/SkillsDemo_env.tres" id="4_env_res"]
-[ext_resource type="Script" uid="uid://crr33rfp6efcd" path="res://NewWaterSystem/Demo/Scripts/CameraController.gd" id="5_cam_ctrl"]
-[ext_resource type="Script" uid="uid://bxvj22saenfoq" path="res://NewWaterSystem/Demo/Scripts/BoatAutoCircle.gd" id="5_frfft"]
+[ext_resource type="Script" uid="uid://g6acq2s84iol" path="res://NewWaterSystem/Demo/Scripts/CameraController.gd" id="5_cam_ctrl"]
+[ext_resource type="Script" uid="uid://1xqb1sic8nxe" path="res://NewWaterSystem/Demo/Scripts/BoatAutoCircle.gd" id="5_frfft"]
 
 [sub_resource type="FastNoiseLite" id="FastNoiseLite_4dwp4"]
 seed = -550277680
@@ -79,19 +79,22 @@ as_normal_map = true
 [sub_resource type="NoiseTexture2D" id="NoiseTexture2D_qno58"]
 noise = SubResource("FastNoiseLite_ah8cm")
 
-[node name="BoatDemoLevel" type="Node3D"]
+[sub_resource type="PhysicsMaterial" id="PhysicsMaterial_4k5ya"]
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+[node name="BoatDemoLevel" type="Node3D" unique_id=781532681]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=157014715]
 environment = ExtResource("4_env_res")
 
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=237895197]
 transform = Transform3D(0.707107, 0.5, -0.5, 0, 0.707107, 0.707107, 0.707107, -0.5, 0.5, 0, 10, 0)
 light_energy = 1.5
 shadow_enabled = true
 
-[node name="OceanWaterManager" type="Node3D" parent="." groups=["WaterSystem_Managers"]]
+[node name="OceanWaterManager" type="Node3D" parent="." unique_id=1124960271 groups=["WaterSystem_Managers"]]
 script = ExtResource("1_water_mgr")
 sea_size = Vector2(256, 256)
+wind_strength = 5.0
 color_foam = Color(1, 1, 0, 1)
 foam_noise_tex = SubResource("NoiseTexture2D_ksals")
 foam_detail_tex = SubResource("NoiseTexture2D_tes3i")
@@ -104,21 +107,22 @@ normal_map1 = SubResource("NoiseTexture2D_0vudp")
 normal_map2 = SubResource("NoiseTexture2D_hvyoa")
 normal_scale = 0.5
 
-[node name="FoamParticleManager" type="Node3D" parent="OceanWaterManager" node_paths=PackedStringArray("water_manager")]
+[node name="FoamParticleManager" type="Node3D" parent="OceanWaterManager" unique_id=1415714034 node_paths=PackedStringArray("water_manager")]
 script = ExtResource("3_1uimi")
 water_manager = NodePath("..")
 foam_texture = SubResource("NoiseTexture2D_qno58")
 
-[node name="Boat" parent="." instance=ExtResource("2_boat_scn")]
+[node name="Boat" parent="." unique_id=589189819 instance=ExtResource("2_boat_scn")]
 transform = Transform3D(2, 0, 0, 0, 2, 0, 0, 0, 2, 0, 2, 0)
+physics_material_override = SubResource("PhysicsMaterial_4k5ya")
 script = ExtResource("5_frfft")
 
-[node name="FreeCamera" type="Camera3D" parent="."]
+[node name="FreeCamera" type="Camera3D" parent="." unique_id=1389006193]
 transform = Transform3D(1, 0, 0, 0, 0.7071068, 0.7071068, 0, -0.7071068, 0.7071068, 0, 18.551243, 5.443199)
 script = ExtResource("5_cam_ctrl")
 speed = 20.0
 
-[node name="ViewSwitcher" type="Node" parent="."]
+[node name="ViewSwitcher" type="Node" parent="." unique_id=739355065]
 script = ExtResource("3_view_switch")
 free_camera_path = NodePath("../FreeCamera")
 boat_camera_path = NodePath("../Boat/Camera3D")

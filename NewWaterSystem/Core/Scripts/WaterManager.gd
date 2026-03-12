@@ -54,6 +54,7 @@ enum SolverType {LaxFriedrichs, MacCormack}
 	set(v): rain_intensity = clamp(v, 0.0, 1.0)
 
 @export_group("Wind & Wave Properties")
+@export var use_global_wind_system: bool = false ## If true, overrides local settings with GlobalWind autoload
 @export var wind_strength: float = 1.0:
 	set(v): wind_strength = v; _update_shader_params_deferred()
 @export var wind_direction: Vector2 = Vector2(1.0, 0.5):
@@ -82,11 +83,11 @@ enum SolverType {LaxFriedrichs, MacCormack}
 
 
 @export_group("Visual Style")
-@export var color_deep: Color = Color(0.01, 0.2, 0.4): # Clear Blue
+@export var color_deep: Color = Color(0.05, 0.2, 0.45): # Clear Blue
 	set(v): color_deep = v; _update_shader_params_deferred()
 @export var color_shallow: Color = Color(0.0, 0.9, 0.95): # Turquoise
 	set(v): color_shallow = v; _update_shader_params_deferred()
-@export var absorption_coeff: float = 0.5:
+@export var absorption_coeff: float = 0.3:
 	set(v): absorption_coeff = v; _update_shader_params_deferred()
 @export var color_foam: Color = Color(1.0, 1.0, 1.0):
 	set(v): color_foam = v; _update_shader_params_deferred()
@@ -117,7 +118,7 @@ enum SolverType {LaxFriedrichs, MacCormack}
 		reflection_strength = v
 		_update_shader_params_deferred()
 
-@export var sss_strength: float = 0.1:
+@export var sss_strength: float = 0.5:
 	set(v):
 		sss_strength = v
 		_update_shader_params_deferred()
@@ -137,6 +138,46 @@ enum SolverType {LaxFriedrichs, MacCormack}
 	set(v): far_fade_start = v; _update_shader_params_deferred()
 @export var far_fade_max: float = 120.0:
 	set(v): far_fade_max = v; _update_shader_params_deferred()
+
+# === 新增：破碎波浪系統 ===
+@export_group("Barrel Wave System")
+@export var enable_barrel_spawner: bool = false
+@export var barrel_height_threshold: float = 1.2
+@export var barrel_spawn_rate: float = 0.5 # Waves per second approx
+var _barrel_spawn_timer: float = 0.0
+
+var breaking_waves: Array[Dictionary] = [] # 存儲所有活動的破碎波
+const MAX_BREAKING_WAVES = 3 # 同時最多3個（性能考量）
+
+func set_breaking_wave_data(data: Dictionary):
+	# 檢查是否已存在（避免重複）
+	for i in range(breaking_waves.size()):
+		if breaking_waves[i].position.distance_to(data.position) < 5.0:
+			breaking_waves[i] = data
+			return
+	
+	# 添加新波浪（限制數量）
+	if breaking_waves.size() < MAX_BREAKING_WAVES:
+		breaking_waves.append(data)
+	else:
+		# 替換最老的
+		breaking_waves[0] = data
+	_update_shader_params_deferred()
+
+func get_breaking_wave_at(pos_xz: Vector2) -> Dictionary:
+	var closest_wave = null
+	var min_dist = INF
+	
+	for wave in breaking_waves:
+		var dist = pos_xz.distance_to(wave.position)
+		if dist < min_dist and dist < wave.width * 1.5:
+			min_dist = dist
+			closest_wave = wave
+	
+	if closest_wave:
+		return closest_wave
+	return {}
+
 
 @export_subgroup("Foam Settings")
 @export var foam_shore_spread: float = 0.5:
@@ -182,18 +223,32 @@ enum SolverType {LaxFriedrichs, MacCormack}
 @export var flow_strength: float = 0.5:
 	set(v): flow_strength = v; _update_shader_params_deferred()
 
+@export_group("Player Interaction Ripples")
+## Enable dynamic water ripples from player/object movement
+@export var enable_interaction_ripples: bool = true
+## Node path to the player or object to follow for ripple generation
+@export var ripple_follow_target: NodePath
+## World size covered by the ripple simulation texture
+@export var ripple_world_size: float = 30.0:
+	set(v): ripple_world_size = v; _update_shader_params_deferred()
+## Height displacement scale for ripples
+@export var ripple_height_scale: float = 0.15:
+	set(v): ripple_height_scale = v; _update_shader_params_deferred()
+## Normal influence from ripples
+@export var ripple_normal_strength: float = 5.0:
+	set(v): ripple_normal_strength = v; _update_shader_params_deferred()
+
 @export var debug_show_markers: bool = false:
 	set(v): debug_show_markers = v; _update_shader_params_deferred()
 
-@export_group("Debug Tools")
-@export var debug_view: bool = false:
-	set(v):
-		debug_view = v
-		_update_shader_params_deferred()
+## Show ripple texture buffer on screen for debugging
+@export var debug_ripple_display: bool = false
 
-@export var debug_mesh_only: bool = false:
+@export_group("Debug Tools")
+## 0=Off, 1=Final Normal, 2=Analytical Normal, 3=Vertex Normal, 4=Difference Heatmap, 5=LOD Bands
+@export_range(0, 5) var debug_normal_mode: int = 0:
 	set(v):
-		debug_mesh_only = v
+		debug_normal_mode = v
 		_update_shader_params_deferred()
 
 
@@ -297,14 +352,160 @@ var _is_initialized: bool = false
 
 var _idle_timer: float = 0.0
 
-# === 泡沫粒子系統接口 ===
-var foam_particles: Array[Dictionary] = []
-var MAX_FOAM_PARTICLES = 2000 # 可以動態調整 (LOD)
+# === Foam Rendering System Variables ===
+var foam_sub_viewport: SubViewport
+var foam_camera: Camera3D
+var foam_viewport_tex: ViewportTexture
+var foam_renderer: MultiMeshInstance3D # FoamParticleRenderer
+var foam_particles: Array = [] # To store particle data
+
+# === Player Interaction Ripple System ===
+var interaction_camera: Node3D # WaterInteractionCamera instance (舊版 CPU，已棄用)
+var ripple_simulator: WaterRippleSimulator # GPU 版漣漪模擬器
+
+# ★ C7: 註冊的漣漪源
+# Array of {node: Node3D, strength: float}
+var _registered_ripple_sources: Array = []
+
+func _setup_foam_system():
+	if foam_sub_viewport: return
+
+	# 1. Create SubViewport
+	foam_sub_viewport = SubViewport.new()
+	foam_sub_viewport.name = "FoamSubViewport"
+	foam_sub_viewport.size = Vector2(1024, 1024) # Adjustable resolution
+	foam_sub_viewport.transparent_bg = true
+	foam_sub_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	add_child(foam_sub_viewport)
+	
+	# 2. Create Top-Down Camera
+	foam_camera = Camera3D.new()
+	foam_camera.name = "FoamCamera"
+	foam_camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+	foam_camera.size = sea_size.x # Match sea size
+	foam_camera.position = Vector3(0, 100, 0)
+	foam_camera.look_at(Vector3.ZERO, Vector3.FORWARD)
+	foam_camera.cull_mask = 1 << 19 # Layer 20 for Foam Particles
+	foam_sub_viewport.add_child(foam_camera)
+	
+	# 3. Create Particle Renderer (MultiMesh)
+	var renderer_script = load("res://NewWaterSystem/Core/Scripts/Foam/FoamParticleRenderer.gd")
+	if renderer_script:
+		foam_renderer = MultiMeshInstance3D.new()
+		foam_renderer.name = "FoamParticleRenderer"
+		foam_renderer.set_script(renderer_script)
+		foam_renderer.water_manager_path = ".." # Point back to WaterManager
+		foam_renderer.layers = 1 << 19 # Layer 20
+		foam_sub_viewport.add_child(foam_renderer)
+		
+		# Set MultiMesh
+		var mm = MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.use_custom_data = true
+		mm.instance_count = 1000 # Max particles
+		mm.mesh = QuadMesh.new()
+		mm.mesh.size = Vector2(2, 2)
+		foam_renderer.multimesh = mm
+	
+	# Get Texture
+	foam_viewport_tex = foam_sub_viewport.get_texture()
+
+
+func _setup_interaction_camera() -> void:
+	"""Setup the player interaction ripple system (GPU 版)"""
+	if ripple_simulator:
+		return # 已設置
+	
+	# 建立 Analytic 漣漪模擬器
+	ripple_simulator = WaterRippleSimulator.new()
+	ripple_simulator.name = "RippleSimulator"
+	
+	# 設定跟隨目標
+	if ripple_follow_target and not ripple_follow_target.is_empty():
+		var target = get_node_or_null(ripple_follow_target)
+		if target:
+			ripple_simulator.follow_target = target
+			print("[WaterManager] Analytic 漣漪系統跟隨: ", target.name)
+	
+	add_child(ripple_simulator)
+	print("[WaterManager] GPU 漣漪系統已初始化")
+
+
+func _update_interaction_ripples() -> void:
+	"""Update shader parameters for interaction ripples (GPU 版)"""
+	if not ripple_simulator:
+		return
+	
+	# ★ C8: 傳遞風參數到漣漪模擬器
+	ripple_simulator.wind_direction = wind_direction
+	ripple_simulator.wind_strength = wind_strength
+	
+	# ★ C7: 收集額外衝擊源
+	var sources: Array = []
+	for entry in _registered_ripple_sources:
+		if is_instance_valid(entry.node):
+			sources.append({"position": entry.node.global_position, "strength": entry.strength})
+	ripple_simulator.extra_impulse_sources = sources
+	
+	# Find the water surface mesh (search recursively)
+	var water_mesh: MeshInstance3D = _find_water_mesh(self)
+	
+	if not water_mesh:
+		# Only warn once
+		if not has_meta("_ripple_warn_logged"):
+			push_warning("[WaterManager] No MeshInstance3D found for ripple system")
+			set_meta("_ripple_warn_logged", true)
+		return
+	
+	var mat = water_mesh.get_active_material(0)
+	if not mat:
+		return
+	
+	# === Analytic Ripples ===
+	if ripple_simulator.has_method("get_analytic_data"):
+		mat.set_shader_parameter("ar_count", ripple_simulator.get_analytic_count())
+		mat.set_shader_parameter("ar_data", ripple_simulator.get_analytic_data())
+		mat.set_shader_parameter("ar_lifetime", ripple_simulator.ar_lifetime)
+		mat.set_shader_parameter("ar_speed", ripple_simulator.ar_speed)
+		mat.set_shader_parameter("ar_freq", ripple_simulator.ar_freq)
+		mat.set_shader_parameter("ar_decay", ripple_simulator.ar_decay)
+	
+	mat.set_shader_parameter("ripple_normal_strength", ripple_normal_strength)
+
+
+## ★ C7: 註冊漣漪源 — 任何 Node3D 都能產生漣漪
+func register_ripple_source(node: Node3D, strength: float = 0.04) -> void:
+	for entry in _registered_ripple_sources:
+		if entry.node == node:
+			return # 已註冊
+	_registered_ripple_sources.append({"node": node, "strength": strength})
+	print("[WaterManager] Registered ripple source: %s (strength=%.3f)" % [node.name, strength])
+
+
+func unregister_ripple_source(node: Node3D) -> void:
+	for i in range(_registered_ripple_sources.size() - 1, -1, -1):
+		if _registered_ripple_sources[i].node == node:
+			_registered_ripple_sources.remove_at(i)
+			print("[WaterManager] Unregistered ripple source: %s" % node.name)
+			return
+
+
+func _find_water_mesh(node: Node) -> MeshInstance3D:
+	"""Recursively find MeshInstance3D that has the ocean shader"""
+	for child in node.get_children():
+		if child is MeshInstance3D:
+			var mat = child.get_active_material(0)
+			if mat is ShaderMaterial:
+				return child
+		var result = _find_water_mesh(child)
+		if result:
+			return result
+	return null
 
 
 func spawn_foam_particle(pos: Vector3, velocity: Vector3):
-	if foam_particles.size() >= MAX_FOAM_PARTICLES:
-		foam_particles.pop_front() # 移除最老的
+	if foam_particles.size() >= 1000:
+		foam_particles.pop_front() # Remove oldest
 	
 	foam_particles.append({
 		"position": pos,
@@ -500,43 +701,15 @@ func _ready():
 	
 	_update_shader_parameters()
 	
-	# ========== 視覺平衡優化 ==========
-	print("[WaterManager] Applying balanced visual settings...")
-	
-	# 法線系統（柔和但有細節）
-	normal_scale = 0.7 # 適中的凹凸感
-	normal_tile = 10.0 # 更密集的紋理
-	normal_speed = 0.25 # 稍慢的動態
-	
-	# PBR 材質（平衡反射和粗糙度）
-	roughness = 0.25 # 適中的粗糙度
-	metallic = 0.0 # 海水不應該是金屬
-	specular = 0.6 # 適中的鏡面反射
-	
-	# 泡沫系統（避免過度）
-	foam_jacobian_bias = 0.15 # 稍微寬鬆的閾值
-	foam_crest_strength = 1.5 # 適中的泡沫強度
-	
-	# FFT 細節（在 _update_shader_parameters 中會用到）
-	fft_scale = 1.0 # 標準強度
-	
-	# 強制更新
-	_update_shader_parameters()
-	
-	print("[WaterManager] Visual settings applied: normal_scale=%.2f, roughness=%.2f" % [normal_scale, roughness])
-	
-	# Startup Safety Override
-	if abs(wind_strength - 1.0) < 0.1:
-		normal_scale = 0.5
-		if peak_sharpness > 1.2:
-			peak_sharpness = 1.0
-		if wave_chaos > 0.3:
-			wave_chaos = 0.25
-		print("[WaterManager] Startup Safety: Enforced normal_scale=0.5, peak_sharpness=1.0, wave_chaos=0.25")
-	# ================================
+	# Note: Scene-configured parameters are now respected
+	# Previously there was an override block here that could conflict with scene settings
 	
 	_is_initialized = true
 	
+	# === Setup Player Interaction Ripple System ===
+	if enable_interaction_ripples and not Engine.is_editor_hint():
+		_setup_interaction_camera()
+
 
 # ==============================================================================
 # Physics & Buoyancy Interface (CPU Side)
@@ -1078,23 +1251,20 @@ func _generate_envelope_texture():
 	# Let's assume the texture covers the range [-Width, Width] of the wave packet.
 	
 	for i in range(width):
-		var u = float(i) / float(width)
-		var x = (u * 2.0 - 1.0) * 4.0 # Range [-4, 4] effectively
+		var u = float(i) / float(width - 1) # Ensure we hit exactly 1.0
+		var x = (u * 2.0 - 1.0) * 8.0 # Range [-8, 8] for full decay
 		
-		# Hyperbolic Secant (Sech = 1/cosh) for the main peak
+		# Hyperbolic Secant (Look-alike)
 		var sech = 2.0 / (exp(x) + exp(-x))
 		
-		# Tanh distortion for asymmetry
-		# We want forward side (x > 0) to be steeper? Or backward? 
-		# Usually rogue waves are "Holes in the sea" or "Wall of water".
-		# Let's make it a sharp peak.
+		# Asymmetry
 		var distortion = 1.0 - 0.3 * tanh(x)
-		
 		var val = sech * distortion
 		
-		# Normalize roughly to 0-1 range if needed, but Sech max is 1.
-		# Clamp to valid range
-		val = clamp(val, 0.0, 1.0)
+		# Force zero at edges (Windowing)
+		# Smoothly fade out the last 10% on each side to be absolutely sure
+		var window = 1.0 - pow(abs(u * 2.0 - 1.0), 10.0)
+		val *= window
 		
 		img.set_pixel(i, 0, Color(val, 0, 0, 1.0))
 	
@@ -1169,7 +1339,11 @@ func _setup_simulation():
 	
 	uniform_set_B = rd.uniform_set_create([u_in_B, u_out_A, u_buffer], shader_rid, 0)
 	
-	sim_image = Image.create(grid_res, grid_res, false, Image.FORMAT_RGBAF)
+	if simulation_precision == SimulationPrecision.Half_FP16:
+		sim_image = Image.create(grid_res, grid_res, false, Image.FORMAT_RGBAH)
+	else:
+		sim_image = Image.create(grid_res, grid_res, false, Image.FORMAT_RGBAF)
+		
 	sim_image.fill(Color(0, 0, 0, 1))
 	visual_texture = ImageTexture.create_from_image(sim_image)
 	rd.texture_update(sim_texture_A, 0, sim_image.get_data())
@@ -1426,18 +1600,46 @@ func _update_shader_parameters():
 	mat.set_shader_parameter("sea_size", sea_size)
 	mat.set_shader_parameter("manager_world_pos", global_position)
 	
-	mat.set_shader_parameter("wind_strength", wind_strength)
-	mat.set_shader_parameter("wind_dir", wind_direction)
-	mat.set_shader_parameter("wave_steepness", wave_steepness)
-	mat.set_shader_parameter("wave_length", wave_length)
-	mat.set_shader_parameter("horizontal_displacement_scale", horizontal_displacement_scale)
-	mat.set_shader_parameter("wave_chaos", wave_chaos)
-	mat.set_shader_parameter("wave_height_multiplier", wave_height_multiplier)
-	mat.set_shader_parameter("swe_strength", swe_strength)
-	mat.set_shader_parameter("debug_show_markers", debug_show_markers)
-	mat.set_shader_parameter("color_deep", color_deep)
-	mat.set_shader_parameter("color_shallow", color_shallow)
-	mat.set_shader_parameter("absorption_coeff", absorption_coeff)
+	var shader_mat = mat as ShaderMaterial
+	if shader_mat:
+		shader_mat.set_shader_parameter("wind_strength", wind_strength)
+		shader_mat.set_shader_parameter("wind_dir", wind_direction)
+		shader_mat.set_shader_parameter("wave_length", wave_length)
+		shader_mat.set_shader_parameter("wave_steepness", wave_steepness)
+		shader_mat.set_shader_parameter("wave_chaos", wave_chaos)
+		
+		# === 新增：Breaking Waves Uniforms ===
+		shader_mat.set_shader_parameter("breaking_wave_count", breaking_waves.size())
+		
+		var bw_data = []
+		var bw_params = []
+		# Initialize with empty data to match array size 3
+		for i in range(3):
+			bw_data.append(Vector4(0, 0, 0, 0))
+			bw_params.append(Vector4(0, 0, 0, 0))
+			
+		for i in range(breaking_waves.size()):
+			if i >= 3: break
+			var wave = breaking_waves[i]
+			# XY = Position (from Vector2), Z = Height, W = Width
+			# Note: wave.position is Vector2, wave.height is the wave height
+			bw_data[i] = Vector4(wave.position.x, wave.get("height", 0.0), wave.position.y, wave.width)
+			# X = Curl, Y = Break Point, Z = State
+			bw_params[i] = Vector4(wave.get("curl", 0.0), wave.break_point, wave.state, 0.0)
+			
+		shader_mat.set_shader_parameter("breaking_wave_data", bw_data)
+		shader_mat.set_shader_parameter("breaking_wave_params", bw_params)
+		
+		if foam_viewport_tex:
+			shader_mat.set_shader_parameter("foam_particle_texture", foam_viewport_tex)
+		
+		shader_mat.set_shader_parameter("far_fade_start", far_fade_start)
+		shader_mat.set_shader_parameter("far_fade_max", far_fade_max)
+		shader_mat.set_shader_parameter("edge_scale", edge_fade)
+		shader_mat.set_shader_parameter("color_deep", color_deep)
+		shader_mat.set_shader_parameter("color_shallow", color_shallow)
+		shader_mat.set_shader_parameter("absorption_coeff", absorption_coeff)
+
 	mat.set_shader_parameter("color_foam", color_foam)
 	mat.set_shader_parameter("foam_noise", foam_noise_tex)
 	mat.set_shader_parameter("foam_detail", foam_detail_tex)
@@ -1474,8 +1676,8 @@ func _update_shader_parameters():
 	mat.set_shader_parameter("normal_tile", normal_tile)
 	
 	# Debug print for visuals (Run once or spammed? Call deferred is better, but this is safe here)
-	if debug_view:
-		print("[Shader] Normals -> Map1: ", normal_map1, " | Map2: ", normal_map2, " | Scale: ", normal_scale)
+	if debug_normal_mode > 0:
+		print("[Shader] Debug Normal Mode: ", debug_normal_mode)
 	mat.set_shader_parameter("show_wireframe", show_wireframe)
 	mat.set_shader_parameter("fft_scale", fft_scale)
 	mat.set_shader_parameter("lod_scale", lod_scale)
@@ -1485,8 +1687,7 @@ func _update_shader_parameters():
 	mat.set_shader_parameter("flow_strength", flow_strength)
 	mat.set_shader_parameter("far_fade_start", far_fade_start)
 	mat.set_shader_parameter("far_fade_max", far_fade_max)
-	mat.set_shader_parameter("debug_view", debug_view)
-	mat.set_shader_parameter("debug_mesh_only", debug_mesh_only)
+	mat.set_shader_parameter("debug_normal_mode", debug_normal_mode)
 
 	
 	# Initial Rogue Wave State
@@ -1497,35 +1698,38 @@ func _update_shader_parameters():
 	
 
 	# Reuse weather_visual_tex (which now contains foam splats in alpha)
-	mat.set_shader_parameter("foam_particle_texture", weather_visual_tex)
 	# Reuse weather_visual_tex (which now contains foam splats in alpha)
 	mat.set_shader_parameter("foam_particle_texture", weather_visual_tex)
 	
 	if use_lod and has_node("OceanLOD"):
 		for cascade in $OceanLOD.cascades:
 			cascade.set_surface_override_material(0, mat)
-	
-	mat.set_shader_parameter("physics_time", physics_time)
-	
-	# Calculate interpolation factor (alpha) for smooth rendering
-	# If running at 60FPS (update_rate ~0.016), accumulated_time varies 0..0.016
-	# If running at 30FPS (update_rate ~0.033), accumulated_time varies 0..0.033
-	# render_alpha should be 0..1 representing how far we are into the CURRENT update interval
-	
-	var target_update_rate = 1.0 / 60.0 # Default reference
-	if simulation_fps == SimulationFPS.FPS_30:
-		target_update_rate = 1.0 / 30.0
-	elif simulation_fps == SimulationFPS.FPS_60:
-		target_update_rate = 1.0 / 60.0
-	
-	var render_alpha = clamp(accumulated_time / target_update_rate, 0.0, 1.0)
-	mat.set_shader_parameter("render_alpha", render_alpha)
 
 func _process(delta):
+	# ... (Process Logic)
+	# Wait for _ready to complete initialization
 	if not rd or not _is_initialized: return
 	
 	accumulated_time += delta
+	_time = Time.get_ticks_msec() / 1000.0
+
+	# === Foam System Update ===
+	_update_foam_particles(delta)
 	
+	# === Player Interaction Ripple Update ===
+	if enable_interaction_ripples and ripple_simulator:
+		_update_interaction_ripples()
+
+	
+	# === Barrel Wave Spawner ===
+	if enable_barrel_spawner:
+		_barrel_spawn_timer += delta
+		var spawn_interval = 1.0 / max(0.01, barrel_spawn_rate)
+		if _barrel_spawn_timer > spawn_interval:
+			_attempt_spawn_barrel_wave()
+			_barrel_spawn_timer = 0.0
+	
+	# === Idle Timer & SWE Reset ===
 	if interaction_points.is_empty() and active_vortex == null and active_waterspout == null:
 		_idle_timer += delta
 		if _idle_timer > 2.0:
@@ -1533,19 +1737,43 @@ func _process(delta):
 			_idle_timer = 0.0
 	else:
 		_idle_timer = 0.0
-	
-	_time = Time.get_ticks_msec() / 1000.0
-	
+
+	# === Visual Updates (Shader Params) ===
 	var plane = get_node_or_null("WaterPlane")
 	if plane:
 		var mat = plane.get_surface_override_material(0)
 		if mat:
 			mat.set_shader_parameter("manager_world_pos", global_position)
 			mat.set_shader_parameter("physics_time", physics_time)
-			mat.set_shader_parameter("render_alpha", accumulated_time / (1.0 / 60.0))
+			
+			# Render Alpha
+			var target_update_rate = 1.0 / 60.0
+			if simulation_fps == SimulationFPS.FPS_30:
+				target_update_rate = 1.0 / 30.0
+			elif simulation_fps == SimulationFPS.FPS_60:
+				target_update_rate = 1.0 / 60.0
+			var render_alpha = clamp(accumulated_time / target_update_rate, 0.0, 1.0)
+			mat.set_shader_parameter("render_alpha", render_alpha)
+			
+			# Foam Texture
+			mat.set_shader_parameter("foam_particle_texture", weather_visual_tex)
 	
+	# === C++ Ocean Buoyancy Sampler Sync ===
+	# 這裡我們利用 Godot 的 Group 功能，找到場景中所有的 OceanBuoyancySampler3D
+	# 並將當前的物理時間與風場參數同步給它們，實現「C++ 浮力的 Wave 計算」與「GPU Shader 視覺」完全零時差
+	var samplers = get_tree().get_nodes_in_group("ocean_samplers")
+	for s in samplers:
+		if s.has_method("set_physics_time"):
+			s.physics_time = physics_time
+			s.wind_strength = wind_strength
+			s.wind_dir = wind_direction
+			s.wave_length = wave_length
+			s.wave_steepness = wave_steepness
+			s.wave_chaos = wave_chaos
+			s.peak_sharpness = peak_sharpness
+	
+	# === Texture Updates (Main Thread) ===
 	if has_submitted:
-		# rd.sync() is not allowed on main device
 		has_submitted = false
 		
 		# Update SWE Texture
@@ -1553,34 +1781,30 @@ func _process(delta):
 		if result_texture.is_valid():
 			var data = rd.texture_get_data(result_texture, 0)
 			if not data.is_empty():
-				sim_image.set_data(grid_res, grid_res, false, Image.FORMAT_RGBAF, data)
+				var fmt = Image.FORMAT_RGBAH if simulation_precision == SimulationPrecision.Half_FP16 else Image.FORMAT_RGBAF
+				sim_image.set_data(grid_res, grid_res, false, fmt, data)
 				visual_texture.update(sim_image)
-			
-		# Update Weather Texture (Visual only for foam/color modulation)
+				
+		# Update Weather Texture
 		if weather_texture.is_valid():
 			var w_data = rd.texture_get_data(weather_texture, 0)
 			if not w_data.is_empty():
 				weather_image.set_data(grid_res, grid_res, false, Image.FORMAT_RGBAH, w_data)
 				weather_visual_tex.update(weather_image)
 				
-	# Update Foam Renderer Visuals
+	# === Foam Renderer MulitMesh ===
+	if foam_renderer and foam_renderer.multimesh:
+		var count = min(foam_particles.size(), foam_renderer.multimesh.instance_count)
+		foam_renderer.multimesh.visible_instance_count = count
 	
-
-	var sim_delta = min(delta, 0.033)
-	
-	# Rogue Wave Animation
+	# === Rogue Wave Animation ===
 	if rogue_wave_present:
 		_rogue_wave_timer += delta
 		var dir_norm = rogue_direction.normalized()
-		# Start from 'behind' and move 'forward'
-		# Center point moves: StartPos + Dir * Speed * Time
-		# Let's define StartPos as -Dir * StartDist relative to Manager
 		var start_pos = global_position - Vector3(dir_norm.x, 0, dir_norm.y) * rogue_start_dist
 		
-		# Move wave across the domain
 		var dist_travelled = _rogue_wave_timer * rogue_wave_speed
 		
-		# Reset if it goes too far (e.g. 2x start dist)
 		if dist_travelled > rogue_start_dist * 3.0:
 			_rogue_wave_timer = 0.0
 			dist_travelled = 0.0
@@ -1588,20 +1812,16 @@ func _process(delta):
 		var current_world_pos = start_pos + Vector3(dir_norm.x, 0, dir_norm.y) * dist_travelled
 		_rogue_current_pos = Vector2(current_world_pos.x, current_world_pos.z)
 		
-		var mesh_inst = get_node_or_null("WaterPlane")
-		if mesh_inst:
-			var mat = mesh_inst.get_surface_override_material(0)
-			if mat:
-				# vec4: x, y, height, width
-				mat.set_shader_parameter("rogue_wave_data", Vector4(_rogue_current_pos.x, _rogue_current_pos.y, rogue_wave_height, rogue_wave_width))
+		if plane:
+			var m = plane.get_surface_override_material(0)
+			if m:
+				m.set_shader_parameter("rogue_wave_data", Vector4(_rogue_current_pos.x, _rogue_current_pos.y, rogue_wave_height, rogue_wave_width))
 	else:
 		_rogue_wave_timer = 0.0
-		# Reset shader param to hide it
-		var mesh_inst = get_node_or_null("WaterPlane")
-		if mesh_inst:
-			var mat = mesh_inst.get_surface_override_material(0)
-			if mat:
-				mat.set_shader_parameter("rogue_wave_data", Vector4(0, 0, 0, 1))
+		if plane:
+			var m = plane.get_surface_override_material(0)
+			if m:
+				m.set_shader_parameter("rogue_wave_data", Vector4(0, 0, 0, 1))
 
 	# FPS Throttling Logic
 	var should_update_physics = true
@@ -1645,7 +1865,7 @@ func _physics_process(delta):
 
 	# GlobalWind Integration
 	# Check if GlobalWind singleton exists (autoloaded name)
-	if has_node("/root/GlobalWind"):
+	if use_global_wind_system and has_node("/root/GlobalWind"):
 		var gw = get_node("/root/GlobalWind")
 		if gw:
 			# Smoothly interpolate towards global wind settings
@@ -1656,6 +1876,30 @@ func _physics_process(delta):
 			if not wind_direction.is_equal_approx(gw.current_wind_direction):
 				wind_direction = wind_direction.lerp(gw.current_wind_direction, delta * 0.5).normalized()
 
+
+## 嘗試生成桶狀波
+func _attempt_spawn_barrel_wave():
+	# 隨機採樣幾個點尋找波峰
+	for i in range(5):
+		var rand_pos = global_position + Vector3(randf_range(-sea_size.x * 0.4, sea_size.x * 0.4), 0, randf_range(-sea_size.y * 0.4, sea_size.y * 0.4))
+		# 獲取波高 (簡單估算或精確查詢)
+		var h = get_wave_height_at(rand_pos)
+		
+		# 檢測是否足夠高且不在邊緣
+		if h > barrel_height_threshold:
+			# 檢查是否過於接近現有波浪
+			if get_breaking_wave_at(Vector2(rand_pos.x, rand_pos.z)).is_empty():
+				_spawn_barrel_wave_instance(rand_pos)
+				return # 每幀最多生成一個
+
+func _spawn_barrel_wave_instance(pos: Vector3):
+	var wave_comp = BreakingWaveComponent.new()
+	add_child(wave_comp)
+	wave_comp.global_position = pos
+	wave_comp.direction = wind_direction # 假設沿風向
+	wave_comp.wave_height = 4.0 # 默認或隨機
+	wave_comp.wave_width = randf_range(20.0, 40.0)
+	# BreakingWaveComponent _ready will register itself
 
 ## 自動優化參數（安全助手）
 func _auto_adjust_for_safety():
