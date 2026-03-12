@@ -486,8 +486,8 @@ right_foot_shape = NodePath("../../RightFootShape")
 debug_draw = false
 left_lookat_target = NodePath("../../LeftLookAtTarget")
 right_lookat_target = NodePath("../../RightLookAtTarget")
-left_lookat_modifier = NodePath("../../Visuals/Human/GeneralSkeleton/Player_Visuals_Human_Skeleton3D#LeftFootLookAt")
-right_lookat_modifier = NodePath("../../Visuals/Human/GeneralSkeleton/Player_Visuals_Human_Skeleton3D#RightFootLookAt")
+left_lookat_modifier = NodePath("")
+right_lookat_modifier = NodePath("")
 
 [node name="Visuals" type="Node3D" parent="Player" unique_id=592954117]
 
@@ -581,19 +581,8 @@ settings/0/end_bone = 57
 settings/0/use_virtual_end = false
 settings/0/extend_end_bone = false
 
-[node name="Player_Visuals_Human_Skeleton3D#RightFootLookAt" type="LookAtModifier3D" parent="Player/Visuals/Human/GeneralSkeleton" index="3" unique_id=1928040093]
-influence = 0.0
-target_node = NodePath("../../../../RightLookAtTarget")
-bone_name = "RightFoot"
-bone = 62
 
-[node name="Player_Visuals_Human_Skeleton3D#LeftFootLookAt" type="LookAtModifier3D" parent="Player/Visuals/Human/GeneralSkeleton" index="4" unique_id=137635604]
-influence = 0.0
-target_node = NodePath("../../../../LeftLookAtTarget")
-bone_name = "LeftFoot"
-bone = 57
-
-[node name="HeadLookAt" type="LookAtModifier3D" parent="Player/Visuals/Human/GeneralSkeleton" index="5" unique_id=183065134]
+[node name="HeadLookAt" type="LookAtModifier3D" parent="Player/Visuals/Human/GeneralSkeleton" index="3" unique_id=183065134]
 influence = 0.0
 target_node = NodePath("../../../../HeadLookAtTarget")
 bone_name = "Head"
