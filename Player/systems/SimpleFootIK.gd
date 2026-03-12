@@ -3,6 +3,9 @@ class_name SimpleFootIK
 ## 簡單的 Foot IK - 動態 Influence 版本
 ## 移動時讓動畫播放，站立時 IK 固定腳位置
 
+## ★ 外部控制開關 (SimpleCapsuleMove 在樓梯模式時設為 false)
+var ik_enabled: bool = true
+
 @export var skeleton: Skeleton3D
 @export var left_target: Marker3D
 @export var right_target: Marker3D
@@ -244,6 +247,14 @@ func _physics_process(delta: float) -> void:
 		velocity = _char_body.velocity
 	var speed = Vector2(velocity.x, velocity.z).length()
 	var is_moving = speed > standing_threshold
+	
+	# ★ 樓梯/外部禁用時：淡出 IK influence 到 0，跳過目標更新
+	if not ik_enabled:
+		_current_influence = lerp(_current_influence, 0.0, delta * 10.0)
+		if left_ik: left_ik.influence = _current_influence
+		if right_ik: right_ik.influence = _current_influence
+		_was_moving = is_moving
+		return
 	
 	# --- 樓梯偵測（已移除，平地與樓梯統一判斷）---
 	

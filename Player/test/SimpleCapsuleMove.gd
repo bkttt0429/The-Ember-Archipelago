@@ -466,6 +466,7 @@ var right_foot_target: Marker3D = null
 var left_foot_target: Marker3D = null
 var _ik_blend_weight: float = 0.0
 var _ankle_modifier: AnkleAlignModifier3D = null # ★ 腳踝對齊修正器
+var _foot_ik_system: SimpleFootIK = null # ★ 外部 SimpleFootIK 節點
 
 # ★ Hand IK for climbing (手部錨定到邊緣)
 var right_arm_ik: Node = null # TwoBoneIK3D (如果存在)
@@ -620,6 +621,10 @@ func _ready() -> void:
 				if verbose_debug: print(">>> [AnkleAlign] ✅ 已建立 AnkleAlignModifier3D")
 			else:
 				if verbose_debug: print(">>> [AnkleAlign] ✅ 找到既有 AnkleAlignModifier3D")
+			# ★ 找到 SimpleFootIK 節點
+			_foot_ik_system = find_child("SimpleFootIK", true, false) as SimpleFootIK
+			if _foot_ik_system:
+				if verbose_debug: print(">>> [FootIK] ✅ 找到 SimpleFootIK")
 		else:
 			push_warning("[Skeleton] ⚠ 在 Visuals/Human 下找不到任何 Skeleton3D")
 	
@@ -5014,6 +5019,10 @@ func _update_stair_animation(delta: float) -> void:
 			anim_tree.active = false
 			if verbose_debug: print(">>> [StairAnim] AnimationTree OFF, 進入樓梯動畫模式")
 		
+		# ★ 樓梯時禁用腳部 IK（避免 ShapeCast 在階梯邊緣抱動）
+		if _foot_ik_system:
+			_foot_ik_system.ik_enabled = false
+		
 		# ★ 不設定 root_motion_track — 讓動畫自然播放（Hips 擺動保留，膝蓋抬起可見）
 		# snap_up 處理實際的台階物理攀爬
 		
@@ -5083,6 +5092,10 @@ func _update_stair_animation(delta: float) -> void:
 			var playback = anim_tree.get("parameters/playback") as AnimationNodeStateMachinePlayback
 			if playback:
 				playback.travel("movement")
+		
+		# ★ 恢復腳部 IK
+		if _foot_ik_system:
+			_foot_ik_system.ik_enabled = true
 		
 		if verbose_debug: print(">>> [StairAnim] 停止 → 恢復 AnimationTree")
 #endregion
