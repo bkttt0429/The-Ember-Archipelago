@@ -3574,17 +3574,24 @@ func _debug_bone_after_ik() -> void:
 	if not _skeleton:
 		return
 	
+	# ★ 樓梯上持續禁用腳部 IK 和腳踝旋轉（ShapeCast 在階梯邊緣不穩定）
+	var on_stairs_any = stair.on_stairs or stair.grace_timer > 0 or (anim_tree and not anim_tree.active)
+	
 	# ★ 每幀同步地面法線和 IK 權重到 AnkleAlignModifier3D
 	if _ankle_modifier:
-		_ankle_modifier.left_ground_normal = _left_ground_normal
-		_ankle_modifier.right_ground_normal = _right_ground_normal
-		_ankle_modifier.left_ik_weight = _left_ik_weight
-		_ankle_modifier.right_ik_weight = _right_ik_weight
+		if on_stairs_any:
+			# 樓梯上：法線設為 UP（平面），權重設為 0 → 腳不旋轉
+			_ankle_modifier.left_ground_normal = Vector3.UP
+			_ankle_modifier.right_ground_normal = Vector3.UP
+			_ankle_modifier.left_ik_weight = 0.0
+			_ankle_modifier.right_ik_weight = 0.0
+		else:
+			_ankle_modifier.left_ground_normal = _left_ground_normal
+			_ankle_modifier.right_ground_normal = _right_ground_normal
+			_ankle_modifier.left_ik_weight = _left_ik_weight
+			_ankle_modifier.right_ik_weight = _right_ik_weight
 	
-	# ★ 樓梯上持續禁用腳部 IK（ShapeCast 在階梯邊緣不穩定）
 	if _foot_ik_system:
-		# 任何樓梯相關狀態都關 IK：on_stairs / 寬限期 / 樓梯動畫中
-		var on_stairs_any = stair.on_stairs or stair.grace_timer > 0 or (anim_tree and not anim_tree.active)
 		var should_ik = not on_stairs_any
 		if _foot_ik_system.ik_enabled != should_ik:
 			_foot_ik_system.ik_enabled = should_ik
