@@ -3578,6 +3578,15 @@ func _debug_bone_after_ik() -> void:
 	# ★ 樓梯上持續禁用腳部 IK 和腳踝旋轉（ShapeCast 在階梯邊緣不穩定）
 	var on_stairs_any = stair.on_stairs or stair.grace_timer > 0 or (anim_tree and not anim_tree.active)
 	
+	# ★ Debug: 每 30 幀印出 IK 狀態
+	if Engine.get_frames_drawn() % 30 == 0:
+		print(">>> [IK-Sync] on_stairs=%s grace=%.2f animActive=%s => ik=%s offset=%.3f cooldown=%d" % [
+			stair.on_stairs, stair.grace_timer,
+			str(anim_tree.active) if anim_tree else "null",
+			not on_stairs_any,
+			stair.step_up_offset, stair.post_step_up_cooldown
+		])
+	
 	# ★ 每幀同步地面法線和 IK 權重到 AnkleAlignModifier3D
 	if _ankle_modifier:
 		if on_stairs_any:
@@ -4545,6 +4554,14 @@ func _detect_stairs() -> void:
 	var delta = get_physics_process_delta_time()
 	if stair.grace_timer > 0:
 		stair.grace_timer -= delta
+	
+	# ★★★ 先檢查 step-up：如果上一幀有 SnapUp，直接認定為樓梯
+	# 必須在 floor check 之前，否則 SnapUp 抬升後 is_on_floor()=false 會清除 on_stairs
+	if stair.step_up_offset > 0.0 or stair.post_step_up_cooldown > 0:
+		stair.on_stairs = true
+		stair.ascending = true
+		stair.grace_timer = 0.3
+		return
 	
 	# ★ 使用 ground.was_on_floor 容忍樓梯間隙 1 幀離地
 	if not is_on_floor() and not ground.was_on_floor or _is_jumping or _is_landing:
