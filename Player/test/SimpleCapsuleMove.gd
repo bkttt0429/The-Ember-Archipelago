@@ -3578,8 +3578,8 @@ func _debug_bone_after_ik() -> void:
 	# ★ 樓梯上持續禁用腳部 IK 和腳踝旋轉（ShapeCast 在階梯邊緣不穩定）
 	var on_stairs_any = stair.on_stairs or stair.grace_timer > 0 or (anim_tree and not anim_tree.active)
 	
-	# ★ Debug: 每 30 幀印出 IK 狀態
-	if Engine.get_frames_drawn() % 30 == 0:
+	# ★ Debug: 每 30 幀印出 IK 狀態（只在 verbose 模式）
+	if verbose_debug and Engine.get_frames_drawn() % 30 == 0:
 		print(">>> [IK-Sync] on_stairs=%s grace=%.2f animActive=%s => ik=%s offset=%.3f cooldown=%d" % [
 			stair.on_stairs, stair.grace_timer,
 			str(anim_tree.active) if anim_tree else "null",
