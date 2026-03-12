@@ -1118,13 +1118,8 @@ func _process_timers_and_fall(delta: float) -> void:
 			if air.jump_to_type != JumpToType.TO_STAGE and stair.step_up_offset <= 0.0 and stair.post_step_up_cooldown <= 0:
 				_set_motion_state(MovementEnums.MotionState.FALLING)
 				_trigger_jump_loop_animation()
-	if air.jump_grace_timer <= 0 and not ground.was_on_floor and is_on_floor():
-		if (air.jump_phase == JumpPhase.LOOP or _is_falling or _is_jumping) and air.jump_to_type != JumpToType.TO_STAGE:
-			_set_motion_state(MovementEnums.MotionState.LANDING)
-			air.landing_timer = LAND_ANIMATION_DURATION
-			_trigger_land_animation()
-		air.air_time = 0.0
-		air.fall_velocity_peak = 0.0
+	# ★ 落地偵測已移到 StateGround pipeline Step 6（在 move_and_slide 之後）
+	# 不在這裡做，因為 is_on_floor() 在 move_and_slide() 之前是過時的
 	if _is_landing:
 		air.landing_timer -= delta
 		var has_input = Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_D)
