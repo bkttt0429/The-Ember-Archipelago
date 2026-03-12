@@ -3581,6 +3581,14 @@ func _debug_bone_after_ik() -> void:
 		_ankle_modifier.left_ik_weight = _left_ik_weight
 		_ankle_modifier.right_ik_weight = _right_ik_weight
 	
+	# ★ 樓梯上持續禁用腳部 IK（ShapeCast 在階梯邊緣不穩定）
+	if _foot_ik_system:
+		var should_ik = not stair.on_stairs
+		if _foot_ik_system.ik_enabled != should_ik:
+			_foot_ik_system.ik_enabled = should_ik
+			if verbose_debug:
+				print(">>> [FootIK] %s (樓梯=%s)" % ["ON" if should_ik else "OFF", stair.on_stairs])
+	
 	var right_foot_idx = _skeleton.find_bone("RightFoot")
 	if right_foot_idx >= 0:
 		var bone_pose = _skeleton.global_transform * _skeleton.get_bone_global_pose(right_foot_idx)
@@ -5019,10 +5027,6 @@ func _update_stair_animation(delta: float) -> void:
 			anim_tree.active = false
 			if verbose_debug: print(">>> [StairAnim] AnimationTree OFF, 進入樓梯動畫模式")
 		
-		# ★ 樓梯時禁用腳部 IK（避免 ShapeCast 在階梯邊緣抱動）
-		if _foot_ik_system:
-			_foot_ik_system.ik_enabled = false
-		
 		# ★ 不設定 root_motion_track — 讓動畫自然播放（Hips 擺動保留，膝蓋抬起可見）
 		# snap_up 處理實際的台階物理攀爬
 		
@@ -5093,9 +5097,7 @@ func _update_stair_animation(delta: float) -> void:
 			if playback:
 				playback.travel("movement")
 		
-		# ★ 恢復腳部 IK
-		if _foot_ik_system:
-			_foot_ik_system.ik_enabled = true
+		# ★ IK 恢復由 _debug_bone_after_ik 根據 stair.on_stairs 自動控制
 		
 		if verbose_debug: print(">>> [StairAnim] 停止 → 恢復 AnimationTree")
 #endregion
