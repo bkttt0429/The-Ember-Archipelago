@@ -465,6 +465,7 @@ var left_leg_ik: Node = null # TwoBoneIK3D
 var right_foot_target: Marker3D = null
 var left_foot_target: Marker3D = null
 var _ik_blend_weight: float = 0.0
+var _ankle_modifier: AnkleAlignModifier3D = null # ★ 腳踝對齊修正器
 
 # ★ Hand IK for climbing (手部錨定到邊緣)
 var right_arm_ik: Node = null # TwoBoneIK3D (如果存在)
@@ -610,6 +611,15 @@ func _ready() -> void:
 			skeleton = _find_skeleton_by_type(visuals_node)
 		if skeleton:
 			if verbose_debug: print(">>> [Skeleton] ✅ 找到: ", skeleton.name, " 路徑: ", skeleton.get_path())
+			# ★ 建立腳踝對齊修正器（排在 TwoBoneIK3D 之後自動執行）
+			_ankle_modifier = skeleton.find_child("AnkleAlignModifier3D", false, false) as AnkleAlignModifier3D
+			if not _ankle_modifier:
+				_ankle_modifier = AnkleAlignModifier3D.new()
+				_ankle_modifier.name = "AnkleAlignModifier3D"
+				skeleton.add_child(_ankle_modifier)
+				if verbose_debug: print(">>> [AnkleAlign] ✅ 已建立 AnkleAlignModifier3D")
+			else:
+				if verbose_debug: print(">>> [AnkleAlign] ✅ 找到既有 AnkleAlignModifier3D")
 		else:
 			push_warning("[Skeleton] ⚠ 在 Visuals/Human 下找不到任何 Skeleton3D")
 	
@@ -3554,15 +3564,17 @@ func _update_ground_locomotion_ik(delta: float) -> void:
 			# 左腳是支撐腳
 			left_foot_target.global_position.y -= _support_leg_drop
 
-## ★ 延遲 debug：檢查 IK 處理後的骨頭位置
+## ★ 延遲 debug + 腳踝對齊修正器更新
 func _debug_bone_after_ik() -> void:
 	if not _skeleton:
 		return
 	
-	# ★ 腳踝對齊已禁用：set_bone_pose_rotation() 與 TwoBoneIK3D 
-	# 同時修改同一根骨骼造成每幀回饋迴圈 → 抖動
-	# 正確做法：需要自訂 SkeletonModifier3D 在 TwoBoneIK3D 之後執行
-	# _adjust_foot_rotation()
+	# ★ 每幀同步地面法線和 IK 權重到 AnkleAlignModifier3D
+	if _ankle_modifier:
+		_ankle_modifier.left_ground_normal = _left_ground_normal
+		_ankle_modifier.right_ground_normal = _right_ground_normal
+		_ankle_modifier.left_ik_weight = _left_ik_weight
+		_ankle_modifier.right_ik_weight = _right_ik_weight
 	
 	var right_foot_idx = _skeleton.find_bone("RightFoot")
 	if right_foot_idx >= 0:
