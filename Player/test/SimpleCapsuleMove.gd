@@ -1242,38 +1242,10 @@ func _process_horizontal_movement(delta: float) -> void:
 		velocity.x = move_toward(velocity.x, target_velocity.x, rate * delta)
 		velocity.z = move_toward(velocity.z, target_velocity.z, rate * delta)
 
-## [DEPRECATED] 樓梯物理 — 已內聯到 StateGround.physics_update 管線中
-## 保留此函數以防外部呼叫，但 StateGround 不再使用
-func _process_stair_physics(delta: float) -> void:
+## [DEPRECATED] 已內聯到 StateGround.physics_update pipeline
+func _process_stair_physics(_delta: float) -> void:
 	push_warning("_process_stair_physics is deprecated - logic moved to StateGround pipeline")
-	_detect_stairs()
-	stair.step_up_offset = 0.0
-	if stair.on_stairs and stair.ascending and not _is_jumping:
-		velocity.y = min(velocity.y, 0.0)
-	if movement_data.step_enabled and not _is_jumping and not _is_landing:
-		if is_on_floor() or ground.snapped_to_stairs_last_frame or (stair.on_stairs and stair.ascending):
-			_snap_up_stairs_check(delta)
-	var saved_snap = floor_snap_length
-	if (stair.on_stairs and stair.ascending) or ground.snapped_to_stairs_last_frame:
-		floor_snap_length = 1.0
-	var pre_y = global_position.y
-	move_and_slide()
-	floor_snap_length = saved_snap
-	var post_mas_y = global_position.y
-	_snap_down_stairs_check()
-	var post_sd_y = global_position.y
-	if air.jump_grace_timer <= 0 and not ground.was_on_floor and is_on_floor():
-		if (air.jump_phase == JumpPhase.LOOP or _is_falling or _is_jumping) and air.jump_to_type != JumpToType.TO_STAGE:
-			_set_motion_state(MovementEnums.MotionState.LANDING)
-			air.landing_timer = LAND_ANIMATION_DURATION
-			_trigger_land_animation()
-		air.air_time = 0.0
-		air.fall_velocity_peak = 0.0
-	if stair.on_stairs and stair.ascending:
-		var md = post_mas_y - pre_y
-		var sd = post_sd_y - post_mas_y
-		if abs(md) > 0.005 or abs(sd) > 0.005:
-			if verbose_debug: print(">>> [PhysDelta] pre=%.3f →MAS→ %.3f (Δ%.3f) →SD→ %.3f (Δ%.3f) step_up=%.3f snapped=%s" % [pre_y, post_mas_y, md, post_sd_y, sd, stair.step_up_offset, ground.snapped_to_stairs_last_frame])
+	pass
 
 ## 視覺平滑
 func _process_visual_smoothing(delta: float) -> void:
@@ -3202,84 +3174,9 @@ func _update_predict_ik(delta: float) -> void:
 			virtual_cog_height, pelvis_world_offset, right_ik_offset_y, left_ik_offset_y
 		])
 
-## ★ 腳踝旋轉對齊（Ankle Alignment to Ground Normal）
-## 業界標準做法：取得地面碰撞法線 → 計算腳骨需要旋轉的 pitch/roll
-## → 用 Quaternion.slerp 平滑混合到目標旋轉 → 保留動畫的 yaw
-## 注意：必須在 TwoBoneIK modifier 處理完「之後」執行（在 _process 的 _debug_bone_after_ik 中呼叫）
-func _adjust_foot_rotation() -> void:
-	if not _skeleton:
-		return
-	
-	var right_foot_idx = _skeleton.find_bone("RightFoot")
-	var left_foot_idx = _skeleton.find_bone("LeftFoot")
-	
-	_align_foot_to_normal(right_foot_idx, _right_ground_normal, _right_ik_weight)
-	_align_foot_to_normal(left_foot_idx, _left_ground_normal, _left_ik_weight)
-
-## 將單隻腳的腳踝旋轉對齊到地面法線
-## 原理：
-##   1. 地面法線轉換到骨架空間 (skeleton space)
-##   2. 構建「腳底貼地」的目標旋轉 (保留動畫 yaw)
-##   3. 用 slerp 混合當前旋轉 → 目標旋轉
-##   4. 轉換回 bone-local 旋轉 → set_bone_pose_rotation()
-## 
-## Godot 4.6 API: set_bone_pose_rotation() 是設定 bone-local 旋轉
-## get_bone_global_pose() 回傳的是 skeleton-space 的全域姿勢
-func _align_foot_to_normal(foot_bone_idx: int, ground_normal: Vector3, ik_weight: float) -> void:
-	if foot_bone_idx < 0 or ik_weight < 0.01:
-		return
-	
-	# 超小角度（幾乎水平面）→ 不需要旋轉
-	var tilt_angle = ground_normal.angle_to(Vector3.UP)
-	if tilt_angle < deg_to_rad(2.0):
-		return
-	
-	# 1. 將世界空間法線轉換到骨架空間 (skeleton local space)
-	var skel_inv_basis = _skeleton.global_transform.basis.inverse()
-	var local_normal = (skel_inv_basis * ground_normal).normalized()
-	
-	# 2. 取得動畫/IK 處理後的腳骨姿勢（骨架空間）
-	var bone_global_pose = _skeleton.get_bone_global_pose(foot_bone_idx)
-	var current_global_rot = bone_global_pose.basis.get_rotation_quaternion()
-	
-	# 3. 計算腳骨 forward（骨架空間），投影到水平面保留 yaw
-	var foot_forward = bone_global_pose.basis.z.normalized()
-	var foot_forward_flat = Vector3(foot_forward.x, 0, foot_forward.z).normalized()
-	if foot_forward_flat.length_squared() < 0.001:
-		foot_forward_flat = Vector3.FORWARD
-	
-	# 4. 用地面法線（骨架空間）構建目標 Basis
-	var target_up = local_normal
-	var target_right = foot_forward_flat.cross(target_up).normalized()
-	if target_right.length_squared() < 0.001:
-		return
-	var target_forward = target_up.cross(target_right).normalized()
-	
-	var target_basis = Basis(target_right, target_up, target_forward)
-	var target_global_rot = target_basis.get_rotation_quaternion()
-	
-	# 5. 混合：在「當前旋轉」和「對齊地面旋轉」之間 slerp
-	var blend_factor = ik_weight * 0.7  # 70% 強度避免過度矯正
-	var final_global_rot = current_global_rot.slerp(target_global_rot, blend_factor)
-	
-	# 6. ★ 關鍵：將骨架空間旋轉轉換回 bone-local 旋轉
-	#    bone_local_rot = parent_global_rot.inverse() * desired_global_rot
-	var parent_idx = _skeleton.get_bone_parent(foot_bone_idx)
-	var parent_global_rot: Quaternion
-	if parent_idx >= 0:
-		parent_global_rot = _skeleton.get_bone_global_pose(parent_idx).basis.get_rotation_quaternion()
-	else:
-		parent_global_rot = Quaternion.IDENTITY
-	
-	# ★ 還需要把 rest pose 考慮進去
-	var rest = _skeleton.get_bone_rest(foot_bone_idx)
-	var rest_rot = rest.basis.get_rotation_quaternion()
-	
-	# bone_pose_rotation = rest_inv * parent_global_inv * final_global
-	var local_rot = rest_rot.inverse() * parent_global_rot.inverse() * final_global_rot
-	
-	# 7. 寫回 bone-local 旋轉（Godot 4.6 正確 API）
-	_skeleton.set_bone_pose_rotation(foot_bone_idx, local_rot)
+## [REMOVED] _adjust_foot_rotation / _align_foot_to_normal
+## 腳踝對齊已移除：set_bone_pose_rotation() 與 TwoBoneIK3D 衝突造成抖動
+## 如需腳踝對齊，需實作自訂 SkeletonModifier3D 放在 TwoBoneIK3D 之後
 
 ## ★ Godot 版 SmoothDamp（等效 Unity Mathf.SmoothDamp）
 func _smooth_damp(current: float, target: float, current_vel: float, smooth_time: float, dt: float) -> Array:
