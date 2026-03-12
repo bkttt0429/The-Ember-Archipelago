@@ -1014,6 +1014,7 @@ func _process(delta: float) -> void:
 	_update_foot_ik_targets()
 	_update_ground_locomotion_ik(delta)
 	_update_head_look_at(delta)
+	_debug_bone_after_ik() # ★ 同步 AnkleAlign + 樓梯 IK 開關
 
 
 # ═══════════════════════════════════════════════════════════════
