@@ -123,8 +123,14 @@ func _physics_process(delta):
 	var align_speed = 2.0 * delta
 	
 	# 根據是否有接觸水面決定旋轉速度
-	if points_underwater > 0:
-		var target_quat = Basis(transform.basis.get_rotation_quaternion()).slerp(Quaternion(Vector3.UP, wave_normal), align_speed * 2.0).get_rotation_quaternion()
+	if points_underwater > 0 and not wave_normal.is_zero_approx():
+		# 獲取安全法線
+		if wave_normal.length_squared() < 0.001:
+			wave_normal = Vector3.UP
+		else:
+			wave_normal = wave_normal.normalized()
+			
+		# var target_quat = Basis(transform.basis.get_rotation_quaternion()).slerp(Quaternion(Vector3.UP, wave_normal), align_speed * 2.0).get_rotation_quaternion()
 		
 		# 我們不想完全覆蓋 Yaw (Y 軸旋轉)，只調整 Pitch/Roll
 		# 這是個簡易的 LookAt 變體

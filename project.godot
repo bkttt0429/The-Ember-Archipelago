@@ -22,14 +22,7 @@ config/icon="res://icon.svg"
 [autoload]
 
 GlobalWind="*res://WeatherSystem/Core/GlobalWind.gd"
-mm_loader="*res://addons/material_maker/engine/loader.gd"
-mm_renderer="*res://addons/material_maker/engine/multi_renderer.gd"
-mm_deps="*res://addons/material_maker/engine/dependencies.gd"
-mm_io_types="*res://addons/material_maker/engine/io_types.gd"
-mm_logger="*res://addons/material_maker/engine/logger.gd"
-mm_preprocessor="*res://addons/material_maker/engine/preprocessor.gd"
-mm_globals="*res://addons/material_maker/engine/mm_globals.gd"
-mm_sdf_builder="*res://addons/material_maker/sdf_builder/sdf_builder.gd"
+
 DestructionManager="*uid://b5vpikm7vgiwe"
 PhantomCameraManager="*uid://duq6jhf6unyis"
 McpClientAutoload="*res://addons/mcp_client/McpClient.cs"
