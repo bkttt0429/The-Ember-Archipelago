@@ -483,7 +483,7 @@ left_ik = NodePath("../../Visuals/Human/GeneralSkeleton/Player_Visuals_Human_Ske
 right_ik = NodePath("../../Visuals/Human/GeneralSkeleton/Player_Visuals_Human_Skeleton3D#RightLegIK")
 left_foot_shape = NodePath("../../LeftFootShape")
 right_foot_shape = NodePath("../../RightFootShape")
-debug_draw = false
+debug_draw = true
 left_lookat_target = NodePath("../../LeftLookAtTarget")
 right_lookat_target = NodePath("../../RightLookAtTarget")
 
