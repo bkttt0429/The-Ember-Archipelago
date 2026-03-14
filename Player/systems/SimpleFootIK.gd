@@ -594,31 +594,31 @@ var _temporal_physics_frames: int = 0  # 已經過的物理幀數
 var _safe_startup_delay: float = 0.0
 
 func _process(_delta: float) -> void:
-	if not enable_predictive_ik:
-		return
 	if not skeleton or not left_target or not right_target:
 		return
 	
-	# ★ 防當機策略：開機後等待一小段時間，且確保目標位置已經與臀部拉開距離，才將 IK C++ 模組啟用
+	# ★ 防當機策略：必須在 enable_predictive_ik 判斷之前！
+	# 不然 enable_predictive_ik=false 時 IK 永遠不會被啟動！
 	if _safe_startup_delay < 1.0:
 		_safe_startup_delay += _delta
-		if _safe_startup_delay >= 0.5:
-			# 確認骨架不在原點重疊
-			if _left_hip_idx >= 0:
-				var l_hip = skeleton.global_transform * skeleton.get_bone_global_pose(_left_hip_idx)
-				if left_target.global_position.distance_to(l_hip.origin) > 0.1:
-					if left_ik and not left_ik.active: left_ik.active = true
-					if right_ik and not right_ik.active: right_ik.active = true
-					if left_lookat_modifier and not left_lookat_modifier.active: left_lookat_modifier.active = true
-					if right_lookat_modifier and not right_lookat_modifier.active: right_lookat_modifier.active = true
+		if _safe_startup_delay >= 0.5 and _left_hip_idx >= 0:
+			# 確認骨架已經與臀部骨骼有實質距離（表示骨架已完整載入）
+			var l_hip = skeleton.global_transform * skeleton.get_bone_global_pose(_left_hip_idx)
+			if left_target.global_position.distance_to(l_hip.origin) > 0.1:
+				if left_ik and not left_ik.active: left_ik.active = true
+				if right_ik and not right_ik.active: right_ik.active = true
+				if left_lookat_modifier and not left_lookat_modifier.active: left_lookat_modifier.active = true
+				if right_lookat_modifier and not right_lookat_modifier.active: right_lookat_modifier.active = true
+	
+	if not enable_predictive_ik:
+		return
 	
 	# 如果 IK 被外部禁用，不做插值
 	if not ik_enabled:
 		return
 	
-	# ★ 等待至少 3 個物理幀，確保 prev/curr 都有有效數據
-	# （避免啟動時 Vector3.ZERO 導致 TwoBoneIK 退化）
-	if _temporal_physics_frames < 3:
+	# ★ 等待至少 2 個物理幀，確保 prev/curr 都有有效數據（4.7 physics interpolation 更穩）
+	if _temporal_physics_frames < 2:
 		return
 	
 	# ★ 安全檢查：prev/curr 不能是零向量
