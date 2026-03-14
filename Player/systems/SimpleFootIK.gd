@@ -569,23 +569,24 @@ func _update_ik_target(target: Marker3D, foot_idx: int, hip_idx: int, ground_res
 ## 比 lerp 更自然：有慣性、不會突然跳動、收斂速度可控
 ## 參考：https://theorangeduck.com/page/spring-roll-call
 func _spring_damper_vec3(current: Vector3, velocity: Vector3, target_val: Vector3, dt: float) -> Array:
-	# ★ 核心修復：防止第一幀載入時 Delta 過大導致 Euler 計算爆炸（產生 NaN）
-	if dt <= 0.0001 or dt > 0.1:
-		return [target_val, Vector3.ZERO]
-		
+	# ★ 保護：無效 dt
+	if dt <= 0.0001:
+		return [current, velocity]
+	
 	var omega = spring_frequency * TAU  # 角頻率 = 2π * f
-	var zeta = spring_damping_ratio       # 阻尼比（1.0 = 臨界阻尼）
 	
-	# Semi-implicit Euler integration
-	var error = current - target_val
-	var damping_force = 2.0 * zeta * omega * velocity
-	var spring_force = omega * omega * error
-	var accel = -spring_force - damping_force
+	# ★★★ 解析解：Closed-Form Critically Damped Spring ★★★
+	# 取代顯式歐拉（Explicit Euler），後者在 omega*dt 接近穩定邊界時會指數爆炸到 NaN。
+	# 此公式對任何 dt 和任何 spring_frequency 都保證收斂（無條件穩定）。
+	# 來源：Daniel Holden "Spring-It-On" (GDC 2016)
+	var exp_term = exp(-omega * dt)
+	var j0 = current - target_val           # 位移誤差
+	var j1 = velocity + j0 * omega          # 衍生項
 	
-	velocity += accel * dt
-	current += velocity * dt
+	var new_pos = target_val + (j0 + j1 * dt) * exp_term
+	var new_vel = (velocity - j1 * omega * dt) * exp_term
 	
-	return [current, velocity]
+	return [new_pos, new_vel]
 
 
 ## ★★★ Temporal Interpolation：在渲染幀之間插值 IK Target ★★★
