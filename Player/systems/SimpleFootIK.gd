@@ -259,16 +259,10 @@ func _init_targets() -> void:
 		var rfoot = skeleton.global_transform * skeleton.get_bone_global_pose(_right_foot_idx)
 		right_lookat_target.global_position = rfoot.origin - skeleton.global_transform.basis.z * lookat_forward_offset
 	# ★ 現在才啟用所有 modifier（C++ solver 不會撞到零向量）
-	print("[SimpleFootIK] Activating TwoBoneIK...")
-	# 隔離測試：暫時完全關閉 C++ 的 IK
-	# if left_ik: left_ik.active = true
-	# if right_ik: right_ik.active = true
-	
-	print("[SimpleFootIK] Activating LookAtModifier...")
-	# 暫時註解掉 LookAt 看看是不是它造成的
-	# if left_lookat_modifier: left_lookat_modifier.active = true
-	# if right_lookat_modifier: right_lookat_modifier.active = true
-	print("[SimpleFootIK] Modifiers activated!")
+	if left_ik: left_ik.active = true
+	if right_ik: right_ik.active = true
+	if left_lookat_modifier: left_lookat_modifier.active = true
+	if right_lookat_modifier: right_lookat_modifier.active = true
 
 
 func _find_bone(candidates: Array) -> int:
