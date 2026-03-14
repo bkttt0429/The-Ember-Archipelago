@@ -182,6 +182,9 @@ var _curr_right_target: Vector3 = Vector3.ZERO
 var _debug_left_predict_pos: Vector3 = Vector3.ZERO
 var _debug_right_predict_pos: Vector3 = Vector3.ZERO
 
+# ★ 快取 PhysicsRayQueryParameters3D（避免每幀分配新物件）
+var _cached_ray_query: PhysicsRayQueryParameters3D = null
+
 
 func _ready() -> void:
 	if not skeleton:
@@ -248,6 +251,10 @@ func _ready() -> void:
 	
 	# ★ 延遲初始化目標位置，避免在第一幀腳被吸到 (0,0,0)
 	call_deferred("_init_targets")
+	
+	# ★ 快取 ray query 物件（每幀重用，省 120+ 次/秒的物件分配）
+	_cached_ray_query = PhysicsRayQueryParameters3D.new()
+	_cached_ray_query.collision_mask = 1
 
 
 func _init_targets() -> void:
@@ -543,11 +550,11 @@ func _detect_ground(foot_idx: int, shape_cast: ShapeCast3D, space: PhysicsDirect
 	# ★ 方法二：RayCast 備用（也使用預測位置）
 	var ray_start = predict_pos + Vector3.UP * 0.3
 	var ray_end = predict_pos + Vector3.DOWN * ray_length
-	var query = PhysicsRayQueryParameters3D.create(ray_start, ray_end)
-	query.collision_mask = 1
-	query.exclude = exclude
+	_cached_ray_query.from = ray_start
+	_cached_ray_query.to = ray_end
+	_cached_ray_query.exclude = exclude
 	
-	var result = space.intersect_ray(query)
+	var result = space.intersect_ray(_cached_ray_query)
 	if not result.is_empty():
 		return GroundResult.new(result.position, result.normal)
 	return GroundResult.new(foot_pos, Vector3.UP) # 沒擊中 → 用動畫位置
