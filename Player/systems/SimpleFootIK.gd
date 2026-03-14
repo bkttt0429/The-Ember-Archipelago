@@ -145,6 +145,7 @@ var _right_ground_normal: Vector3 = Vector3.UP
 
 # 模式追蹤（偵測 B→C 切換用）
 var _was_moving: bool = false
+var _was_ik_enabled: bool = true  # ★ 追蹤 IK 啟用狀態轉換（跳躍落地 reset 用）
 
 # ★ 動態步伐相位 (Procedural Foot Phase)
 var _prev_left_y: float = 0.0
@@ -322,7 +323,32 @@ func _physics_process(delta: float) -> void:
 			_right_ground_normal = rr.normal
 		if debug_draw:
 			_draw_debug()
+		_was_ik_enabled = false
 		return
+	
+	# ★ IK 重新啟用（跳躍落地）時：reset 所有彈簧和 temporal 狀態
+	if not _was_ik_enabled:
+		_was_ik_enabled = true
+		# 取得當前腳骨世界位置
+		var l_foot_pos = Vector3.ZERO
+		var r_foot_pos = Vector3.ZERO
+		if _left_foot_idx >= 0:
+			l_foot_pos = (skeleton.global_transform * skeleton.get_bone_global_pose(_left_foot_idx)).origin
+		if _right_foot_idx >= 0:
+			r_foot_pos = (skeleton.global_transform * skeleton.get_bone_global_pose(_right_foot_idx)).origin
+		# Reset 彈簧
+		_left_spring_pos = l_foot_pos
+		_left_spring_vel = Vector3.ZERO
+		_right_spring_pos = r_foot_pos
+		_right_spring_vel = Vector3.ZERO
+		# Reset temporal interpolation
+		_prev_left_target = l_foot_pos
+		_curr_left_target = l_foot_pos
+		_prev_right_target = r_foot_pos
+		_curr_right_target = r_foot_pos
+		# Reset stance lock
+		_left_stance_locked = false
+		_right_stance_locked = false
 	
 	# --- 樓梯偵測（已移除，平地與樓梯統一判斷）---
 	
