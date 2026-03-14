@@ -165,7 +165,6 @@ var _prev_left_target: Vector3 = Vector3.ZERO  # 上一物理幀的 target
 var _prev_right_target: Vector3 = Vector3.ZERO
 var _curr_left_target: Vector3 = Vector3.ZERO   # 當前物理幀的 target
 var _curr_right_target: Vector3 = Vector3.ZERO
-var _temporal_initialized: bool = false
 
 # ★★★ Predictive IK - Debug 預測點 ★★★
 var _debug_left_predict_pos: Vector3 = Vector3.ZERO
@@ -197,7 +196,7 @@ func _ready() -> void:
 	
 	# 檢查 IK 節點是否已設定
 	if left_ik:
-		left_ik.active = true
+		left_ik.active = false  # ★ 延遲啟用，等 _init_targets 設定好目標位置後才開
 		if left_target:
 			var path = left_ik.get_path_to(left_target)
 			left_ik.set("settings/0/target_node", path)
@@ -206,7 +205,7 @@ func _ready() -> void:
 		push_warning("[SimpleFootIK] ⚠️ left_ik not assigned! IK influence control disabled for left foot.")
 		
 	if right_ik:
-		right_ik.active = true
+		right_ik.active = false  # ★ 同上
 		if right_target:
 			var path = right_ik.get_path_to(right_target)
 			right_ik.set("settings/0/target_node", path)
@@ -243,8 +242,18 @@ func _init_targets() -> void:
 	if not skeleton: return
 	if left_target and _left_foot_idx >= 0:
 		left_target.global_transform = skeleton.global_transform * skeleton.get_bone_global_pose(_left_foot_idx)
+		# ★ 初始化 spring/temporal 到實際腳位
+		_left_spring_pos = left_target.global_position
+		_prev_left_target = left_target.global_position
+		_curr_left_target = left_target.global_position
 	if right_target and _right_foot_idx >= 0:
 		right_target.global_transform = skeleton.global_transform * skeleton.get_bone_global_pose(_right_foot_idx)
+		_right_spring_pos = right_target.global_position
+		_prev_right_target = right_target.global_position
+		_curr_right_target = right_target.global_position
+	# ★ 現在才啟用 IK modifier（避免 C++ solver 在目標為零時崩潰）
+	if left_ik: left_ik.active = true
+	if right_ik: right_ik.active = true
 
 
 func _find_bone(candidates: Array) -> int:
@@ -258,6 +267,10 @@ func _find_bone(candidates: Array) -> int:
 func _physics_process(delta: float) -> void:
 	if not skeleton:
 		return
+	
+	# ★ 計算物理幀數（供 temporal interpolation 延遲啟動用）
+	if _temporal_physics_frames < 10:
+		_temporal_physics_frames += 1
 	
 	# ★★★ 業界標準：三層 Foot Placement ★★★
 	# Layer 1: 偵測地面 (Raycast)
@@ -566,6 +579,8 @@ func _spring_damper_vec3(current: Vector3, velocity: Vector3, target_val: Vector
 
 ## ★★★ Temporal Interpolation：在渲染幀之間插值 IK Target ★★★
 ## 消除物理幀（固定 60Hz）和渲染幀（可變 FPS）之間的 1 幀延遲抖動
+var _temporal_physics_frames: int = 0  # 已經過的物理幀數
+
 func _process(_delta: float) -> void:
 	if not enable_predictive_ik:
 		return
@@ -576,13 +591,15 @@ func _process(_delta: float) -> void:
 	if not ik_enabled:
 		return
 	
-	# 首次初始化
-	if not _temporal_initialized:
-		_temporal_initialized = true
-		_prev_left_target = left_target.global_position
-		_curr_left_target = left_target.global_position
-		_prev_right_target = right_target.global_position
-		_curr_right_target = right_target.global_position
+	# ★ 等待至少 3 個物理幀，確保 prev/curr 都有有效數據
+	# （避免啟動時 Vector3.ZERO 導致 TwoBoneIK 退化）
+	if _temporal_physics_frames < 3:
+		return
+	
+	# ★ 安全檢查：prev/curr 不能是零向量
+	if _prev_left_target.is_zero_approx() or _curr_left_target.is_zero_approx():
+		return
+	if _prev_right_target.is_zero_approx() or _curr_right_target.is_zero_approx():
 		return
 	
 	# 取得渲染幀在兩個物理步驟之間的比例（0.0 ~ 1.0）
