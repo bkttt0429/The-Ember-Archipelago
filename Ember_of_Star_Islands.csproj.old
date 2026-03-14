@@ -1,0 +1,22 @@
+<Project Sdk="Godot.NET.Sdk/4.6.0">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <RootNamespace>EmberOfStarIslands</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Exclude temp/external directories -->
+    <Compile Remove="_tmp_godot4-runtime-mcp\**" />
+    <Compile Remove="examples_dd3d\**" />
+    <Compile Remove="**/examples_dd3d/**" />
+    <!-- Exclude Reference folder: Unity-SWE, imgui-godot, godot-ocean-waves etc. -->
+    <Compile Remove="Reference\**" />
+    <!-- Exclude Unity scripts bundled with animation assets -->
+    <Compile Remove="Player\assets\characters\player\motion\**\*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Resources.Extensions" Version="8.0.0" />
+  </ItemGroup>
+</Project>

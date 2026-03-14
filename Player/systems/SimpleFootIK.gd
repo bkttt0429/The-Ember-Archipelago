@@ -221,8 +221,8 @@ func _ready() -> void:
 	print("[SimpleFootIK] Left foot bone idx: ", _left_foot_idx)
 	print("[SimpleFootIK] Right foot bone idx: ", _right_foot_idx)
 	
-	if left_lookat_modifier: left_lookat_modifier.active = true
-	if right_lookat_modifier: right_lookat_modifier.active = true
+	if left_lookat_modifier: left_lookat_modifier.active = false  # ★ 延遲啟用
+	if right_lookat_modifier: right_lookat_modifier.active = false
 	
 	# 記錄骨架的原始位置（相對於父節點）
 	_skeleton_parent = skeleton.get_parent()
@@ -251,9 +251,18 @@ func _init_targets() -> void:
 		_right_spring_pos = right_target.global_position
 		_prev_right_target = right_target.global_position
 		_curr_right_target = right_target.global_position
-	# ★ 現在才啟用 IK modifier（避免 C++ solver 在目標為零時崩潰）
+	# ★ 初始化 LookAt 目標（腳前方）
+	if left_lookat_target and _left_foot_idx >= 0:
+		var lfoot = skeleton.global_transform * skeleton.get_bone_global_pose(_left_foot_idx)
+		left_lookat_target.global_position = lfoot.origin - skeleton.global_transform.basis.z * lookat_forward_offset
+	if right_lookat_target and _right_foot_idx >= 0:
+		var rfoot = skeleton.global_transform * skeleton.get_bone_global_pose(_right_foot_idx)
+		right_lookat_target.global_position = rfoot.origin - skeleton.global_transform.basis.z * lookat_forward_offset
+	# ★ 現在才啟用所有 modifier（C++ solver 不會撞到零向量）
 	if left_ik: left_ik.active = true
 	if right_ik: right_ik.active = true
+	if left_lookat_modifier: left_lookat_modifier.active = true
+	if right_lookat_modifier: right_lookat_modifier.active = true
 
 
 func _find_bone(candidates: Array) -> int:

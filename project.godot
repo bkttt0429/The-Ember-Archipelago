@@ -16,7 +16,7 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 
 config/name="星海餘燼：漂浮群島"
 run/main_scene="uid://mjlbecvr5l3"
-config/features=PackedStringArray("4.6", "C#")
+config/features=PackedStringArray("4.7", "C#")
 config/icon="res://icon.svg"
 
 [autoload]
@@ -44,7 +44,7 @@ project/assembly_name="Ember_of_Star_Islands"
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/Advanced-Movement-System-Godot-bc16f8f621d8c5465bda81bef48235fc08bde35e/Advanced-Movement-System-Godot-bc16f8f621d8c5465bda81bef48235fc08bde35e/addons/AMSG/plugin.cfg", "res://addons/destruction_system/plugin.cfg", "res://addons/godot_mcp/plugin.cfg", "res://addons/material_maker/plugin.cfg", "res://addons/phantom_camera/plugin.cfg", "res://addons/smash_the_mesh/plugin.cfg")
+enabled=PackedStringArray("res://addons/Advanced-Movement-System-Godot-bc16f8f621d8c5465bda81bef48235fc08bde35e/Advanced-Movement-System-Godot-bc16f8f621d8c5465bda81bef48235fc08bde35e/addons/AMSG/plugin.cfg", "res://addons/destruction_system/plugin.cfg", "res://addons/godot_mcp/plugin.cfg", "res://addons/phantom_camera/plugin.cfg", "res://addons/smash_the_mesh/plugin.cfg")
 
 [input]
 
