@@ -160,6 +160,17 @@ var _right_spring_pos: Vector3 = Vector3.ZERO
 var _right_spring_vel: Vector3 = Vector3.ZERO
 var _spring_initialized: bool = false
 
+# ★★★ Phase C: Stance Locking 狀態 ★★★
+# Stance phase 時鎖定地面接觸點，避免每幀重新 raycast 造成微抖
+var _left_stance_locked: bool = false
+var _right_stance_locked: bool = false
+var _left_locked_ground: Vector3 = Vector3.ZERO   # 鎖定的地面位置
+var _right_locked_ground: Vector3 = Vector3.ZERO
+var _left_locked_normal: Vector3 = Vector3.UP
+var _right_locked_normal: Vector3 = Vector3.UP
+const STANCE_LOCK_THRESHOLD: float = 0.85    # phase > 此值 = stance（腳著地）
+const SWING_UNLOCK_THRESHOLD: float = 0.5    # phase < 此值 = swing（腳離地）
+
 # ★★★ Predictive IK - Temporal Interpolation 狀態 ★★★
 var _prev_left_target: Vector3 = Vector3.ZERO  # 上一物理幀的 target
 var _prev_right_target: Vector3 = Vector3.ZERO
@@ -441,28 +452,38 @@ func _detect_ground(foot_idx: int, shape_cast: ShapeCast3D, space: PhysicsDirect
 	var bone_global = skeleton.global_transform * skeleton.get_bone_global_pose(foot_idx)
 	var foot_pos = bone_global.origin
 	
-	# ★★★ GASP-Style 模擬軌跡預測（取代線性預測）★★★
-	# 傳統: predict_pos = foot_pos + velocity * time  ← 直線，不準
-	# GASP:  模擬未來 N 步的加速/減速/轉向  ← 曲線，精確
+	# ★★★ GASP-Style Phase-Driven 預測（Phase C 增強）★★★
+	# Stance (planted): 鎖定地面接觸點，不再重新 raycast → 消除微抖
+	# Swing (in air):   模擬軌跡預測未來落地點 → 提前 raycast
+	# Transition:       swing→stance 時彈簧加硬 → 快速收斂到落點
 	var predict_pos = foot_pos
+	var is_left = (foot_idx == _left_foot_idx)
+	var foot_phase = _left_foot_phase if is_left else _right_foot_phase
+	var was_locked = _left_stance_locked if is_left else _right_stance_locked
+	
+	# Phase 狀態機：判斷 Stance Lock / Swing Unlock
+	var is_stance = foot_phase > STANCE_LOCK_THRESHOLD
+	var _is_swing = foot_phase < SWING_UNLOCK_THRESHOLD
+	
 	if enable_predictive_ik and _char_body:
 		var h_vel = Vector3(_char_body.velocity.x, 0, _char_body.velocity.z)
 		var h_speed = h_vel.length()
+		
 		if h_speed > min_prediction_speed:
-			# 用動畫相位決定預測強度
-			var foot_phase = _left_foot_phase if foot_idx == _left_foot_idx else _right_foot_phase
-			var swing_factor = 1.0 - foot_phase  # 0=planted, 1=fully swinging
-			
-			# 預測時間 = 步幅 / 速度 * swing_factor
-			var predict_time = (prediction_stride_length / h_speed) * swing_factor
-			
-			# ★ 模擬軌跡預測：向前模擬 6 步，考慮減速和轉向
-			var predict_offset = _simulate_trajectory_offset(h_vel, predict_time)
-			
-			# 限制最大偏移（防急轉彎跳動）
-			if predict_offset.length() > max_prediction_offset:
-				predict_offset = predict_offset.normalized() * max_prediction_offset
-			predict_pos = foot_pos + predict_offset
+			if is_stance and was_locked:
+				# ★ Stance Phase：使用鎖定的地面位置（不 raycast）
+				predict_pos = foot_pos  # 不偏移，用腳骨位置做 raycast
+			else:
+				# ★ Swing Phase：模擬軌跡預測前方落點
+				var swing_factor = 1.0 - foot_phase  # 0=planted, 1=fully swinging
+				var predict_time = (prediction_stride_length / h_speed) * swing_factor
+				
+				var predict_offset = _simulate_trajectory_offset(h_vel, predict_time)
+				
+				# 限制最大偏移（防急轉彎跳動）
+				if predict_offset.length() > max_prediction_offset:
+					predict_offset = predict_offset.normalized() * max_prediction_offset
+				predict_pos = foot_pos + predict_offset
 	
 	# 保存 debug 預測點
 	if foot_idx == _left_foot_idx:
@@ -539,9 +560,11 @@ func _update_ik_target(target: Marker3D, foot_idx: int, hip_idx: int, ground_res
 		if dist > max_reach_distance:
 			goal_pos = goal_pos.lerp(foot_pos, (dist - max_reach_distance) / 0.3)
 	
-	# ★★★ Spring-Damper 平滑（取代 lerp，更自然的慣性感）★★★
-	var is_left = (foot_idx == _left_foot_idx)
+	# ★★★ Phase-Driven Spring-Damper（Phase C 增強）★★★
+	# Swing→Stance 過渡時加硬彈簧，讓腳快速到位
 	var new_pos: Vector3
+	var foot_phase_ik = _left_foot_phase if (foot_idx == _left_foot_idx) else _right_foot_phase
+	var is_left_ik = (foot_idx == _left_foot_idx)
 	
 	if enable_predictive_ik:
 		if not _spring_initialized:
@@ -550,22 +573,48 @@ func _update_ik_target(target: Marker3D, foot_idx: int, hip_idx: int, ground_res
 			_right_spring_pos = foot_pos
 			_spring_initialized = true
 		
-		if is_left:
+		# ★ Phase-Driven 彈簧硬度：
+		# Swing→Stance (落地中): 加硬 2x → 快速收斂到地面
+		# Full Stance (已著地): 正常硬度 → 平滑跟隨
+		# Full Swing (空中):    正常硬度 → 自然擺動
+		var orig_freq = spring_frequency
+		var is_landing = foot_phase_ik > 0.4 and foot_phase_ik < STANCE_LOCK_THRESHOLD
+		if is_landing:
+			spring_frequency = orig_freq * 2.0  # 暫時加硬
+		
+		if is_left_ik:
 			var result = _spring_damper_vec3(_left_spring_pos, _left_spring_vel, goal_pos, delta)
 			_left_spring_pos = result[0]
 			_left_spring_vel = result[1]
 			new_pos = _left_spring_pos
+			# ★ 更新 Stance Lock 狀態
+			if foot_phase_ik > STANCE_LOCK_THRESHOLD and not _left_stance_locked:
+				_left_stance_locked = true
+				_left_locked_ground = goal_pos
+				_left_locked_normal = _left_ground_normal
+			elif foot_phase_ik < SWING_UNLOCK_THRESHOLD:
+				_left_stance_locked = false
 		else:
 			var result = _spring_damper_vec3(_right_spring_pos, _right_spring_vel, goal_pos, delta)
 			_right_spring_pos = result[0]
 			_right_spring_vel = result[1]
 			new_pos = _right_spring_pos
+			# ★ 更新 Stance Lock 狀態
+			if foot_phase_ik > STANCE_LOCK_THRESHOLD and not _right_stance_locked:
+				_right_stance_locked = true
+				_right_locked_ground = goal_pos
+				_right_locked_normal = _right_ground_normal
+			elif foot_phase_ik < SWING_UNLOCK_THRESHOLD:
+				_right_stance_locked = false
+		
+		# 恢復原始頻率
+		spring_frequency = orig_freq
 	else:
 		# 不用 predictive IK → 舊的 lerp 邏輯
 		new_pos = target.global_position.lerp(goal_pos, delta * smooth_speed)
 	
 	# ★ 儲存 temporal interpolation 狀態（供 _process 使用）
-	if is_left:
+	if is_left_ik:
 		_prev_left_target = _curr_left_target
 		_curr_left_target = new_pos
 	else:
@@ -1314,15 +1363,25 @@ func _draw_debug() -> void:
 			var pelvis_pos = skeleton.global_position
 			dd.draw_line(pelvis_pos, pelvis_pos + Vector3.DOWN * abs(_current_pelvis_offset), Color.YELLOW)
 		
-		# ★ Predictive IK 預測點 (橙色)
+		# ★ Phase-Driven Predictive IK 預測點
 		if enable_predictive_ik:
-			dd.draw_sphere(_debug_left_predict_pos, 0.04, Color.ORANGE)
-			dd.draw_sphere(_debug_right_predict_pos, 0.04, Color.ORANGE_RED)
-			# 預測方向線
+			# 預測點：stance=綠色(鎖定), swing=紅色(預測中), 過渡=橙色(落地中)
+			var l_color = Color.GREEN if _left_stance_locked else (Color.ORANGE if _left_foot_phase > 0.4 else Color.RED)
+			var r_color = Color.GREEN if _right_stance_locked else (Color.ORANGE if _right_foot_phase > 0.4 else Color.RED)
+			dd.draw_sphere(_debug_left_predict_pos, 0.04, l_color)
+			dd.draw_sphere(_debug_right_predict_pos, 0.04, r_color)
+			# 預測方向線（stance 時短線，swing 時長線）
 			if left_target:
-				dd.draw_line(left_target.global_position, _debug_left_predict_pos, Color.ORANGE)
+				dd.draw_line(left_target.global_position, _debug_left_predict_pos, l_color)
 			if right_target:
-				dd.draw_line(right_target.global_position, _debug_right_predict_pos, Color.ORANGE_RED)
+				dd.draw_line(right_target.global_position, _debug_right_predict_pos, r_color)
+			# ★ Phase 數值標記（在腳骨上方顯示 L/R）
+			if skeleton and _left_foot_idx >= 0:
+				var lf_pos = (skeleton.global_transform * skeleton.get_bone_global_pose(_left_foot_idx)).origin
+				dd.draw_sphere(lf_pos + Vector3.UP * 0.15, 0.02, l_color)
+			if skeleton and _right_foot_idx >= 0:
+				var rf_pos = (skeleton.global_transform * skeleton.get_bone_global_pose(_right_foot_idx)).origin
+				dd.draw_sphere(rf_pos + Vector3.UP * 0.15, 0.02, r_color)
 	else:
 		# 沒有 DebugDraw3D，每隔一段時間輸出文字
 		if Engine.get_process_frames() % 30 == 0:
