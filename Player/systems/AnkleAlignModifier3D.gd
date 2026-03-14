@@ -91,11 +91,17 @@ func _process_modification() -> void:
 func _align_foot(skel: Skeleton3D, bone_idx: int, ground_normal: Vector3, 
 		ik_weight: float, dt: float, is_left: bool) -> void:
 	
+	# ★ 安全檢查：地面法線必須是有效的
+	if ground_normal.is_zero_approx():
+		return
+	
 	# 超小角度（幾乎水平面）→ 漸進回到原始旋轉
 	var tilt_angle := ground_normal.angle_to(Vector3.UP)
 	if tilt_angle < deg_to_rad(min_tilt_degrees):
 		# 慢慢回到 IK 解算的原始旋轉
 		var current_pose_rot := skel.get_bone_pose_rotation(bone_idx)
+		if current_pose_rot.length_squared() < 0.001:
+			return
 		if is_left:
 			_left_smooth_rot = _left_smooth_rot.slerp(current_pose_rot, 1.0 - exp(-smooth_speed * dt))
 		else:
@@ -117,10 +123,15 @@ func _align_foot(skel: Skeleton3D, bone_idx: int, ground_normal: Vector3,
 	var current_global_rot := bone_basis.get_rotation_quaternion()
 	
 	# 3. 計算腳骨 forward（骨架空間），投影到水平面保留 yaw
-	var foot_forward := bone_global_pose.basis.z.normalized()
-	var foot_forward_flat := Vector3(foot_forward.x, 0, foot_forward.z).normalized()
-	if foot_forward_flat.length_squared() < 0.001:
+	var foot_fwd_raw := bone_global_pose.basis.z
+	if foot_fwd_raw.is_zero_approx():
+		return
+	var foot_forward := foot_fwd_raw.normalized()
+	var foot_forward_flat := Vector3(foot_forward.x, 0, foot_forward.z)
+	if foot_forward_flat.is_zero_approx():
 		foot_forward_flat = Vector3.FORWARD
+	else:
+		foot_forward_flat = foot_forward_flat.normalized()
 	
 	# 4. 用地面法線構建目標 Basis（保留 yaw）
 	var target_up := local_normal
@@ -149,20 +160,37 @@ func _align_foot(skel: Skeleton3D, bone_idx: int, ground_normal: Vector3,
 	var parent_idx := skel.get_bone_parent(bone_idx)
 	var parent_global_rot: Quaternion
 	if parent_idx >= 0:
-		parent_global_rot = skel.get_bone_global_pose(parent_idx).basis.get_rotation_quaternion()
+		var parent_basis := skel.get_bone_global_pose(parent_idx).basis.orthonormalized()
+		if parent_basis.determinant() < 0.001:
+			return
+		parent_global_rot = parent_basis.get_rotation_quaternion()
 	else:
 		parent_global_rot = Quaternion.IDENTITY
 	
 	var rest := skel.get_bone_rest(bone_idx)
-	var rest_rot := rest.basis.get_rotation_quaternion()
+	var rest_basis := rest.basis.orthonormalized()
+	if rest_basis.determinant() < 0.001:
+		return
+	var rest_rot := rest_basis.get_rotation_quaternion()
+	
+	# 安全檢查所有 quaternion
+	if rest_rot.length_squared() < 0.001 or parent_global_rot.length_squared() < 0.001:
+		return
 	
 	# bone_pose_rotation = rest_inv * parent_global_inv * final_global
 	var local_rot := rest_rot.inverse() * parent_global_rot.inverse() * blended_global_rot
+	if local_rot.length_squared() < 0.001:
+		return
 	
 	# 7. 平滑（避免突變抖動）
+	var blend_t := 1.0 - exp(-smooth_speed * dt)
 	if is_left:
-		_left_smooth_rot = _left_smooth_rot.slerp(local_rot, 1.0 - exp(-smooth_speed * dt))
+		if _left_smooth_rot.length_squared() < 0.001:
+			_left_smooth_rot = Quaternion.IDENTITY
+		_left_smooth_rot = _left_smooth_rot.slerp(local_rot, blend_t)
 		skel.set_bone_pose_rotation(bone_idx, _left_smooth_rot)
 	else:
-		_right_smooth_rot = _right_smooth_rot.slerp(local_rot, 1.0 - exp(-smooth_speed * dt))
+		if _right_smooth_rot.length_squared() < 0.001:
+			_right_smooth_rot = Quaternion.IDENTITY
+		_right_smooth_rot = _right_smooth_rot.slerp(local_rot, blend_t)
 		skel.set_bone_pose_rotation(bone_idx, _right_smooth_rot)
