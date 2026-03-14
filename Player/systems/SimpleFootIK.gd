@@ -592,6 +592,10 @@ func _update_ik_target(target: Marker3D, foot_idx: int, hip_idx: int, ground_res
 				_left_stance_locked = true
 				_left_locked_ground = goal_pos
 				_left_locked_normal = _left_ground_normal
+				# ★ 關鍵修復：進入 Stance 時清除彈簧殘留速度，防止過沖甩向後方
+				_left_spring_vel = Vector3.ZERO
+				_left_spring_pos = goal_pos
+				new_pos = goal_pos
 			elif foot_phase_ik < SWING_UNLOCK_THRESHOLD:
 				_left_stance_locked = false
 		else:
@@ -604,6 +608,10 @@ func _update_ik_target(target: Marker3D, foot_idx: int, hip_idx: int, ground_res
 				_right_stance_locked = true
 				_right_locked_ground = goal_pos
 				_right_locked_normal = _right_ground_normal
+				# ★ 關鍵修復：進入 Stance 時清除彈簧殘留速度
+				_right_spring_vel = Vector3.ZERO
+				_right_spring_pos = goal_pos
+				new_pos = goal_pos
 			elif foot_phase_ik < SWING_UNLOCK_THRESHOLD:
 				_right_stance_locked = false
 		
