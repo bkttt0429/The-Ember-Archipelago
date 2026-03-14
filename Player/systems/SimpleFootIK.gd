@@ -259,11 +259,11 @@ func _init_targets() -> void:
 		var rfoot = skeleton.global_transform * skeleton.get_bone_global_pose(_right_foot_idx)
 		right_lookat_target.global_position = rfoot.origin - skeleton.global_transform.basis.z * lookat_forward_offset
 	# ★ 現在才啟用所有 modifier（C++ solver 不會撞到零向量）
-	# 隔離測試：由於 Bug 依然存在於 2.7 秒，暫時完全關閉 TwoBoneIK3D 的啟動！
-	# if left_ik: left_ik.active = true
-	# if right_ik: right_ik.active = true
-	# if left_lookat_modifier: left_lookat_modifier.active = true
-	# if right_lookat_modifier: right_lookat_modifier.active = true
+	# 經過測試，NaN 爆掉的根因是 Spring-Damper 在載入時 Delta 過大爆炸
+	if left_ik: left_ik.active = true
+	if right_ik: right_ik.active = true
+	if left_lookat_modifier: left_lookat_modifier.active = true
+	if right_lookat_modifier: right_lookat_modifier.active = true
 
 
 func _find_bone(candidates: Array) -> int:
@@ -572,6 +572,10 @@ func _update_ik_target(target: Marker3D, foot_idx: int, hip_idx: int, ground_res
 ## 比 lerp 更自然：有慣性、不會突然跳動、收斂速度可控
 ## 參考：https://theorangeduck.com/page/spring-roll-call
 func _spring_damper_vec3(current: Vector3, velocity: Vector3, target_val: Vector3, dt: float) -> Array:
+	# ★ 核心修復：防止第一幀載入時 Delta 過大導致 Euler 計算爆炸（產生 NaN）
+	if dt <= 0.0001 or dt > 0.1:
+		return [target_val, Vector3.ZERO]
+		
 	var omega = spring_frequency * TAU  # 角頻率 = 2π * f
 	var zeta = spring_damping_ratio       # 阻尼比（1.0 = 臨界阻尼）
 	
