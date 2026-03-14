@@ -251,19 +251,16 @@ func _init_targets() -> void:
 		_right_spring_pos = right_target.global_position
 		_prev_right_target = right_target.global_position
 		_curr_right_target = right_target.global_position
-	# ★ 初始化 LookAt 目標（腳前方）
+	# 初始化 LookAt 目標（腳前方）
 	if left_lookat_target and _left_foot_idx >= 0:
 		var lfoot = skeleton.global_transform * skeleton.get_bone_global_pose(_left_foot_idx)
 		left_lookat_target.global_position = lfoot.origin - skeleton.global_transform.basis.z * lookat_forward_offset
 	if right_lookat_target and _right_foot_idx >= 0:
 		var rfoot = skeleton.global_transform * skeleton.get_bone_global_pose(_right_foot_idx)
 		right_lookat_target.global_position = rfoot.origin - skeleton.global_transform.basis.z * lookat_forward_offset
-	# ★ 現在才啟用所有 modifier（C++ solver 不會撞到零向量）
-	# 經過測試，NaN 爆掉的根因是 Spring-Damper 在載入時 Delta 過大爆炸
-	if left_ik: left_ik.active = true
-	if right_ik: right_ik.active = true
-	if left_lookat_modifier: left_lookat_modifier.active = true
-	if right_lookat_modifier: right_lookat_modifier.active = true
+	# ★ 極度重要：我們不再於 _init_targets 階段啟動 active = true
+	# 因為此時 Skeleton 與世界座標可能還為 0，導致 C++ 內部計算出現 (0,0,0) 並崩潰 (Segment Fault)
+	# 改由 _process 內部的安全機制來非同步啟動。
 
 
 func _find_bone(candidates: Array) -> int:
@@ -594,12 +591,26 @@ func _spring_damper_vec3(current: Vector3, velocity: Vector3, target_val: Vector
 ## ★★★ Temporal Interpolation：在渲染幀之間插值 IK Target ★★★
 ## 消除物理幀（固定 60Hz）和渲染幀（可變 FPS）之間的 1 幀延遲抖動
 var _temporal_physics_frames: int = 0  # 已經過的物理幀數
+var _safe_startup_delay: float = 0.0
 
 func _process(_delta: float) -> void:
 	if not enable_predictive_ik:
 		return
 	if not skeleton or not left_target or not right_target:
 		return
+	
+	# ★ 防當機策略：開機後等待一小段時間，且確保目標位置已經與臀部拉開距離，才將 IK C++ 模組啟用
+	if _safe_startup_delay < 1.0:
+		_safe_startup_delay += _delta
+		if _safe_startup_delay >= 0.5:
+			# 確認骨架不在原點重疊
+			if _left_hip_idx >= 0:
+				var l_hip = skeleton.global_transform * skeleton.get_bone_global_pose(_left_hip_idx)
+				if left_target.global_position.distance_to(l_hip.origin) > 0.1:
+					if left_ik and not left_ik.active: left_ik.active = true
+					if right_ik and not right_ik.active: right_ik.active = true
+					if left_lookat_modifier and not left_lookat_modifier.active: left_lookat_modifier.active = true
+					if right_lookat_modifier and not right_lookat_modifier.active: right_lookat_modifier.active = true
 	
 	# 如果 IK 被外部禁用，不做插值
 	if not ik_enabled:
