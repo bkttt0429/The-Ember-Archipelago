@@ -52,18 +52,18 @@ var ik_enabled: bool = true
 @export var pelvis_smooth_speed: float = 10.0
 
 @export_group("Predictive IK")
-## ★ 啟用預測式 IK（根據速度+動畫相位預判落腳點）
+## ★ 啟用預測式 IK（GASP-Style 模擬軌跡預測）
 @export var enable_predictive_ik: bool = true
 ## 低於此速度不預測（站立時用當前位置）
 @export var min_prediction_speed: float = 0.5
-## 預測偏移最大距離（防止急轉彎時預測點跳動）
-@export var max_prediction_offset: float = 0.4
-## 預測前方 raycast 的額外前探距離（步幅估計）
+## 預測偏移最大距離（防急轉彎跳動，建議 = 跑步半步幅 ≈ 0.5m）
+@export var max_prediction_offset: float = 0.5
+## 預測步幅長度（控制前探距離，走路 0.5-0.7，跑步自動按速度縮放）
 @export var prediction_stride_length: float = 0.6
-## Spring-Damper 阻尼比（1.0 = 臨界阻尼，<1 會震盪）
+## Spring-Damper 阻尼比（1.0 = 臨界阻尼，<1 會震盪，>1 會過阻尼）
 @export var spring_damping_ratio: float = 1.0
-## Spring-Damper 自然頻率（越大越快收斂，建議 8~15）
-@export var spring_frequency: float = 12.0
+## Spring-Damper 自然頻率（8=柔軟80ms, 10=平衡64ms, 12=硬朗53ms）
+@export var spring_frequency: float = 10.0
 
 @export_group("Influence")
 ## 移動時的 IK 權重（0=純動畫，1=純IK）
