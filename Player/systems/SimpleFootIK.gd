@@ -52,12 +52,18 @@ var ik_enabled: bool = true
 @export var pelvis_smooth_speed: float = 10.0
 
 @export_group("Predictive IK")
-## 預測未來落腳點的時間（秒）— 0 = 關閉預測，使用當前腳位偵測
-@export var prediction_time: float = 0.0
+## ★ 啟用預測式 IK（根據速度+動畫相位預判落腳點）
+@export var enable_predictive_ik: bool = true
 ## 低於此速度不預測（站立時用當前位置）
 @export var min_prediction_speed: float = 0.5
 ## 預測偏移最大距離（防止急轉彎時預測點跳動）
 @export var max_prediction_offset: float = 0.4
+## 預測前方 raycast 的額外前探距離（步幅估計）
+@export var prediction_stride_length: float = 0.6
+## Spring-Damper 阻尼比（1.0 = 臨界阻尼，<1 會震盪）
+@export var spring_damping_ratio: float = 1.0
+## Spring-Damper 自然頻率（越大越快收斂，建議 8~15）
+@export var spring_frequency: float = 12.0
 
 @export_group("Influence")
 ## 移動時的 IK 權重（0=純動畫，1=純IK）
@@ -146,6 +152,24 @@ var _prev_right_y: float = 0.0
 var _left_foot_phase: float = 1.0
 var _right_foot_phase: float = 1.0
 var _char_body: CharacterBody3D = null
+
+# ★★★ Predictive IK - Spring-Damper 狀態 ★★★
+var _left_spring_pos: Vector3 = Vector3.ZERO  # 當前彈簧位置
+var _left_spring_vel: Vector3 = Vector3.ZERO  # 當前彈簧速度
+var _right_spring_pos: Vector3 = Vector3.ZERO
+var _right_spring_vel: Vector3 = Vector3.ZERO
+var _spring_initialized: bool = false
+
+# ★★★ Predictive IK - Temporal Interpolation 狀態 ★★★
+var _prev_left_target: Vector3 = Vector3.ZERO  # 上一物理幀的 target
+var _prev_right_target: Vector3 = Vector3.ZERO
+var _curr_left_target: Vector3 = Vector3.ZERO   # 當前物理幀的 target
+var _curr_right_target: Vector3 = Vector3.ZERO
+var _temporal_initialized: bool = false
+
+# ★★★ Predictive IK - Debug 預測點 ★★★
+var _debug_left_predict_pos: Vector3 = Vector3.ZERO
+var _debug_right_predict_pos: Vector3 = Vector3.ZERO
 
 
 func _ready() -> void:
@@ -384,23 +408,41 @@ func _detect_ground(foot_idx: int, shape_cast: ShapeCast3D, space: PhysicsDirect
 	var bone_global = skeleton.global_transform * skeleton.get_bone_global_pose(foot_idx)
 	var foot_pos = bone_global.origin
 	
-	# ★ Predictive IK：根據速度預判未來落腳點
-	if _char_body:
+	# ★★★ Predictive IK：根據速度 + 動畫相位預判未來落腳點 ★★★
+	var predict_pos = foot_pos
+	if enable_predictive_ik and _char_body:
 		var h_vel = Vector3(_char_body.velocity.x, 0, _char_body.velocity.z)
-		if h_vel.length() > min_prediction_speed:
-			var predict_offset = h_vel * prediction_time
+		var h_speed = h_vel.length()
+		if h_speed > min_prediction_speed:
+			# 用動畫相位決定預測策略
+			var foot_phase = _left_foot_phase if foot_idx == _left_foot_idx else _right_foot_phase
+			
+			# swing phase (foot in air): 強預測 → 提前 raycast 落地點
+			# stance phase (foot on ground): 弱預測 → 只看附近
+			var swing_factor = 1.0 - foot_phase  # 0=planted, 1=fully swinging
+			
+			# 預測時間 = 步幅 / 速度 * swing_factor
+			var predict_time = (prediction_stride_length / h_speed) * swing_factor
+			var predict_offset = h_vel * predict_time
+			
 			# 限制最大偏移（防急轉彎跳動）
 			if predict_offset.length() > max_prediction_offset:
 				predict_offset = predict_offset.normalized() * max_prediction_offset
-			foot_pos += predict_offset
+			predict_pos = foot_pos + predict_offset
+	
+	# 保存 debug 預測點
+	if foot_idx == _left_foot_idx:
+		_debug_left_predict_pos = predict_pos
+	else:
+		_debug_right_predict_pos = predict_pos
 	
 	# ★ 方法一：ShapeCast（球形掃描，更準確）
 	if shape_cast:
-		# 讓 ShapeCast 跟隨腳骨位置（相對於 Player 父節點）
+		# 讓 ShapeCast 跟隨預測位置（而非腳骨位置）
 		var parent_node = shape_cast.get_parent()
 		if parent_node:
-			var local_pos = parent_node.global_transform.affine_inverse() * foot_pos
-			# 從腳骨上方 0.3m 開始掃描（跟隨腳的實際 Y，不是固定高度）
+			var local_pos = parent_node.global_transform.affine_inverse() * predict_pos
+			# 從預測位置上方 0.3m 開始掃描
 			shape_cast.position = Vector3(local_pos.x, local_pos.y + 0.3, local_pos.z)
 		
 		shape_cast.force_shapecast_update()
@@ -417,9 +459,9 @@ func _detect_ground(foot_idx: int, shape_cast: ShapeCast3D, space: PhysicsDirect
 					closest_normal = normal
 			return GroundResult.new(closest_point, closest_normal)
 	
-	# ★ 方法二：RayCast 備用
-	var ray_start = foot_pos + Vector3.UP * 0.3
-	var ray_end = foot_pos + Vector3.DOWN * ray_length
+	# ★ 方法二：RayCast 備用（也使用預測位置）
+	var ray_start = predict_pos + Vector3.UP * 0.3
+	var ray_end = predict_pos + Vector3.DOWN * ray_length
 	var query = PhysicsRayQueryParameters3D.create(ray_start, ray_end)
 	query.collision_mask = 1
 	query.exclude = exclude
@@ -430,7 +472,7 @@ func _detect_ground(foot_idx: int, shape_cast: ShapeCast3D, space: PhysicsDirect
 	return GroundResult.new(foot_pos, Vector3.UP) # 沒擊中 → 用動畫位置
 
 
-## ★ 更新 IK 目標位置（加入 XZ 防懸空牽引）
+## ★ 更新 IK 目標位置（Spring-Damper + 防懸空牽引）
 func _update_ik_target(target: Marker3D, foot_idx: int, hip_idx: int, ground_res: GroundResult, delta: float) -> void:
 	var bone_global = skeleton.global_transform * skeleton.get_bone_global_pose(foot_idx)
 	var foot_pos = bone_global.origin
@@ -446,28 +488,109 @@ func _update_ik_target(target: Marker3D, foot_idx: int, hip_idx: int, ground_res
 		return
 	
 	# === 邊緣防懸空邏輯 (Edge Anti-Hover) ===
-	# 如果碰撞點的 XZ 位置與骨骼原本的 XZ 偏差較大，說明是球體邊緣撞到了台階（也就是懸空狀態）
-	# 此時不應該讓腳步虛空踩著上層的 Y，而是把目標稍微牽引到碰撞點，或者維持骨頭向下投射
 	var target_xz = Vector2(foot_pos.x, foot_pos.z)
 	var hit_xz = Vector2(ground_res.pos.x, ground_res.pos.z)
 	var xz_dist = target_xz.distance_to(hit_xz)
-	
-	# 如果偏離超過 0.05m（ShapeCast 半徑是 0.1），就牽引向碰撞點，避免踩在空氣上
 	if xz_dist > 0.05:
-		target_xz = target_xz.lerp(hit_xz, 0.5) # 將足部貼回台階實體處
+		target_xz = target_xz.lerp(hit_xz, 0.5)
 	
 	# 目標位置
-	var new_pos = Vector3(target_xz.x, target_y, target_xz.y)
+	var goal_pos = Vector3(target_xz.x, target_y, target_xz.y)
 	
 	# 距離限制：防止腳延伸超過腿的長度
 	if hip_idx >= 0:
 		var hip_global = skeleton.global_transform * skeleton.get_bone_global_pose(hip_idx)
 		var hip_pos = hip_global.origin
-		var dist = new_pos.distance_to(hip_pos)
+		var dist = goal_pos.distance_to(hip_pos)
 		if dist > max_reach_distance:
-			new_pos = new_pos.lerp(foot_pos, (dist - max_reach_distance) / 0.3)
+			goal_pos = goal_pos.lerp(foot_pos, (dist - max_reach_distance) / 0.3)
 	
-	target.global_position = target.global_position.lerp(new_pos, delta * smooth_speed)
+	# ★★★ Spring-Damper 平滑（取代 lerp，更自然的慣性感）★★★
+	var is_left = (foot_idx == _left_foot_idx)
+	var new_pos: Vector3
+	
+	if enable_predictive_ik:
+		if not _spring_initialized:
+			# 首次初始化彈簧到動畫位置
+			_left_spring_pos = foot_pos
+			_right_spring_pos = foot_pos
+			_spring_initialized = true
+		
+		if is_left:
+			var result = _spring_damper_vec3(_left_spring_pos, _left_spring_vel, goal_pos, delta)
+			_left_spring_pos = result[0]
+			_left_spring_vel = result[1]
+			new_pos = _left_spring_pos
+		else:
+			var result = _spring_damper_vec3(_right_spring_pos, _right_spring_vel, goal_pos, delta)
+			_right_spring_pos = result[0]
+			_right_spring_vel = result[1]
+			new_pos = _right_spring_pos
+	else:
+		# 不用 predictive IK → 舊的 lerp 邏輯
+		new_pos = target.global_position.lerp(goal_pos, delta * smooth_speed)
+	
+	# ★ 儲存 temporal interpolation 狀態（供 _process 使用）
+	if is_left:
+		_prev_left_target = _curr_left_target
+		_curr_left_target = new_pos
+	else:
+		_prev_right_target = _curr_right_target
+		_curr_right_target = new_pos
+	
+	target.global_position = new_pos
+
+
+# ═══════════════════════════════════════════════════════════════
+# ★★★ Predictive IK - 核心工具函數 ★★★
+# ═══════════════════════════════════════════════════════════════
+
+## Critically-Damped Spring-Damper（臨界阻尼彈簧）
+## 比 lerp 更自然：有慣性、不會突然跳動、收斂速度可控
+## 參考：https://theorangeduck.com/page/spring-roll-call
+func _spring_damper_vec3(current: Vector3, velocity: Vector3, target_val: Vector3, dt: float) -> Array:
+	var omega = spring_frequency * TAU  # 角頻率 = 2π * f
+	var zeta = spring_damping_ratio       # 阻尼比（1.0 = 臨界阻尼）
+	
+	# Semi-implicit Euler integration
+	var error = current - target_val
+	var damping_force = 2.0 * zeta * omega * velocity
+	var spring_force = omega * omega * error
+	var accel = -spring_force - damping_force
+	
+	velocity += accel * dt
+	current += velocity * dt
+	
+	return [current, velocity]
+
+
+## ★★★ Temporal Interpolation：在渲染幀之間插值 IK Target ★★★
+## 消除物理幀（固定 60Hz）和渲染幀（可變 FPS）之間的 1 幀延遲抖動
+func _process(_delta: float) -> void:
+	if not enable_predictive_ik:
+		return
+	if not skeleton or not left_target or not right_target:
+		return
+	
+	# 如果 IK 被外部禁用，不做插值
+	if not ik_enabled:
+		return
+	
+	# 首次初始化
+	if not _temporal_initialized:
+		_temporal_initialized = true
+		_prev_left_target = left_target.global_position
+		_curr_left_target = left_target.global_position
+		_prev_right_target = right_target.global_position
+		_curr_right_target = right_target.global_position
+		return
+	
+	# 取得渲染幀在兩個物理步驟之間的比例（0.0 ~ 1.0）
+	var frac = Engine.get_physics_interpolation_fraction()
+	
+	# 在 prev 和 curr 之間線性插值
+	left_target.global_position = _prev_left_target.lerp(_curr_left_target, frac)
+	right_target.global_position = _prev_right_target.lerp(_curr_right_target, frac)
 
 
 ## ★★★ 腳踝對齊地面法線（直接法線旋轉，不依賴骨骼軸向） ★★★
@@ -1076,6 +1199,16 @@ func _draw_debug() -> void:
 		if skeleton:
 			var pelvis_pos = skeleton.global_position
 			dd.draw_line(pelvis_pos, pelvis_pos + Vector3.DOWN * abs(_current_pelvis_offset), Color.YELLOW)
+		
+		# ★ Predictive IK 預測點 (橙色)
+		if enable_predictive_ik:
+			dd.draw_sphere(_debug_left_predict_pos, 0.04, Color.ORANGE)
+			dd.draw_sphere(_debug_right_predict_pos, 0.04, Color.ORANGE_RED)
+			# 預測方向線
+			if left_target:
+				dd.draw_line(left_target.global_position, _debug_left_predict_pos, Color.ORANGE)
+			if right_target:
+				dd.draw_line(right_target.global_position, _debug_right_predict_pos, Color.ORANGE_RED)
 	else:
 		# 沒有 DebugDraw3D，每隔一段時間輸出文字
 		if Engine.get_process_frames() % 30 == 0:
