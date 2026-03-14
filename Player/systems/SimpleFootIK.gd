@@ -428,22 +428,23 @@ func _detect_ground(foot_idx: int, shape_cast: ShapeCast3D, space: PhysicsDirect
 	var bone_global = skeleton.global_transform * skeleton.get_bone_global_pose(foot_idx)
 	var foot_pos = bone_global.origin
 	
-	# ★★★ Predictive IK：根據速度 + 動畫相位預判未來落腳點 ★★★
+	# ★★★ GASP-Style 模擬軌跡預測（取代線性預測）★★★
+	# 傳統: predict_pos = foot_pos + velocity * time  ← 直線，不準
+	# GASP:  模擬未來 N 步的加速/減速/轉向  ← 曲線，精確
 	var predict_pos = foot_pos
 	if enable_predictive_ik and _char_body:
 		var h_vel = Vector3(_char_body.velocity.x, 0, _char_body.velocity.z)
 		var h_speed = h_vel.length()
 		if h_speed > min_prediction_speed:
-			# 用動畫相位決定預測策略
+			# 用動畫相位決定預測強度
 			var foot_phase = _left_foot_phase if foot_idx == _left_foot_idx else _right_foot_phase
-			
-			# swing phase (foot in air): 強預測 → 提前 raycast 落地點
-			# stance phase (foot on ground): 弱預測 → 只看附近
 			var swing_factor = 1.0 - foot_phase  # 0=planted, 1=fully swinging
 			
 			# 預測時間 = 步幅 / 速度 * swing_factor
 			var predict_time = (prediction_stride_length / h_speed) * swing_factor
-			var predict_offset = h_vel * predict_time
+			
+			# ★ 模擬軌跡預測：向前模擬 6 步，考慮減速和轉向
+			var predict_offset = _simulate_trajectory_offset(h_vel, predict_time)
 			
 			# 限制最大偏移（防急轉彎跳動）
 			if predict_offset.length() > max_prediction_offset:
@@ -565,6 +566,60 @@ func _update_ik_target(target: Marker3D, foot_idx: int, hip_idx: int, ground_res
 # ★★★ Predictive IK - 核心工具函數 ★★★
 # ═══════════════════════════════════════════════════════════════
 
+## ★★★ GASP-Style 模擬軌跡預測 ★★★
+## 取代線性預測 (vel * time)，模擬未來 N 步的加速/減速/轉向
+## 
+## 原理（對應 UE5 GASP 的 Trajectory Component）：
+##   1. 讀取玩家目前的輸入方向（決定「目標速度」）
+##   2. 用 move_toward 模擬加速/減速（與 SimpleCapsuleMove 相同的物理模型）
+##   3. 累積每一步的位移差，得到預測偏移
+##
+## 效果差異（vs 線性預測）：
+##   停止時：軌跡會減速到零（線性的會繼續直線衝出去）
+##   轉彎時：軌跡會彎曲（線性的指向舊方向）
+##   加速時：軌跡會短些（線性的假設已達全速）
+##
+## 參考 MovementData：ground_accel=12, ground_decel=15, walk=3.5, sprint=6.0
+
+## 外部可設定（由 SimpleCapsuleMove 在每幀寫入）
+var _prediction_input_dir: Vector3 = Vector3.ZERO    # 玩家搖桿方向（世界空間）
+var _prediction_max_speed: float = 3.5               # 當前目標速度（walk/sprint）
+var _prediction_accel: float = 12.0                  # 加速率
+var _prediction_decel: float = 15.0                  # 減速率
+
+const TRAJECTORY_SAMPLES: int = 6  # 軌跡采樣點數量
+
+func _simulate_trajectory_offset(current_vel: Vector3, total_time: float) -> Vector3:
+	if total_time <= 0.001:
+		return Vector3.ZERO
+	
+	# 計算目標速度向量
+	var target_vel: Vector3
+	if _prediction_input_dir.length_squared() > 0.01:
+		# 玩家有輸入 → 目標速度 = 輸入方向 × 最大速度
+		target_vel = _prediction_input_dir.normalized() * _prediction_max_speed
+	else:
+		# 玩家無輸入 → 目標速度 = 0（減速停止）
+		target_vel = Vector3.ZERO
+	
+	# 向前模擬 N 步
+	var sim_vel = current_vel
+	var total_offset = Vector3.ZERO
+	var step_dt = total_time / float(TRAJECTORY_SAMPLES)
+	
+	for i in range(TRAJECTORY_SAMPLES):
+		# 決定使用加速或減速率
+		var approaching = sim_vel.dot(target_vel) > 0 and sim_vel.length() < target_vel.length()
+		var rate = _prediction_accel if approaching else _prediction_decel
+		
+		# 模擬 move_toward（與 SimpleCapsuleMove._apply_horizontal_movement 相同模型）
+		sim_vel.x = move_toward(sim_vel.x, target_vel.x, rate * step_dt)
+		sim_vel.z = move_toward(sim_vel.z, target_vel.z, rate * step_dt)
+		
+		# 累積位移
+		total_offset += sim_vel * step_dt
+	
+	return total_offset
 ## Critically-Damped Spring-Damper（臨界阻尼彈簧）
 ## 比 lerp 更自然：有慣性、不會突然跳動、收斂速度可控
 ## 參考：https://theorangeduck.com/page/spring-roll-call

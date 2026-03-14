@@ -1257,6 +1257,13 @@ func _process_horizontal_movement(delta: float) -> void:
 	else:
 		velocity.x = move_toward(velocity.x, target_velocity.x, rate * delta)
 		velocity.z = move_toward(velocity.z, target_velocity.z, rate * delta)
+	
+	# ★ GASP-Style 軌跡預測：每幀寫入預測參數給 SimpleFootIK
+	if _foot_ik_system:
+		_foot_ik_system._prediction_input_dir = _move_dir
+		_foot_ik_system._prediction_max_speed = _current_speed
+		_foot_ik_system._prediction_accel = accel
+		_foot_ik_system._prediction_decel = decel_v
 
 ## [DEPRECATED] 已內聯到 StateGround.physics_update pipeline
 func _process_stair_physics(_delta: float) -> void:
