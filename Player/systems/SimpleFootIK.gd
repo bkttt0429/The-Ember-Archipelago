@@ -596,6 +596,9 @@ func _update_ik_target(target: Marker3D, foot_idx: int, hip_idx: int, ground_res
 				_left_spring_vel = Vector3.ZERO
 				_left_spring_pos = goal_pos
 				new_pos = goal_pos
+				# ★ 同步 temporal interpolation，防止 _process 的 lerp 拉回舊位置
+				_prev_left_target = goal_pos
+				_curr_left_target = goal_pos
 			elif foot_phase_ik < SWING_UNLOCK_THRESHOLD:
 				_left_stance_locked = false
 		else:
@@ -612,6 +615,9 @@ func _update_ik_target(target: Marker3D, foot_idx: int, hip_idx: int, ground_res
 				_right_spring_vel = Vector3.ZERO
 				_right_spring_pos = goal_pos
 				new_pos = goal_pos
+				# ★ 同步 temporal interpolation
+				_prev_right_target = goal_pos
+				_curr_right_target = goal_pos
 			elif foot_phase_ik < SWING_UNLOCK_THRESHOLD:
 				_right_stance_locked = false
 		
