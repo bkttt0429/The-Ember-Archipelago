@@ -259,10 +259,11 @@ func _init_targets() -> void:
 		var rfoot = skeleton.global_transform * skeleton.get_bone_global_pose(_right_foot_idx)
 		right_lookat_target.global_position = rfoot.origin - skeleton.global_transform.basis.z * lookat_forward_offset
 	# ★ 現在才啟用所有 modifier（C++ solver 不會撞到零向量）
-	if left_ik: left_ik.active = true
-	if right_ik: right_ik.active = true
-	if left_lookat_modifier: left_lookat_modifier.active = true
-	if right_lookat_modifier: right_lookat_modifier.active = true
+	# 隔離測試：由於 Bug 依然存在於 2.7 秒，暫時完全關閉 TwoBoneIK3D 的啟動！
+	# if left_ik: left_ik.active = true
+	# if right_ik: right_ik.active = true
+	# if left_lookat_modifier: left_lookat_modifier.active = true
+	# if right_lookat_modifier: right_lookat_modifier.active = true
 
 
 func _find_bone(candidates: Array) -> int:
