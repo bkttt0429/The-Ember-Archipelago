@@ -104,11 +104,17 @@ func _align_foot(skel: Skeleton3D, bone_idx: int, ground_normal: Vector3,
 	
 	# 1. 將世界空間法線轉換到骨架空間
 	var skel_inv_basis := skel.global_transform.basis.inverse()
-	var local_normal := (skel_inv_basis * ground_normal).normalized()
+	var raw_local := skel_inv_basis * ground_normal
+	if raw_local.is_zero_approx():
+		return
+	var local_normal := raw_local.normalized()
 	
 	# 2. 取得 IK 處理後的腳骨姿勢（骨架空間）
 	var bone_global_pose := skel.get_bone_global_pose(bone_idx)
-	var current_global_rot := bone_global_pose.basis.get_rotation_quaternion()
+	var bone_basis := bone_global_pose.basis.orthonormalized()
+	if bone_basis.determinant() < 0.001:
+		return  # 退化 basis
+	var current_global_rot := bone_basis.get_rotation_quaternion()
 	
 	# 3. 計算腳骨 forward（骨架空間），投影到水平面保留 yaw
 	var foot_forward := bone_global_pose.basis.z.normalized()
@@ -118,16 +124,25 @@ func _align_foot(skel: Skeleton3D, bone_idx: int, ground_normal: Vector3,
 	
 	# 4. 用地面法線構建目標 Basis（保留 yaw）
 	var target_up := local_normal
-	var target_right := foot_forward_flat.cross(target_up).normalized()
-	if target_right.length_squared() < 0.001:
+	var raw_right := foot_forward_flat.cross(target_up)
+	if raw_right.is_zero_approx():
 		return
-	var target_forward := target_up.cross(target_right).normalized()
+	var target_right := raw_right.normalized()
+	var raw_forward := target_up.cross(target_right)
+	if raw_forward.is_zero_approx():
+		return
+	var target_forward := raw_forward.normalized()
 	
-	var target_basis := Basis(target_right, target_up, target_forward)
+	var target_basis := Basis(target_right, target_up, target_forward).orthonormalized()
+	if target_basis.determinant() < 0.001:
+		return  # 退化 basis
 	var target_global_rot := target_basis.get_rotation_quaternion()
 	
 	# 5. 混合：IK 旋轉 → 對齊旋轉
 	var effective_blend := ik_weight * blend_strength
+	# 安全檢查：確保兩個 quaternion 都是有效的
+	if current_global_rot.length_squared() < 0.001 or target_global_rot.length_squared() < 0.001:
+		return
 	var blended_global_rot := current_global_rot.slerp(target_global_rot, effective_blend)
 	
 	# 6. 轉換回 bone-local 旋轉

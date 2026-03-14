@@ -619,12 +619,15 @@ func _align_foot_to_ground(foot_idx: int, ground_normal: Vector3, delta: float, 
 	
 	# 將世界空間的法線轉換到骨架空間
 	var skel_basis_inv = skeleton.global_transform.basis.inverse()
-	var local_normal = (skel_basis_inv * ground_normal).normalized()
+	var raw_normal = skel_basis_inv * ground_normal
+	if raw_normal.is_zero_approx():
+		return
+	var local_normal = raw_normal.normalized()
 	
 	# 計算從 UP 到法線的旋轉
 	var from_up = Vector3.UP
 	var rot_axis = from_up.cross(local_normal)
-	if rot_axis.length_squared() < 0.0001:
+	if rot_axis.is_zero_approx() or rot_axis.length_squared() < 0.0001:
 		return
 	rot_axis = rot_axis.normalized()
 	var rot_angle = from_up.angle_to(local_normal)
