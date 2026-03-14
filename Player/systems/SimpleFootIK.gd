@@ -292,12 +292,25 @@ func _physics_process(delta: float) -> void:
 	var speed = Vector2(velocity.x, velocity.z).length()
 	var is_moving = speed > standing_threshold
 	
-	# ★ 樓梯/外部禁用時：淡出 IK influence 到 0，跳過目標更新
+	# ★ 樓梯/外部禁用時：淡出 IK influence 到 0，但仍然執行地面偵測和 debug draw
 	if not ik_enabled:
 		_current_influence = lerp(_current_influence, 0.0, delta * 10.0)
 		if left_ik: left_ik.influence = _current_influence
 		if right_ik: right_ik.influence = _current_influence
 		_was_moving = is_moving
+		# ★ 即使 IK 禁用，仍然執行地面偵測 + 預測計算（為了 debug draw 和數據連續性）
+		var space_disabled = get_world_3d().direct_space_state
+		var exclude_disabled = [_char_body.get_rid()] if _char_body else []
+		if _left_foot_idx >= 0:
+			var lr = _detect_ground(_left_foot_idx, left_foot_shape, space_disabled, exclude_disabled)
+			_left_ground_y = lr.y
+			_left_ground_normal = lr.normal
+		if _right_foot_idx >= 0:
+			var rr = _detect_ground(_right_foot_idx, right_foot_shape, space_disabled, exclude_disabled)
+			_right_ground_y = rr.y
+			_right_ground_normal = rr.normal
+		if debug_draw:
+			_draw_debug()
 		return
 	
 	# --- 樓梯偵測（已移除，平地與樓梯統一判斷）---
