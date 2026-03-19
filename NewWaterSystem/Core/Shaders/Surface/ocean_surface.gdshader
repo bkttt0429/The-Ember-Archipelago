@@ -502,7 +502,9 @@ void vertex() {
 	
 	// ★ Toroidal SWE UV Mapping
 	v_swe_uv = (world_pos.xz - swe_world_origin) / sea_size + 0.5;
-	v_swe_uv = fract(v_swe_uv); // Automatically wrap to [0, 1] continuously
+	if (swe_fill_mode < 0.5) {
+		v_swe_uv = fract(v_swe_uv); // Automatically wrap to [0, 1] continuously
+	}
 	
 	float cam_dist = length(world_pos - manager_world_pos); // Or CAMERA_POSITION_WORLD if available
 	
@@ -703,9 +705,15 @@ float water_caustic(vec2 uv, float t) {
 }
 
 void fragment() {
-	// ★ SWE Fill Mode: discard where water hasn't reached (clean cutoff, no dithering)
-	if (swe_fill_mode > 0.5 && v_swe_h < swe_fill_threshold) {
-		discard;
+	// ★ SWE Fill Mode: discard obstacles and dry cells (per-fragment for clean edges)
+	if (swe_fill_mode > 0.5) {
+		if (v_swe_uv.x < 0.0 || v_swe_uv.x > 1.0 || v_swe_uv.y < 0.0 || v_swe_uv.y > 1.0) {
+			discard;
+		}
+		vec4 swe_frag = texture(swe_texture, v_swe_uv);
+		if (swe_frag.r < swe_fill_threshold || swe_frag.a > 0.3) {
+			discard;
+		}
 	}
 	// 1. Depth & Water Color - Using Linear Z Difference for robust Depth Fade
 	float depth_raw = texture(depth_texture, SCREEN_UV).r;

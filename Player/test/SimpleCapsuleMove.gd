@@ -5052,112 +5052,18 @@ func _snap_down_stairs_check() -> void:
 		if verbose_debug: print(">>> [SnapDown] snap_y=%.3f pos_y=%.3f" % [snap_y, global_position.y])
 
 ## 樓梯動畫切換
-func _update_stair_animation(delta: float) -> void:
-	if _stair_system:
-		_stair_system.update_stair_animation(delta)
+## ★ 策略：保持 AnimationTree 走路動畫，IK 負責腳步定位
+func _update_stair_animation(_delta: float) -> void:
+	# 樓梯上：不切換動畫，AnimationTree 持續提供走路動畫 + foot phases
+	# IK 預測 + stance pin 負責把腳放到可見台階上
+	if stair.on_stairs:
+		# 確保 AnimationTree 保持啟用
+		if anim_tree and not anim_tree.active:
+			anim_tree.active = true
 		return
-
-	if not _stair_anims_loaded or not anim_player:
-		stair.root_motion_active = false
-		return
 	
-	var raw_input = Input.get_vector("left", "right", "forward", "backward")
-	var has_input = raw_input.length() > 0.1
-	
-	# ★ Debug: 每 60 幀印出狀態
-	if Engine.get_frames_drawn() % 60 == 0 and has_input:
-		if verbose_debug: print(">>> [StairRM] on=%s asc=%s blend=%.2f rm_active=%s vel_y=%.3f" % [
-			stair.on_stairs, stair.ascending, stair.blend_weight,
-			stair.root_motion_active, stair.rm_velocity.y])
-	
-	# ★ 條件：在樓梯上 + 有輸入 + 實際在移動 + 不在跳/落地/停止
-	# ★ 坡度過濾：只有踩在接近水平的表面（台階踏面）才觸發樓梯動畫
-	#   斜坡的法線傾斜 (dot < 0.95) → 用走路動畫
-	var h_speed = Vector2(velocity.x, velocity.z).length()
-	var is_on_flat_tread = not is_on_floor() or get_floor_normal().dot(Vector3.UP) > 0.95
-	var want_stair_anim = stair.on_stairs and is_on_flat_tread and has_input and h_speed > 0.5 and not _is_jumping and not _is_landing and not _is_stopping
-	
-	if want_stair_anim:
-		# ★★★ 方向穩定：使用 committed direction 防止 ascending↔descending 快速切換
-		# 每次單步的 snap_up 會讓 velocity.y 短暫反轉，只有計時器到期才允許切換
-		const DIR_COMMIT_TIME: float = 0.5 # 最少維持此方向 0.5 秒
-		if not stair.dir_committed:
-			# 尚未提交方向，直接用當前 stair.ascending
-			stair.committed_ascending = stair.ascending
-			stair.dir_commit_timer = DIR_COMMIT_TIME
-			stair.dir_committed = true
-		else:
-			stair.dir_commit_timer -= delta
-			if stair.dir_commit_timer <= 0.0:
-				# 計時器到期 → 若方向仍然不同才切換
-				if stair.committed_ascending != stair.ascending:
-					stair.committed_ascending = stair.ascending
-					if verbose_debug: print(">>> [StairAnim] 方向切換: %s" % ("ascending" if stair.committed_ascending else "descending"))
-				stair.dir_commit_timer = DIR_COMMIT_TIME # 重置計時器
-		
-		# ★ 選擇動畫：上樓走/跑 vs 下樓（使用已提交的穩定方向）
-		var stair_anim: String
-		var rm_base_speed: float
-		if stair.committed_ascending:
-			if h_speed > STAIR_RUN_SPEED_THRESHOLD and _stair_run_anim_loaded:
-				stair_anim = _stair_anim_prefix + "/" + STAIR_RUN_ASCEND_ANIM
-				rm_base_speed = STAIR_RM_RUN_H_SPEED
-			else:
-				stair_anim = _stair_anim_prefix + "/" + STAIR_ASCEND_ANIM
-				rm_base_speed = STAIR_RM_WALK_H_SPEED
-		else:
-			stair_anim = _stair_anim_prefix + "/" + STAIR_DESCEND_ANIM
-			rm_base_speed = STAIR_RM_DESCEND_H_SPEED
-		
-		# ★ 進入樓梯時：關閉 AnimationTree
-		if anim_tree and anim_tree.active:
-			anim_tree.active = false
-			if verbose_debug: print(">>> [StairAnim] AnimationTree OFF, 進入樓梯動畫模式")
-		
-		# ★ 不設定 root_motion_track — 讓動畫自然播放（Hips 擺動保留，膝蓋抬起可見）
-		# snap_up 處理實際的台階物理攀爬
-		
-		# ★ 播放動畫
-		var is_new_anim = (anim_player.assigned_animation != stair_anim) or not anim_player.is_playing()
-		if is_new_anim:
-			anim_player.play(stair_anim, 0.2)
-			if verbose_debug: print(">>> [StairAnim] Play: %s" % stair_anim)
-			
-			# ★★★ 相位匹配 (Phase Matching) ★★★
-			# 決定動畫應該從 0.0s 還是從一半 (0.5 * length) 開始
-			if _skeleton:
-				var r_bone = _skeleton.find_bone("RightFoot")
-				var l_bone = _skeleton.find_bone("LeftFoot")
-				if r_bone >= 0 and l_bone >= 0 and anim_player.has_animation(stair_anim):
-					var right_y = _skeleton.get_bone_global_pose(r_bone).origin.y
-					var left_y = _skeleton.get_bone_global_pose(l_bone).origin.y
-					var anim_len = anim_player.get_animation(stair_anim).length
-					
-					var start_time: float = 0.0
-					# 如果右腳高於左腳，代表接下來應該踏左腳 (從 50% 時間點開始)
-					if right_y > left_y + 0.05:
-						start_time = anim_len * 0.5
-						if verbose_debug: print(">>> [StairAnim] Phase Match: 右腳較高，從 %.2fs 開始 (左腳步)" % start_time)
-					elif left_y > right_y + 0.05:
-						start_time = 0.0
-						if verbose_debug: print(">>> [StairAnim] Phase Match: 左腳較高，從 %.2fs 開始 (右腳步)" % start_time)
-					
-					anim_player.seek(start_time, true)
-		
-		# ★ 動態 speed_scale：玩家實際水平速度 / 動畫內建 root motion 水平速度
-		var target_speed_scale := clampf(h_speed / rm_base_speed, 0.3, 3.0) if rm_base_speed > 0.01 else 1.0
-		anim_player.speed_scale = lerpf(anim_player.speed_scale, target_speed_scale, delta * 8.0)
-		
-		stair.root_motion_active = true
-		stair.blend_weight = lerpf(stair.blend_weight, 1.0, delta * 8.0)
-		stair.anim_exit_timer = 0.0
-		
-		# ★ Debug: 每 30 幀印出狀態
-		if Engine.get_frames_drawn() % 30 == 0:
-			if verbose_debug: print(">>> [StairAnim] anim=%s scale=%.2f h_speed=%.2f blend=%.2f" % [
-				stair_anim, anim_player.speed_scale, h_speed, stair.blend_weight])
-	
-	elif stair.root_motion_active:
+	# ★ 離開樓梯後的清理
+	if stair.root_motion_active:
 		# ★ 立即停止樓梯動畫，不用 grace timer
 		stair.root_motion_active = false
 		stair.blend_weight = 0.0

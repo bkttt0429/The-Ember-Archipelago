@@ -8,9 +8,11 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 layout(set = 0, binding = 0, rgba32f) uniform readonly image2D tex_in;
 layout(set = 0, binding = 1, rgba32f) uniform writeonly image2D tex_out;
 
-layout(push_constant) uniform Params {
+layout(push_constant, std430) uniform Params {
     int stage;      // Current stage (0 to log2(N)-1)
     int direction;  // 0 for Horizontal, 1 for Vertical
+    int _pad0;
+    int _pad1;
 } params;
 
 const float PI = 3.14159265359;

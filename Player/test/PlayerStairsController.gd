@@ -215,9 +215,7 @@ func detect_stairs() -> void:
 		data.grace_timer -= delta
 	if data.anim_exit_timer > 0.0:
 		data.anim_exit_timer = maxf(data.anim_exit_timer - delta, 0.0)
-	# ★ 同步 on_stairs/ascending 到 player.stair（SimpleFootIK 從那裡讀取）
-	player.stair.on_stairs = data.on_stairs
-	player.stair.ascending = data.ascending
+	# ★ 同步移到函數末尾（見下方 _sync_stair_to_player）
 	
 	if data.step_up_offset > 0.0 or data.post_step_up_cooldown > 0:
 		data.on_stairs = true
@@ -230,10 +228,12 @@ func detect_stairs() -> void:
 			data.saved_collision_layer = player.collision_layer
 			data.collision_disabled = true
 			player.collision_layer = 0
+		_sync_stair_to_player()
 		return
 	
 	if not player.is_on_floor() and not player.ground.was_on_floor or player._is_jumping or player._is_landing:
 		if data.grace_timer > 0:
+			_sync_stair_to_player()
 			return
 		data.on_stairs = false
 		data.params_valid = false
@@ -247,6 +247,7 @@ func detect_stairs() -> void:
 		if data.collision_disabled:
 			player.collision_layer = data.saved_collision_layer
 			data.collision_disabled = false
+		_sync_stair_to_player()
 		return
 	
 	if data.step_up_offset > 0.0 or data.post_step_up_cooldown > 0:
@@ -259,7 +260,19 @@ func detect_stairs() -> void:
 			data.saved_collision_layer = player.collision_layer
 			data.collision_disabled = true
 			player.collision_layer = 0
+		_sync_stair_to_player()
 		return
+	
+	# ★★★ Ramp 斜坡維持：grace_timer 期間，角色在斜面上行走 → 維持 on_stairs ★★★
+	# raycast flat-tread 偵測永遠抓不到 ramp（法線 ~0.87 < 0.9 門檻），
+	# 所以靠斜坡法線 + grace_timer 來維持 on_stairs=true。
+	if data.grace_timer > 0 and data.on_stairs and player.is_on_floor():
+		var floor_n = player.get_floor_normal()
+		# 斜坡：法線 Y 在 0.7~0.98 之間（不是平地也不是太陡的牆）
+		if floor_n.y < 0.98 and floor_n.y > 0.7:
+			data.grace_timer = 0.3  # 持續重設 grace
+			_sync_stair_to_player()
+			return
 	
 	var move_dir := Vector3.ZERO
 	if player._main_camera:
@@ -284,6 +297,7 @@ func detect_stairs() -> void:
 		data.pending_step_height = 0.0
 		data.pending_step_timer = 0.0
 		data.pending_step_active = false
+		_sync_stair_to_player()
 		return
 	
 	var space = player.get_world_3d().direct_space_state
@@ -294,7 +308,7 @@ func detect_stairs() -> void:
 		var check_pos = player.global_position + move_dir * dist + Vector3.UP * 0.6
 		var query = PhysicsRayQueryParameters3D.create(check_pos, check_pos + Vector3.DOWN * 1.2)
 		query.exclude = [player.get_rid()]
-		query.collision_mask = 2
+		query.collision_mask = 3  # ★ layer 1 + 2，兼容可見台階在任一層
 		var hit = space.intersect_ray(query)
 		
 		if hit:
@@ -312,7 +326,7 @@ func detect_stairs() -> void:
 			var ray_end = ray_start + move_dir * 0.5
 			var riser_query = PhysicsRayQueryParameters3D.create(ray_start, ray_end)
 			riser_query.exclude = [player.get_rid()]
-			riser_query.collision_mask = 2
+			riser_query.collision_mask = 3
 			var riser_hit = space.intersect_ray(riser_query)
 			
 			if riser_hit:
@@ -321,6 +335,8 @@ func detect_stairs() -> void:
 					has_riser = true
 					break
 	
+	if Engine.get_physics_frames() % 30 == 0:
+		print("[DetectStairs] hits=%d tread=%s riser=%s mask=3 on_stairs=%s step_up=%.3f" % [hits.size(), has_flat_tread, has_riser, data.on_stairs, data.step_up_offset])
 	if hits.size() >= STAIR_DETECT_MIN_HITS and has_flat_tread and has_riser:
 		data.on_stairs = true
 		var first_h_diff = hits[0].position.y - player.global_position.y
@@ -378,11 +394,13 @@ func detect_stairs() -> void:
 			if player.verbose_debug: print(">>> [StairGate] hits=%d cand=%.2f anim_ready=%s step=%.3f" % [
 				data.candidate_hits, data.candidate_timer, data.anim_ready, data.step_height_measured
 			])
+		_sync_stair_to_player()
 		return
 	
 	if data.grace_timer > 0:
 		data.candidate_timer = maxf(data.candidate_timer - delta * 0.5, 0.0)
 		data.anim_ready = data.anim_ready and data.candidate_timer > 0.01
+		_sync_stair_to_player()
 		return
 	data.on_stairs = false
 	data.params_valid = false
@@ -398,6 +416,11 @@ func detect_stairs() -> void:
 		player.collision_layer = data.saved_collision_layer
 		data.collision_disabled = false
 		if player.verbose_debug: print(">>> [StairCol] 碰撞體 ON (離開樓梯)")
+	_sync_stair_to_player()
+
+func _sync_stair_to_player() -> void:
+	player.stair.on_stairs = data.on_stairs
+	player.stair.ascending = data.ascending
 
 func _check_step_up() -> float:
 	var max_step = player.movement_data.max_step_height
@@ -495,6 +518,8 @@ func snap_up_stairs_check(_delta: float) -> void:
 		data.pending_step_height = 0.0
 		data.pending_step_active = false
 		data.pending_step_timer = 0.0
+		if Engine.get_physics_frames() % 30 == 0:
+			print("[SnapUp] ★ BLOCKED by on_stairs=true")
 		return
 
 	var h_vel = Vector3(player.velocity.x, 0, player.velocity.z)
