@@ -183,6 +183,8 @@ class StateGround extends PlayerState:
 		if p.movement_data.step_enabled and not p._is_jumping and not p._is_landing:
 			if p.is_on_floor() or p.ground.snapped_to_stairs_last_frame or (p.stair.on_stairs and p.stair.ascending):
 				p._snap_up_stairs_check(delta)
+		if p._stair_system:
+			p._stair_system.apply_pending_step_up(delta)
 		
 		# Step 4: ★ move_and_slide() — 唯一一處 ★
 		var saved_snap = p.floor_snap_length
@@ -207,6 +209,8 @@ class StateGround extends PlayerState:
 			p.air.fall_velocity_peak = 0.0
 		
 		# Step 7: Debug 紀錄
+		if p._stair_system:
+			p._stair_system.update_stair_foot_adhesion(delta)
 		if p.stair.on_stairs and p.stair.ascending:
 			var md = post_mas_y - pre_y
 			var sd = post_sd_y - post_mas_y
@@ -246,7 +250,7 @@ var _fsm := StateMachine.new()
 
 var ground := GroundData.new()
 var air := AirData.new()
-var stair := StairData.new()
+var stair = StairData.new()
 var climb := ClimbData.new()
 var state_anim := AnimState.new()
 # =============================================================================
@@ -467,6 +471,7 @@ var left_foot_target: Marker3D = null
 var _ik_blend_weight: float = 0.0
 var _ankle_modifier: AnkleAlignModifier3D = null # ★ 腳踝對齊修正器
 var _foot_ik_system: SimpleFootIK = null # ★ 外部 SimpleFootIK 節點
+var _stair_system: PlayerStairsController = null # ★ 新版樓梯控制器
 
 # ★ Hand IK for climbing (手部錨定到邊緣)
 var right_arm_ik: Node = null # TwoBoneIK3D (如果存在)
@@ -627,6 +632,9 @@ func _ready() -> void:
 				if verbose_debug: print(">>> [FootIK] ✅ 找到 SimpleFootIK")
 		else:
 			push_warning("[Skeleton] ⚠ 在 Visuals/Human 下找不到任何 Skeleton3D")
+	
+	_stair_system = PlayerStairsController.new(self)
+	stair = _stair_system.data
 	
 	# ★ 連接 PhantomCamera3D（延遲至場景載入後）
 	call_deferred("_setup_phantom_camera")
@@ -1286,7 +1294,14 @@ func _process_visual_smoothing(delta: float) -> void:
 			_visuals_node.position.x = 0.0
 			_visuals_node.position.z = 0.0
 		if Engine.get_frames_drawn() % 5 == 0:
-			if verbose_debug: print(">>> [StairDbg] phys_y=%.3f vis_y=%.3f pred=%s" % [global_position.y, _visuals_node.global_position.y if _visuals_node else 0.0, _predict_ik_active])
+			if verbose_debug:
+				var ext_pred = false
+				var ext_lock = "--"
+				if _foot_ik_system:
+					ext_pred = _foot_ik_system._left_pred_active or _foot_ik_system._right_pred_active
+				if _stair_system and _stair_system.data.support_lock_active:
+					ext_lock = "L" if _stair_system.data.support_lock_is_left else "R"
+				print(">>> [StairDbg] phys_y=%.3f vis_y=%.3f pred=%s ext_pred=%s lock=%s" % [global_position.y, _visuals_node.global_position.y if _visuals_node else 0.0, _predict_ik_active, ext_pred, ext_lock])
 		if _cam_follow_target:
 			_cam_smooth_y = lerpf(_cam_smooth_y, global_position.y, delta * 6.0)
 			_cam_follow_target.global_position = Vector3(global_position.x, _cam_smooth_y, global_position.z)
@@ -3587,10 +3602,11 @@ func _debug_bone_after_ik() -> void:
 	
 	# ★ Debug: 每 30 幀印出 IK 狀態（只在 verbose 模式）
 	if verbose_debug and Engine.get_frames_drawn() % 30 == 0:
+		var ext_ik_enabled = _foot_ik_system.ik_enabled if _foot_ik_system else false
 		print(">>> [IK-Sync] on_stairs=%s grace=%.2f animActive=%s => ik=%s offset=%.3f cooldown=%d" % [
 			stair.on_stairs, stair.grace_timer,
 			str(anim_tree.active) if anim_tree else "null",
-			not on_stairs_any,
+			ext_ik_enabled,
 			stair.step_up_offset, stair.post_step_up_cooldown
 		])
 	
@@ -3609,22 +3625,27 @@ func _debug_bone_after_ik() -> void:
 			_ankle_modifier.right_ik_weight = _right_ik_weight
 	
 	if _foot_ik_system:
-		var should_ik = not on_stairs_any
-		if _foot_ik_system.ik_enabled != should_ik:
-			_foot_ik_system.ik_enabled = should_ik
+		# ★ 方案 B: IK 永遠啟用（樓梯用走路動畫 + IK 預測落腳點）
+		if not _foot_ik_system.ik_enabled:
+			_foot_ik_system.ik_enabled = true
 			if verbose_debug:
-				print(">>> [FootIK] %s (stairs=%s grace=%.2f animTree=%s)" % [
-					"ON" if should_ik else "OFF",
-					stair.on_stairs, stair.grace_timer,
-					str(anim_tree.active) if anim_tree else "null"
-				])
+				print(">>> [FootIK] ON (always-on, 方案B)")
+		_foot_ik_system.temporary_disable_predict_ik = false
+
 	
 	var right_foot_idx = _skeleton.find_bone("RightFoot")
+	var left_foot_idx = _skeleton.find_bone("LeftFoot")
 	if right_foot_idx >= 0:
 		var bone_pose = _skeleton.global_transform * _skeleton.get_bone_global_pose(right_foot_idx)
-		if verbose_debug: print(">>> [AFTER IK] RBone=%.2f | Target=%.2f | active=%s" % [
+		var left_bone_y = -999.0
+		if left_foot_idx >= 0:
+			var left_pose = _skeleton.global_transform * _skeleton.get_bone_global_pose(left_foot_idx)
+			left_bone_y = left_pose.origin.y
+		if verbose_debug and Engine.get_frames_drawn() % 60 == 0: print(">>> [AFTER IK] RBone=%.2f | RTarget=%.2f | LBone=%.2f | LTarget=%.2f | active=%s" % [
 			bone_pose.origin.y,
 			right_foot_target.global_position.y if right_foot_target else -999.0,
+			left_bone_y,
+			left_foot_target.global_position.y if left_foot_target else -999.0,
 			right_leg_ik.get("active") if right_leg_ik else false
 		])
 
@@ -3632,6 +3653,9 @@ func _debug_bone_after_ik() -> void:
 
 ## 啟用 Foot Locking（動畫過渡期間穩定腳部）
 func _activate_foot_lock() -> void:
+	if stair.on_stairs or stair.grace_timer > 0.0:
+		return
+
 	# 如果已經有 Tween 運行，先取消它
 	if _foot_lock_tween and _foot_lock_tween.is_valid():
 		_foot_lock_tween.kill()
@@ -3649,6 +3673,15 @@ func _activate_foot_lock() -> void:
 
 ## 停用 Foot Locking
 func _deactivate_foot_lock() -> void:
+	if stair.on_stairs or stair.grace_timer > 0.0:
+		# 樓梯期間不要讓過渡 Foot Lock 把 IK 目標 snap 回骨骼，避免覆蓋 stair support lock。
+		if _foot_lock_tween and _foot_lock_tween.is_valid():
+			_foot_lock_tween.kill()
+		_foot_lock_tween = null
+		_foot_lock_active = false
+		_foot_lock_blend = 0.0
+		return
+
 	if verbose_debug: print(">>> [Foot Lock] 停用，切換到地面 IK")
 	_foot_lock_active = false
 	_foot_lock_blend = 0.0
@@ -4557,6 +4590,10 @@ func _strip_root_motion_from_stair_animation(anim: Animation) -> void:
 ## 偵測是否在樓梯上（前方射線高度差法 + step-up 狀態）
 ## 使用原始輸入方向（避免 move_and_slide 碰撞後 velocity 為零）
 func _detect_stairs() -> void:
+	if _stair_system:
+		_stair_system.detect_stairs()
+		return
+
 	# ★ 遞減寬限計時器
 	var delta = get_physics_process_delta_time()
 	if stair.grace_timer > 0:
@@ -4823,6 +4860,10 @@ func _snap_after_step_up() -> void:
 ## ★ 新版 Step-Up：社區最佳實踐（move_and_slide 前呼叫）
 ## 使用 test_move 做 raise→forward→drop 偵測，自適應任何台階幾何
 func _snap_up_stairs_check(_delta: float) -> void:
+	if _stair_system:
+		_stair_system.snap_up_stairs_check(_delta)
+		return
+
 	# ★ Pre-MAS snap_up（在 move_and_slide 前呼叫）
 	# 偵測前方台階 → 只抬升 Y → MAS 在抬升後的高度平滑前進
 	# 不修改 XZ → 保持樓梯攀爬動畫的自然感
@@ -4959,6 +5000,10 @@ func _snap_down_stairs_check() -> void:
 	if is_on_floor():
 		return
 	
+	if _stair_system:
+		_stair_system.snap_down_stairs_check()
+		return
+
 	# 跳躍中 / 快速上升 → 不處理
 	if _is_jumping or velocity.y > 0.1:
 		return
@@ -5008,6 +5053,10 @@ func _snap_down_stairs_check() -> void:
 
 ## 樓梯動畫切換
 func _update_stair_animation(delta: float) -> void:
+	if _stair_system:
+		_stair_system.update_stair_animation(delta)
+		return
+
 	if not _stair_anims_loaded or not anim_player:
 		stair.root_motion_active = false
 		return

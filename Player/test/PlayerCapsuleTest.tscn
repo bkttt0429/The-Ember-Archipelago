@@ -67,6 +67,57 @@ size = Vector3(2.5, 0.25, 0.5)
 [sub_resource type="BoxShape3D" id="BoxShape3D_stair"]
 size = Vector3(2.5, 0.25, 0.5)
 
+[sub_resource type="BoxShape3D" id="BoxShape3D_stair_ramp"]
+size = Vector3(2.5, 0.2, 5.8)
+
+[sub_resource type="BoxMesh" id="BoxMesh_d3ei2"]
+size = Vector3(2.5, 0.25, 0.5)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_8ajvr"]
+size = Vector3(2.5, 0.25, 0.5)
+
+[sub_resource type="BoxMesh" id="BoxMesh_kjkdm"]
+size = Vector3(2.5, 0.25, 0.5)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_r60hc"]
+size = Vector3(2.5, 0.25, 0.5)
+
+[sub_resource type="BoxMesh" id="BoxMesh_tmgs0"]
+size = Vector3(2.5, 0.25, 0.5)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_vthwb"]
+size = Vector3(2.5, 0.25, 0.5)
+
+[sub_resource type="BoxMesh" id="BoxMesh_bwkk5"]
+size = Vector3(2.5, 0.25, 0.5)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_lkcna"]
+size = Vector3(2.5, 0.25, 0.5)
+
+[sub_resource type="BoxMesh" id="BoxMesh_cr6ff"]
+size = Vector3(2.5, 0.25, 0.5)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_sx1hx"]
+size = Vector3(2.5, 0.25, 0.5)
+
+[sub_resource type="BoxMesh" id="BoxMesh_qfpsg"]
+size = Vector3(2.5, 0.25, 0.5)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_bksqs"]
+size = Vector3(2.5, 0.25, 0.5)
+
+[sub_resource type="BoxMesh" id="BoxMesh_q5cx1"]
+size = Vector3(2.5, 0.25, 0.5)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_rp8r6"]
+size = Vector3(2.5, 0.25, 0.5)
+
+[sub_resource type="BoxMesh" id="BoxMesh_yd76i"]
+size = Vector3(2.5, 0.25, 0.5)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_by38b"]
+size = Vector3(2.5, 0.25, 0.5)
+
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 radius = 0.4
 height = 1.8
@@ -320,6 +371,7 @@ shadow_enabled = true
 shape = SubResource("WorldBoundaryShape3D_floor")
 
 [node name="FloorMesh" type="MeshInstance3D" parent="Floor" unique_id=1113421927]
+transform = Transform3D(0.99999994, 5.4736497e-06, -0.00038929866, -5.965922e-06, 0.99999917, -0.0012972301, 0.00038929144, 0.0012972322, 0.9999991, 0, 0, 0)
 mesh = SubResource("PlaneMesh_floor")
 
 [node name="Obstacles" type="Node3D" parent="." unique_id=634549710]
@@ -365,6 +417,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 3)
 
 [node name="Step1" type="StaticBody3D" parent="Obstacles/Stairs" unique_id=1959085645]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 0)
+collision_layer = 2
 
 [node name="Mesh" type="MeshInstance3D" parent="Obstacles/Stairs/Step1" unique_id=586517326]
 mesh = SubResource("BoxMesh_stair")
@@ -374,6 +427,7 @@ shape = SubResource("BoxShape3D_stair")
 
 [node name="Step2" type="StaticBody3D" parent="Obstacles/Stairs" unique_id=1363503844]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, -0.5)
+collision_layer = 2
 
 [node name="Mesh" type="MeshInstance3D" parent="Obstacles/Stairs/Step2" unique_id=260210898]
 mesh = SubResource("BoxMesh_stair")
@@ -383,6 +437,7 @@ shape = SubResource("BoxShape3D_stair")
 
 [node name="Step3" type="StaticBody3D" parent="Obstacles/Stairs" unique_id=300765566]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, -1)
+collision_layer = 2
 
 [node name="Mesh" type="MeshInstance3D" parent="Obstacles/Stairs/Step3" unique_id=1280116086]
 mesh = SubResource("BoxMesh_stair")
@@ -392,6 +447,7 @@ shape = SubResource("BoxShape3D_stair")
 
 [node name="Step4" type="StaticBody3D" parent="Obstacles/Stairs" unique_id=99459041]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.7, -1.5)
+collision_layer = 2
 
 [node name="Mesh" type="MeshInstance3D" parent="Obstacles/Stairs/Step4" unique_id=1850848712]
 mesh = SubResource("BoxMesh_stair")
@@ -399,8 +455,94 @@ mesh = SubResource("BoxMesh_stair")
 [node name="Collision" type="CollisionShape3D" parent="Obstacles/Stairs/Step4" unique_id=693639783]
 shape = SubResource("BoxShape3D_stair")
 
+[node name="Step5" type="StaticBody3D" parent="Obstacles/Stairs" unique_id=708831332]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, -2)
+collision_layer = 2
+
+[node name="Mesh" type="MeshInstance3D" parent="Obstacles/Stairs/Step5" unique_id=70147458]
+mesh = SubResource("BoxMesh_d3ei2")
+
+[node name="Collision" type="CollisionShape3D" parent="Obstacles/Stairs/Step5" unique_id=943249509]
+shape = SubResource("BoxShape3D_8ajvr")
+
+[node name="Step6" type="StaticBody3D" parent="Obstacles/Stairs" unique_id=724789018]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1, -2.5)
+collision_layer = 2
+
+[node name="Mesh" type="MeshInstance3D" parent="Obstacles/Stairs/Step6" unique_id=28505204]
+mesh = SubResource("BoxMesh_kjkdm")
+
+[node name="Collision" type="CollisionShape3D" parent="Obstacles/Stairs/Step6" unique_id=1985077267]
+shape = SubResource("BoxShape3D_r60hc")
+
+[node name="Step7" type="StaticBody3D" parent="Obstacles/Stairs" unique_id=1135678735]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.3, -3)
+collision_layer = 2
+
+[node name="Mesh" type="MeshInstance3D" parent="Obstacles/Stairs/Step7" unique_id=1119019668]
+mesh = SubResource("BoxMesh_tmgs0")
+
+[node name="Collision" type="CollisionShape3D" parent="Obstacles/Stairs/Step7" unique_id=1923276652]
+shape = SubResource("BoxShape3D_vthwb")
+
+[node name="Step8" type="StaticBody3D" parent="Obstacles/Stairs" unique_id=837365264]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, -3.5)
+collision_layer = 2
+
+[node name="Mesh" type="MeshInstance3D" parent="Obstacles/Stairs/Step8" unique_id=795089252]
+mesh = SubResource("BoxMesh_bwkk5")
+
+[node name="Collision" type="CollisionShape3D" parent="Obstacles/Stairs/Step8" unique_id=1283629363]
+shape = SubResource("BoxShape3D_lkcna")
+
+[node name="Step9" type="StaticBody3D" parent="Obstacles/Stairs" unique_id=595701099]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.7, -4)
+collision_layer = 2
+
+[node name="Mesh" type="MeshInstance3D" parent="Obstacles/Stairs/Step9" unique_id=1687784629]
+mesh = SubResource("BoxMesh_cr6ff")
+
+[node name="Collision" type="CollisionShape3D" parent="Obstacles/Stairs/Step9" unique_id=2145834542]
+shape = SubResource("BoxShape3D_sx1hx")
+
+[node name="Step10" type="StaticBody3D" parent="Obstacles/Stairs" unique_id=236310071]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.9, -4.5)
+collision_layer = 2
+
+[node name="Mesh" type="MeshInstance3D" parent="Obstacles/Stairs/Step10" unique_id=417007729]
+mesh = SubResource("BoxMesh_qfpsg")
+
+[node name="Collision" type="CollisionShape3D" parent="Obstacles/Stairs/Step10" unique_id=1378571484]
+shape = SubResource("BoxShape3D_bksqs")
+
+[node name="Step11" type="StaticBody3D" parent="Obstacles/Stairs" unique_id=960674628]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.1, -5)
+collision_layer = 2
+
+[node name="Mesh" type="MeshInstance3D" parent="Obstacles/Stairs/Step11" unique_id=1757855108]
+mesh = SubResource("BoxMesh_q5cx1")
+
+[node name="Collision" type="CollisionShape3D" parent="Obstacles/Stairs/Step11" unique_id=1007020302]
+shape = SubResource("BoxShape3D_rp8r6")
+
+[node name="Step12" type="StaticBody3D" parent="Obstacles/Stairs" unique_id=1964518231]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.3, -5.5)
+collision_layer = 2
+
+[node name="Mesh" type="MeshInstance3D" parent="Obstacles/Stairs/Step12" unique_id=499959399]
+mesh = SubResource("BoxMesh_yd76i")
+
+[node name="Collision" type="CollisionShape3D" parent="Obstacles/Stairs/Step12" unique_id=327359520]
+shape = SubResource("BoxShape3D_by38b")
+
+[node name="StairRamp" type="StaticBody3D" parent="Obstacles/Stairs"]
+transform = Transform3D(1, 0, 0, 0, 0.928477, -0.371391, 0, 0.371391, 0.928477, 0, 1.2, -2.75)
+
+[node name="Collision" type="CollisionShape3D" parent="Obstacles/Stairs/StairRamp"]
+shape = SubResource("BoxShape3D_stair_ramp")
+
 [node name="Player" type="CharacterBody3D" parent="." unique_id=744544588]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.001995325, 5.9265604)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.46962547, 0.001995325, 4.1757646)
 script = ExtResource("1_script")
 movement_data = ExtResource("15_movement_data")
 verbose_debug = true
@@ -474,7 +616,7 @@ visible = false
 
 [node name="Systems" type="Node3D" parent="Player" unique_id=172649404]
 
-[node name="SimpleFootIK" type="Node3D" parent="Player/Systems" unique_id=1207376929 node_paths=PackedStringArray("skeleton", "left_target", "right_target", "left_ik", "right_ik", "left_foot_shape", "right_foot_shape", "left_lookat_target", "right_lookat_target")]
+[node name="SimpleFootIK" type="Node3D" parent="Player/Systems" unique_id=1207376929 node_paths=PackedStringArray("skeleton", "left_target", "right_target", "left_ik", "right_ik", "left_foot_shape", "right_foot_shape", "left_lookat_target", "right_lookat_target", "left_lookat_modifier", "right_lookat_modifier")]
 script = ExtResource("8_s1rgi")
 skeleton = NodePath("../../Visuals/Human/GeneralSkeleton")
 left_target = NodePath("../../LeftFootTarget")
@@ -483,66 +625,87 @@ left_ik = NodePath("../../Visuals/Human/GeneralSkeleton/Player_Visuals_Human_Ske
 right_ik = NodePath("../../Visuals/Human/GeneralSkeleton/Player_Visuals_Human_Skeleton3D#RightLegIK")
 left_foot_shape = NodePath("../../LeftFootShape")
 right_foot_shape = NodePath("../../RightFootShape")
+enable_profiling = true
 left_lookat_target = NodePath("../../LeftLookAtTarget")
 right_lookat_target = NodePath("../../RightLookAtTarget")
+left_lookat_modifier = NodePath("../../Visuals/Human/GeneralSkeleton/Player_Visuals_Human_Skeleton3D#LeftLegIK")
+right_lookat_modifier = NodePath("../../Visuals/Human/GeneralSkeleton/Player_Visuals_Human_Skeleton3D#RightLegIK")
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="Player" unique_id=1391452368]
+root_node = NodePath("../Visuals/Human")
+libraries/movement = ExtResource("3_anim_lib")
+
+[node name="AnimationTree" type="AnimationTree" parent="Player" unique_id=825662478]
+root_node = NodePath("../Visuals/Human")
+tree_root = SubResource("root_state_machine")
+anim_player = NodePath("../AnimationPlayer")
+parameters/conditions/falling = false
+parameters/conditions/grounded = false
+parameters/conditions/jump = false
+parameters/conditions/landed = false
+parameters/conditions/turn_left = false
+parameters/conditions/turn_right = false
+parameters/movement/stand_movement/blend_position = Vector2(0, 0)
+parameters/movement/crouch_movement/blend_position = Vector2(0, 0)
+parameters/movement/Blend2/blend_amount = 0.0
 
 [node name="Visuals" type="Node3D" parent="Player" unique_id=592954117]
 
 [node name="Human" parent="Player/Visuals" unique_id=379998146 instance=ExtResource("2_model")]
-transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, 0)
+transform = Transform3D(-1, 0, -8.742278e-08, 0, 1, 0, 8.742278e-08, 0, -1, 0, 0, 0)
 
 [node name="GeneralSkeleton" parent="Player/Visuals/Human" index="0" unique_id=96331150]
-bones/0/position = Vector3(-0.00039380623, 0.9552208, 0.027582228)
-bones/0/rotation = Quaternion(0.021973936, -0.053422835, -0.006638137, 0.9983082)
-bones/1/rotation = Quaternion(0.0036775833, 0.0048475303, 0.0073026326, 0.9999548)
-bones/2/rotation = Quaternion(0.041715916, -0.020985505, 0.024711441, 0.9986034)
-bones/4/rotation = Quaternion(0.12703905, 0.118612856, -0.029253945, 0.9843457)
-bones/5/rotation = Quaternion(-0.1664854, -0.04547352, -0.0028764238, 0.9849906)
-bones/7/rotation = Quaternion(0.5220672, 0.48185933, 0.51569426, -0.47887033)
-bones/8/rotation = Quaternion(-0.091376394, 0.81697714, -0.5643176, -0.07579283)
-bones/9/rotation = Quaternion(0.27755433, -0.6674241, 0.27691633, 0.6331082)
-bones/10/rotation = Quaternion(-0.048211288, 0.6540311, -0.19425257, 0.7295102)
-bones/11/rotation = Quaternion(-0.15269405, 0.7501892, 0.19859801, 0.611931)
-bones/12/rotation = Quaternion(0.045047794, 0.017460926, 0.0022795438, 0.99882966)
-bones/13/rotation = Quaternion(0.044811074, 0.018176215, 0.0009055146, 0.9988298)
-bones/15/rotation = Quaternion(0.09241921, 0.013637144, 0.0031186529, 0.9956219)
-bones/16/rotation = Quaternion(0.19480662, 0.028583389, -0.004869084, 0.9804131)
-bones/17/rotation = Quaternion(0.1951828, 0.024644814, -0.007183152, 0.9804309)
-bones/19/rotation = Quaternion(0.071359746, 0.0058506294, 0.00045798553, 0.9974334)
-bones/20/rotation = Quaternion(0.18488275, 0.019897973, -0.015404427, 0.98243845)
-bones/21/rotation = Quaternion(0.18571393, 0.016109833, -0.008105013, 0.9824384)
-bones/23/rotation = Quaternion(0.04197849, 0.0005432019, -0.0002401144, 0.9991183)
-bones/24/rotation = Quaternion(0.17767495, 0.010330245, 0.00047807978, 0.9840349)
-bones/25/rotation = Quaternion(0.17743613, 0.0021574174, 0.013673711, 0.984035)
-bones/27/rotation = Quaternion(0.020265125, -0.00041866815, 0.00061573496, 0.9997944)
-bones/28/rotation = Quaternion(0.17145331, 0.0023989582, 0.0018957704, 0.98518753)
-bones/29/rotation = Quaternion(0.17114873, 0.004165528, 0.00981988, 0.9851875)
-bones/31/rotation = Quaternion(0.5140027, -0.48871723, -0.5109607, -0.4856705)
-bones/32/rotation = Quaternion(0.060847737, 0.83656144, -0.5084123, 0.1948832)
-bones/33/rotation = Quaternion(0.24481532, 0.6784078, -0.24463072, 0.6480618)
-bones/34/rotation = Quaternion(0.0383892, -0.6415072, 0.15977803, 0.7493102)
-bones/35/rotation = Quaternion(-0.12772894, -0.60526204, -0.25017124, 0.74482054)
-bones/36/rotation = Quaternion(0.093420036, -0.036209986, -0.004727083, 0.9949569)
-bones/37/rotation = Quaternion(0.09293339, -0.03769717, -0.0018781956, 0.99495673)
-bones/39/rotation = Quaternion(0.09241967, -0.013637317, -0.0031187958, 0.9956219)
-bones/40/rotation = Quaternion(0.19471876, -0.02857027, 0.0048667598, 0.98043096)
-bones/41/rotation = Quaternion(0.19518259, -0.024645016, 0.0071827355, 0.98043096)
-bones/43/rotation = Quaternion(0.07136016, -0.0058501363, -0.00045802316, 0.99743336)
-bones/44/rotation = Quaternion(0.18486132, -0.019896418, 0.015402192, 0.9824425)
-bones/45/rotation = Quaternion(0.1856925, -0.016108185, 0.0081039565, 0.9824425)
-bones/47/rotation = Quaternion(0.041978948, -0.000543028, 0.0002401603, 0.9991183)
-bones/48/rotation = Quaternion(0.17767458, -0.010330631, -0.00047822224, 0.98403496)
-bones/49/rotation = Quaternion(0.1774358, -0.0021572127, -0.013674427, 0.9840351)
-bones/51/rotation = Quaternion(0.020265102, 0.00041814925, -0.0006158911, 0.99979436)
-bones/52/rotation = Quaternion(0.17148526, -0.0023993067, -0.001896848, 0.98518205)
-bones/53/rotation = Quaternion(0.17116383, -0.004165232, -0.009820889, 0.9851849)
-bones/55/rotation = Quaternion(0.040709924, 0.18050425, 0.9816853, -0.04533289)
-bones/56/rotation = Quaternion(0.0066487226, 0.96767855, -0.25209936, 0.00031740803)
-bones/57/rotation = Quaternion(0.02619312, 0.63746095, -0.7668204, 0.07031458)
+bones/0/position = Vector3(-0.0027453166, 0.95169467, 0.010973847)
+bones/0/rotation = Quaternion(0.010608809, -0.053433683, 0.0011372109, 0.9985144)
+bones/1/rotation = Quaternion(0.0122866975, 0.0046521663, -0.0007253103, 0.9999135)
+bones/2/rotation = Quaternion(0.055290226, -0.021555696, 0.0170983, 0.9980912)
+bones/4/rotation = Quaternion(0.14167143, 0.1191489, -0.024904622, 0.9824015)
+bones/5/rotation = Quaternion(-0.1393807, -0.045666978, -0.002888842, 0.98918116)
+bones/7/rotation = Quaternion(0.5140567, 0.4886335, 0.54377294, -0.4486581)
+bones/8/rotation = Quaternion(-0.12005657, 0.8341481, -0.53591526, -0.050776903)
+bones/9/rotation = Quaternion(0.2788295, -0.66695803, 0.27817294, 0.63248795)
+bones/10/rotation = Quaternion(-0.066902496, 0.6665995, -0.14880094, 0.7273427)
+bones/11/rotation = Quaternion(-0.16925034, 0.7472349, 0.19821326, 0.6113149)
+bones/12/rotation = Quaternion(0.058138397, 0.022534465, 0.002941913, 0.9980499)
+bones/13/rotation = Quaternion(0.057789538, 0.023441218, 0.0011674493, 0.99805295)
+bones/15/rotation = Quaternion(0.10539519, 0.01555188, 0.0035565556, 0.9943025)
+bones/16/rotation = Quaternion(0.22271718, 0.03267856, -0.0055665593, 0.97431934)
+bones/17/rotation = Quaternion(0.2232482, 0.028188217, -0.008216228, 0.97431934)
+bones/19/rotation = Quaternion(0.12103772, 0.009923398, 0.00077654555, 0.99259806)
+bones/20/rotation = Quaternion(0.220746, 0.023757987, -0.01839224, 0.9748685)
+bones/21/rotation = Quaternion(0.22173837, 0.019234873, -0.009677242, 0.97486854)
+bones/23/rotation = Quaternion(0.12343735, 0.0015969542, -0.0007066279, 0.9923509)
+bones/24/rotation = Quaternion(0.2149225, 0.012496218, 0.0005784773, 0.976551)
+bones/25/rotation = Quaternion(0.21463363, 0.0026094886, 0.016541013, 0.9765512)
+bones/27/rotation = Quaternion(0.11245689, -0.00232249, 0.0034185774, 0.9936481)
+bones/28/rotation = Quaternion(0.2047297, 0.0028645047, 0.0022637218, 0.97881174)
+bones/29/rotation = Quaternion(0.20435739, 0.0049737007, 0.011725308, 0.9788135)
+bones/31/rotation = Quaternion(0.5266047, -0.47804528, -0.5207605, -0.47219583)
+bones/32/rotation = Quaternion(0.042066723, 0.8526076, -0.4891975, 0.17881966)
+bones/33/rotation = Quaternion(0.24944934, 0.67696637, -0.24919996, 0.646058)
+bones/34/rotation = Quaternion(0.008389399, -0.6492742, 0.14848839, 0.74587125)
+bones/35/rotation = Quaternion(-0.12986445, -0.6081137, -0.24523772, 0.74376833)
+bones/36/rotation = Quaternion(0.09419964, -0.036512014, -0.004766421, 0.99487215)
+bones/37/rotation = Quaternion(0.0937087, -0.03801158, -0.0018936719, 0.99487203)
+bones/39/rotation = Quaternion(0.10539507, -0.015551814, -0.003556916, 0.99430245)
+bones/40/rotation = Quaternion(0.22271709, -0.032678492, 0.0055665756, 0.97431934)
+bones/41/rotation = Quaternion(0.22324815, -0.02818865, 0.008215711, 0.97431934)
+bones/43/rotation = Quaternion(0.12103766, -0.009922986, -0.0007767019, 0.99259806)
+bones/44/rotation = Quaternion(0.22074579, -0.02375855, 0.018392177, 0.97486854)
+bones/45/rotation = Quaternion(0.2217381, -0.01923505, 0.0096767405, 0.9748686)
+bones/47/rotation = Quaternion(0.12343742, -0.001596891, 0.0007062542, 0.9923508)
+bones/48/rotation = Quaternion(0.21492235, -0.012496323, -0.00057844166, 0.97655106)
+bones/49/rotation = Quaternion(0.21463308, -0.002609382, -0.016541308, 0.9765512)
+bones/51/rotation = Quaternion(0.112457104, 0.0023224275, -0.003418728, 0.993648)
+bones/52/rotation = Quaternion(0.20470466, -0.0028637329, -0.0022646238, 0.97881705)
+bones/53/rotation = Quaternion(0.20436269, -0.0049727987, -0.011725517, 0.9788124)
+bones/55/rotation = Quaternion(0.041178674, 0.18099308, 0.9818385, -0.039230846)
+bones/56/rotation = Quaternion(0.0067740944, 0.96661496, -0.25614375, 0.0003158349)
+bones/57/rotation = Quaternion(0.025827635, 0.64344317, -0.7617764, 0.07078584)
 bones/58/rotation = Quaternion(1.1967671e-07, 1, -2.6822087e-07, 7.62711e-08)
-bones/60/rotation = Quaternion(0.009750567, 0.058694657, 0.99813294, 0.013803737)
-bones/61/rotation = Quaternion(-0.005315326, 0.9781796, -0.20769332, -0.000312067)
-bones/62/rotation = Quaternion(-0.04328444, 0.5736827, -0.81293577, -0.0902782)
+bones/60/rotation = Quaternion(0.012760105, 0.07202016, 0.9971173, 0.020187894)
+bones/61/rotation = Quaternion(-0.006218894, 0.97125304, -0.23796792, -0.00032057)
+bones/62/rotation = Quaternion(-0.04579562, 0.5672708, -0.8172304, -0.09078017)
 bones/62/scale = Vector3(1, 1.0000106, 0.999989)
 bones/63/rotation = Quaternion(-2.006384e-07, 1, -5.9604645e-07, 5.464e-07)
 
@@ -589,24 +752,6 @@ bone = 5
 forward_axis = 5
 duration = 0.3
 ease_type = 2
-
-[node name="AnimationTree" type="AnimationTree" parent="Player" unique_id=825662478]
-root_node = NodePath("../Visuals/Human")
-tree_root = SubResource("root_state_machine")
-anim_player = NodePath("../AnimationPlayer")
-parameters/conditions/falling = false
-parameters/conditions/grounded = false
-parameters/conditions/jump = false
-parameters/conditions/landed = false
-parameters/conditions/turn_left = false
-parameters/conditions/turn_right = false
-parameters/movement/stand_movement/blend_position = Vector2(0, 0)
-parameters/movement/crouch_movement/blend_position = Vector2(0, 0)
-parameters/movement/Blend2/blend_amount = 0.0
-
-[node name="AnimationPlayer" type="AnimationPlayer" parent="Player" unique_id=1391452368]
-root_node = NodePath("../Visuals/Human")
-libraries/movement = ExtResource("3_anim_lib")
 
 [node name="CameraMount" type="Node3D" parent="Player" unique_id=1432451250]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 0)

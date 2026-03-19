@@ -15,14 +15,13 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 [application]
 
 config/name="星海餘燼：漂浮群島"
-run/main_scene="uid://mjlbecvr5l3"
+run/main_scene="uid://d3yha3orniqj4"
 config/features=PackedStringArray("4.7", "C#")
 config/icon="res://icon.svg"
 
 [autoload]
 
 GlobalWind="*res://WeatherSystem/Core/GlobalWind.gd"
-
 DestructionManager="*uid://b5vpikm7vgiwe"
 PhantomCameraManager="*uid://duq6jhf6unyis"
 McpClientAutoload="*res://addons/mcp_client/McpClient.cs"

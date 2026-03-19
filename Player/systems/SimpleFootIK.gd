@@ -25,11 +25,11 @@ var ik_enabled: bool = true
 @export var max_step_up: float = 0.5
 @export var max_step_down: float = 0.7
 ## 腳可以延伸的最大距離（從髖關節算起），超過此距離會淡出 IK
-@export var max_reach_distance: float = 1.1
+@export var max_reach_distance: float = 1.15
 @export var smooth_speed: float = 15.0
 @export var influence_speed: float = 8.0 # IK 混合速度
-## 腳踝到腳底的距離（防止腳穿進地面）
-@export var foot_height_offset: float = 0.08
+## 腳踝骨骼到腳底表面的距離（Mixamo 實際值 0.086）
+@export var foot_height_offset: float = 0.086
 
 @export_group("Triple Raycast")
 ## 腳跟位置偏移（相對於腳骨，向後，Z 負值）
@@ -51,6 +51,10 @@ var ik_enabled: bool = true
 ## 骨盆調整速度
 @export var pelvis_smooth_speed: float = 10.0
 
+@export_group("Profiling")
+## ★ 臨時效能分析（開啟後每 120 幀 print 一次各段平均耗時）
+@export var enable_profiling: bool = false
+
 @export_group("Predictive IK")
 ## ★ 啟用預測式 IK（GASP-Style 模擬軌跡預測）
 @export var enable_predictive_ik: bool = true
@@ -64,6 +68,19 @@ var ik_enabled: bool = true
 @export var spring_damping_ratio: float = 1.0
 ## Spring-Damper 自然頻率（8=柔軟80ms, 10=平衡64ms, 12=硬朗53ms）
 @export var spring_frequency: float = 10.0
+## 預測步態額外抬腳高度（無障礙時也會保留自然 swing arc）
+@export var predictive_step_clearance: float = 0.08
+## 相位低於此值時，視為進入 swing 並觸發新的落腳預測
+@export var swing_enter_phase_threshold: float = 0.35
+## swing 中相位高於此值時，視為進入 plant/landing
+@export var plant_enter_phase_threshold: float = 0.7
+## swing 前段若轉向超過此角度，允許重算一次預測落腳點
+@export var predictive_replan_turn_degrees: float = 40.0
+## ★ Stride Warping：啟用步幅變形消除滑步
+@export var enable_stride_warping: bool = true
+## Stride Warping 縮放範圍 [min, max]（防止極端拉伸）
+@export var stride_warp_min: float = 0.6
+@export var stride_warp_max: float = 1.4
 
 @export_group("Influence")
 ## 移動時的 IK 權重（0=純動畫，1=純IK）
@@ -102,6 +119,20 @@ var _right_hip_idx: int = -1
 # 鎖定標記（完全鎖定）
 var left_foot_locked: bool = false
 var right_foot_locked: bool = false
+const STAIR_SUPPORT_LOCK_MIN_GROUND_DIFF: float = 0.06
+const STAIR_SUPPORT_RELEASE_EPSILON: float = 0.03
+const STAIR_SUPPORT_LOCK_TIMEOUT: float = 0.55
+const STAIR_LOCK_STABLE_FRAMES: int = 2
+const STAIR_RELEASE_STABLE_FRAMES: int = 3
+const STAIR_LOCK_XZ_EPSILON: float = 0.12
+const STAIR_STANCE_XZ_DRIFT_EPSILON: float = 0.0
+var _stair_support_lock_timer: float = 0.0
+var _stair_last_support_foot: String = ""
+var _stair_expected_support_foot: String = ""
+var _stair_left_lock_candidate_frames: int = 0
+var _stair_right_lock_candidate_frames: int = 0
+var _stair_left_release_candidate_frames: int = 0
+var _stair_right_release_candidate_frames: int = 0
 
 
 # Y 軸鎖定（支撐腳：鎖 Y 允許 XZ 微調）
@@ -147,12 +178,22 @@ var _right_ground_normal: Vector3 = Vector3.UP
 var _was_moving: bool = false
 var _was_ik_enabled: bool = true  # ★ 追蹤 IK 啟用狀態轉換（跳躍落地 reset 用）
 
-# ★ 動態步伐相位 (Procedural Foot Phase)
-var _prev_left_y: float = 0.0
-var _prev_right_y: float = 0.0
+## ★ 停止動畫期間標記（由 SimpleCapsuleMove 設定）
+var stop_anim_active: bool = false
+
+## ★ 外部禁用預測標記（如：播放專屬樓梯動畫時）
+var temporary_disable_predict_ik: bool = false
+
+## ★ 樓梯 IK 啟動標記（由外部設定，當角色在樓梯上時為 true）
+var stair_ik_active: bool = false
+
+# ★ 動態步伐相位 (Animation Height Based)
 var _left_foot_phase: float = 1.0
 var _right_foot_phase: float = 1.0
 var _char_body: CharacterBody3D = null
+# ★★★ 動畫原始骨骼高度（在 _process 中讀取，不受 IK 影響）★★★
+var _left_anim_foot_y: float = 0.08
+var _right_anim_foot_y: float = 0.08
 
 # ★★★ Predictive IK - Spring-Damper 狀態 ★★★
 var _left_spring_pos: Vector3 = Vector3.ZERO  # 當前彈簧位置
@@ -167,10 +208,15 @@ var _left_stance_locked: bool = false
 var _right_stance_locked: bool = false
 var _left_locked_ground: Vector3 = Vector3.ZERO   # 鎖定的地面位置
 var _right_locked_ground: Vector3 = Vector3.ZERO
+var _left_ground_pos: Vector3 = Vector3.ZERO
+var _right_ground_pos: Vector3 = Vector3.ZERO
 var _left_locked_normal: Vector3 = Vector3.UP
 var _right_locked_normal: Vector3 = Vector3.UP
 const STANCE_LOCK_THRESHOLD: float = 0.85    # phase > 此值 = stance（腳著地）
 const SWING_UNLOCK_THRESHOLD: float = 0.5    # phase < 此值 = swing（腳離地）
+
+# ★ Stride Warping - 動畫設計速度（由 SimpleCapsuleMove 寫入）
+var _stride_anim_speed: float = 1.4
 
 # ★★★ Predictive IK - Temporal Interpolation 狀態 ★★★
 var _prev_left_target: Vector3 = Vector3.ZERO  # 上一物理幀的 target
@@ -181,6 +227,49 @@ var _curr_right_target: Vector3 = Vector3.ZERO
 # ★★★ Predictive IK - Debug 預測點 ★★★
 var _debug_left_predict_pos: Vector3 = Vector3.ZERO
 var _debug_right_predict_pos: Vector3 = Vector3.ZERO
+
+# ★★★ PredictIK - Swing 步預測狀態（參考 PredictIK.cs）★★★
+# 每隻腳在 Swing 開始時 lookahead raycast → 建立高度曲線
+var _left_pred_start_pos: Vector3 = Vector3.ZERO  # 起步地面位置
+var _left_pred_end_y: float = 0.0                  # 落腳地面 Y
+var _left_pred_mid_y: float = 0.0                  # 路徑中障礙物最高點 Y
+var _left_pred_mid_t: float = 0.5                  # 障礙物位置 (0~1 正規化)
+var _left_pred_active: bool = false                 # 是否有有效的預測
+var _left_pred_virtual_y: float = 0.0              # 當前幀的虛擬腳高度
+var _left_pred_end_pos: Vector3 = Vector3.ZERO
+var _left_pred_forward: Vector3 = Vector3.ZERO
+var _left_swing_elapsed: float = 0.0
+var _left_swing_duration: float = 0.25
+var _left_was_swing: bool = false                   # 上一幀是否在 swing
+
+var _right_pred_start_pos: Vector3 = Vector3.ZERO
+var _right_pred_end_y: float = 0.0
+var _right_pred_mid_y: float = 0.0
+var _right_pred_mid_t: float = 0.5
+var _right_pred_active: bool = false
+var _right_pred_virtual_y: float = 0.0
+var _right_pred_end_pos: Vector3 = Vector3.ZERO
+var _right_pred_forward: Vector3 = Vector3.ZERO
+var _right_swing_elapsed: float = 0.0
+var _right_swing_duration: float = 0.25
+var _right_was_swing: bool = false
+
+# SphereCast 碰撞形狀（快取）
+var _predict_sphere_shape: SphereShape3D = null
+
+const PREDICT_PATH_SAMPLE_COUNT: int = 3
+const MIN_SWING_DURATION: float = 0.16
+const MAX_SWING_DURATION: float = 0.48
+
+# ★ Profiling 累計器
+var _prof_frame_count: int = 0
+var _prof_ground_us: int = 0
+var _prof_pelvis_us: int = 0
+var _prof_ik_target_us: int = 0
+var _prof_ankle_us: int = 0
+var _prof_debug_us: int = 0
+var _prof_phase_us: int = 0
+var _prof_total_us: int = 0
 
 # ★ 快取 PhysicsRayQueryParameters3D（避免每幀分配新物件）
 var _cached_ray_query: PhysicsRayQueryParameters3D = null
@@ -211,22 +300,25 @@ func _ready() -> void:
 	
 	# 檢查 IK 節點是否已設定
 	if left_ik:
-		left_ik.active = false  # ★ 延遲啟用，等 _init_targets 設定好目標位置後才開
+		left_ik.active = false
 		if left_target:
 			var path = left_ik.get_path_to(left_target)
 			left_ik.set("settings/0/target_node", path)
-			print("[SimpleFootIK] Assigned Left IK target path: ", path)
+			# ★ 驗證 target 是否真的可解析
+			var resolved = left_ik.get_node_or_null(path)
+			print("[SimpleFootIK] Left IK target: %s → resolved=%s" % [path, resolved != null])
 	else:
-		push_warning("[SimpleFootIK] ⚠️ left_ik not assigned! IK influence control disabled for left foot.")
+		push_warning("[SimpleFootIK] ⚠️ left_ik not assigned!")
 		
 	if right_ik:
-		right_ik.active = false  # ★ 同上
+		right_ik.active = false
 		if right_target:
 			var path = right_ik.get_path_to(right_target)
 			right_ik.set("settings/0/target_node", path)
-			print("[SimpleFootIK] Assigned Right IK target path: ", path)
+			var resolved = right_ik.get_node_or_null(path)
+			print("[SimpleFootIK] Right IK target: %s → resolved=%s" % [path, resolved != null])
 	else:
-		push_warning("[SimpleFootIK] ⚠️ right_ik not assigned! IK influence control disabled for right foot.")
+		push_warning("[SimpleFootIK] ⚠️ right_ik not assigned!")
 		
 	_left_foot_idx = _find_bone(["LeftFoot", "mixamorig1_LeftFoot"])
 	_right_foot_idx = _find_bone(["RightFoot", "mixamorig1_RightFoot"])
@@ -254,7 +346,7 @@ func _ready() -> void:
 	
 	# ★ 快取 ray query 物件（每幀重用，省 120+ 次/秒的物件分配）
 	_cached_ray_query = PhysicsRayQueryParameters3D.new()
-	_cached_ray_query.collision_mask = 1
+	_cached_ray_query.collision_mask = _get_foot_collision_mask()
 
 
 func _init_targets() -> void:
@@ -290,6 +382,10 @@ func _find_bone(candidates: Array) -> int:
 	return -1
 
 
+func _get_foot_collision_mask() -> int:
+	return 2 if _is_stair_ascending_active() else 1
+
+
 func _physics_process(delta: float) -> void:
 	if not skeleton:
 		return
@@ -310,6 +406,17 @@ func _physics_process(delta: float) -> void:
 		velocity = _char_body.velocity
 	var speed = Vector2(velocity.x, velocity.z).length()
 	var is_moving = speed > standing_threshold
+	# 暫時停用樓梯特化邏輯，回退到一般地形 IK 行為。
+	stair_ik_active = false
+	if Engine.get_physics_frames() % 60 == 0:
+		var _sys = _char_body.get("_stair_system") if _char_body else null
+		var _st = _char_body.get("stair") if _char_body else null
+		print("[FootIK] stair_ik_active=%s | _stair_system=%s stair.on=%s stair.asc=%s" % [
+			stair_ik_active,
+			_sys != null,
+			_st.on_stairs if _st else "N/A",
+			_st.ascending if _st else "N/A"
+		])
 	
 	# ★ 樓梯/外部禁用時：淡出 IK influence 到 0，但仍然執行地面偵測和 debug draw
 	if not ik_enabled:
@@ -330,6 +437,10 @@ func _physics_process(delta: float) -> void:
 			_right_ground_normal = rr.normal
 		if debug_draw:
 			_draw_debug()
+		# ★ 即使 IK 禁用，樓梯預測仍需運行（預測落腳點 + debug draw）
+		if stair_ik_active:
+			_update_predict_ik(delta, space_disabled, exclude_disabled)
+			_update_stair_support_lock(delta)
 		_was_ik_enabled = false
 		return
 	
@@ -356,84 +467,142 @@ func _physics_process(delta: float) -> void:
 		# Reset stance lock
 		_left_stance_locked = false
 		_right_stance_locked = false
+		_left_was_swing = false
+		_right_was_swing = false
+		_left_swing_elapsed = 0.0
+		_right_swing_elapsed = 0.0
 	
 	# --- 樓梯偵測（已移除，平地與樓梯統一判斷）---
 	
-	# ★ 偵測模式切換：移動(A)變成靜止(B)時，snap IK 目標到腳骨
+	# ★ 偵測模式切換：移動→靜止
 	var entering_standing = not is_moving
 	if entering_standing and _was_moving:
-		# 從移動/樓梯切換到站立 → 立即 snap IK 目標到當前腳骨位置
-		if left_target and _left_foot_idx >= 0:
-			left_target.global_transform = skeleton.global_transform * skeleton.get_bone_global_pose(_left_foot_idx)
-		if right_target and _right_foot_idx >= 0:
-			right_target.global_transform = skeleton.global_transform * skeleton.get_bone_global_pose(_right_foot_idx)
-		# snap IK influence 讓目標立即生效
-		_current_influence = standing_influence
+		_left_stance_locked = false
+		_right_stance_locked = false
 		_left_foot_phase = 1.0
 		_right_foot_phase = 1.0
-		if left_ik: left_ik.influence = _current_influence
-		if right_ik: right_ik.influence = _current_influence
-		# (mode switch snap — 省略 print 以減少 I/O)
-		_was_moving = is_moving
-		# ★ 這一幀不進入任何模式，讓 snap 生效，下一幀從正確位置開始
-		return
+		_left_was_swing = false
+		_right_was_swing = false
+		_left_swing_elapsed = 0.0
+		_right_swing_elapsed = 0.0
+		
+		# ★ 斜坡判定：平地才歸零 influence，斜坡保持 IK 活躍
+		var avg_normal_up = (_left_ground_normal.dot(Vector3.UP) + _right_ground_normal.dot(Vector3.UP)) * 0.5
+		if avg_normal_up > 0.95:
+			# 平地：snap targets 到骨骼位置，歸零 influence（讓停止動畫自然播放）
+			if left_target and _left_foot_idx >= 0:
+				left_target.global_transform = skeleton.global_transform * skeleton.get_bone_global_pose(_left_foot_idx)
+			if right_target and _right_foot_idx >= 0:
+				right_target.global_transform = skeleton.global_transform * skeleton.get_bone_global_pose(_right_foot_idx)
+			_current_influence = 0.0
+			if left_ik: left_ik.influence = 0.0
+			if right_ik: right_ik.influence = 0.0
+			_was_moving = is_moving
+			return
+		# 斜坡：不歸零 influence，不 return → 繼續正常 IK 更新流程
 	_was_moving = is_moving
 	
-	# ★★★ 計算動態腳步相位 (Procedural Foot Phase - Height Based) ★★★
-	# 原理：直接量測動畫提供的骨骼高度 (相對於 Skeleton)。
-	# 如果腳骨高度接近 0.1 (腳踝靜止高度)，代表是在地面 (Planted)。
-	# 如果腳骨高度超過 0.25 (抬腳揮桿中)，代表是在空中 (Swinging)。
-	var left_cur_y = 0.0
-	var right_cur_y = 0.0
-	if _left_foot_idx >= 0: left_cur_y = skeleton.get_bone_global_pose(_left_foot_idx).origin.y
-	if _right_foot_idx >= 0: right_cur_y = skeleton.get_bone_global_pose(_right_foot_idx).origin.y
+	var _t0 = Time.get_ticks_usec() if enable_profiling else 0
+	# ★★★ 計算動態腳步相位 (Animation Height Based) ★★★
+	# ★★★ 核心修正：使用 _process 中讀取的動畫原始骨骼高度 ★★★
+	# _left_anim_foot_y / _right_anim_foot_y 在 _process 中讀取
+	# → 在 Skeleton modifier (TwoBoneIK) 之前 → 純動畫值
+	# → 不受 IK 反饋影響 → 完全打斷反饋迴路
+	var body_pos = _char_body.global_position if _char_body else Vector3.ZERO
+	var body_y = body_pos.y
 	
-	_prev_left_y = left_cur_y # 保留變數以防其他地方使用
-	_prev_right_y = right_cur_y
+	var left_target_phase = 1.0
+	var right_target_phase = 1.0
 	
-	# clampf(1.0 - (y - min_height) / range, 0.0, 1.0)
-	# min_height = 0.12, max_height = 0.25 -> range = 0.13
-	var left_target_phase = clampf(1.0 - (left_cur_y - 0.12) / 0.13, 0.0, 1.0)
-	var right_target_phase = clampf(1.0 - (right_cur_y - 0.12) / 0.13, 0.0, 1.0)
-	
-	# 如果是站立狀態，強制 phase 為 1.0
-	if not is_moving:
-		left_target_phase = 1.0
-		right_target_phase = 1.0
+	if is_moving:
+		# ★ 動畫骨骼高度相對於角色腳底的偏移
+		# foot_height_offset ≈ 踝骨到鞋底距離
+		# 偏移 ≈ 0 → 腳在地面上（Stance）→ phase = 1.0
+		# 偏移 > 幾公分 → 腳在空中（Swing）→ phase = 0.0
+		var l_above = (_left_anim_foot_y - body_y) - foot_height_offset
+		var r_above = (_right_anim_foot_y - body_y) - foot_height_offset
 		
-	# 平滑過渡 Phase
-	_left_foot_phase = lerp(_left_foot_phase, left_target_phase, delta * 15.0)
-	_right_foot_phase = lerp(_right_foot_phase, right_target_phase, delta * 15.0)
+		# 平滑閾值：0~2cm = Stance, 2~8cm = 過渡, >8cm = Swing
+		left_target_phase = 1.0 - clampf((l_above - 0.02) / 0.06, 0.0, 1.0)
+		right_target_phase = 1.0 - clampf((r_above - 0.02) / 0.06, 0.0, 1.0)
+	# 站立 → phase 強制 1.0（兩腳都貼地）
 	
-	# ★ 計算兩腳各自的 IK 權重
+	# 平滑過渡 Phase
+	_left_foot_phase = lerp(_left_foot_phase, left_target_phase, delta * 12.0)
+	_right_foot_phase = lerp(_right_foot_phase, right_target_phase, delta * 12.0)
+	
+	# ★ 雙腳協調 — 防止兩腳同時 Swing（至少一隻在地面）
+	if is_moving and _left_foot_phase < 0.3 and _right_foot_phase < 0.3:
+		# 強制較低的腳為 Stance
+		if _left_anim_foot_y <= _right_anim_foot_y:
+			_left_foot_phase = maxf(_left_foot_phase, 0.8)
+		else:
+			_right_foot_phase = maxf(_right_foot_phase, 0.8)
+	
+	# ★★★ IK Influence 計算 ★★★
 	var target_base_influence = moving_influence if is_moving else standing_influence
+	var avg_slope = (_left_ground_normal.dot(Vector3.UP) + _right_ground_normal.dot(Vector3.UP)) * 0.5
+	
+	# ★ 停止動畫期間：優先讓作者動畫接管，避免腳被 IK 從後方拉住
+	if stop_anim_active:
+		var on_flat = avg_slope > 0.95
+		if on_flat:
+			target_base_influence = 0.0
+		else:
+			target_base_influence = minf(target_base_influence, 0.35)
+	
 	_current_influence = lerp(_current_influence, target_base_influence, delta * influence_speed)
 	
-	# 當腳懸空時 (phase=0)，IK 權重為 0，讓動畫完全接管；落地時 (phase=1)，IK 權重為設定值
-	# 這裡我們允許設定 moving_influence = 1.0，讓移動時也能開啟 IK
-	# ※業界標準：移動時 IK 權重通常在 0.3~1.0 之間
-	var final_left_influence = _current_influence * _left_foot_phase
-	var final_right_influence = _current_influence * _right_foot_phase
+	# 站立時用 phase 降低 swing 腳的 influence
+	var final_left_influence: float = _current_influence
+	var final_right_influence: float = _current_influence
+	if not is_moving:
+		final_left_influence = _current_influence * _left_foot_phase
+		final_right_influence = _current_influence * _right_foot_phase
+	if left_foot_locked:
+		final_left_influence = 1.0
+	if right_foot_locked:
+		final_right_influence = 1.0
+	if _left_influence_override >= 0.0:
+		final_left_influence = clampf(_left_influence_override, 0.0, 1.0)
+	if _right_influence_override >= 0.0:
+		final_right_influence = clampf(_right_influence_override, 0.0, 1.0)
+	# ★ 方案 B: 樓梯上強制 IK 全權重（走路動畫 + IK 控制腳步）
+	if stair_ik_active:
+		final_left_influence = 1.0
+		final_right_influence = 1.0
 	
 	if left_ik: left_ik.influence = final_left_influence
 	if right_ik: right_ik.influence = final_right_influence
 	
+	# (verbose IK-DIAG removed — see consolidated output below)
+	var _t1 = Time.get_ticks_usec() if enable_profiling else 0
+	
 	# ═══ 永遠執行 Ground Detection 和 IK (讓腳能適應階梯) ═══
 	var space_state = get_world_3d().direct_space_state
 	var exclude_rid = [_char_body.get_rid()] if _char_body else []
+	_cached_ray_query.collision_mask = _get_foot_collision_mask()
 	
 	var left_ground_res: GroundResult
 	var right_ground_res: GroundResult
+	
+	# ★★★ PredictIK 更新必須在地面偵測之前 ★★★
+	# 確保停止時先清空預測狀態，避免 _detect_ground 使用過時的 pred_end
+	_update_predict_ik(delta, space_state, exclude_rid)
 	
 	# ═══ 永遠偵測地面（兩腳都執行，確保數據即時更新）═══
 	if _left_foot_idx >= 0:
 		left_ground_res = _detect_ground(_left_foot_idx, left_foot_shape, space_state, exclude_rid)
 		_left_ground_y = left_ground_res.y
+		_left_ground_pos = left_ground_res.pos
 		_left_ground_normal = left_ground_res.normal
 	if _right_foot_idx >= 0:
 		right_ground_res = _detect_ground(_right_foot_idx, right_foot_shape, space_state, exclude_rid)
 		_right_ground_y = right_ground_res.y
+		_right_ground_pos = right_ground_res.pos
 		_right_ground_normal = right_ground_res.normal
+	_update_stair_support_lock(delta)
+	var _t2 = Time.get_ticks_usec() if enable_profiling else 0
 	
 	# --- 骨盆偏移 (盡量只在雙腳都有相位時逐漸生效，避免抖動) ---
 	if enable_pelvis_offset and _skeleton_parent:
@@ -443,21 +612,65 @@ func _physics_process(delta: float) -> void:
 		else:
 			_apply_pelvis_offset(delta)
 			
+	var _t3 = Time.get_ticks_usec() if enable_profiling else 0
 	# --- IK 目標位置更新 ---
 	if left_target and _left_foot_idx >= 0 and left_ground_res:
 		_update_ik_target(left_target, _left_foot_idx, _left_hip_idx, left_ground_res, delta)
 	if right_target and _right_foot_idx >= 0 and right_ground_res:
 		_update_ik_target(right_target, _right_foot_idx, _right_hip_idx, right_ground_res, delta)
+	var _t4 = Time.get_ticks_usec() if enable_profiling else 0
 	
-	# --- 腳掌貼地旋轉 (Ankle Pitch) ---
-	# ★ 只在站立時對齊斜面，移動時讓動畫完全控制（避免腳跟先著地+上下身分離）
-	if enable_foot_rotation:
-		var ankle_weight = 0.0 if is_moving else 1.0
-		_apply_ankle_pitch(delta, ankle_weight)
+	# --- 腳踝旋轉已交由 AnkleAlignModifier3D 處理 ---
 	
+	var _t5 = Time.get_ticks_usec() if enable_profiling else 0
 	# 除錯繪製
 	if debug_draw:
 		_draw_debug()
+	var _t6 = Time.get_ticks_usec() if enable_profiling else 0
+	
+	# ★★★ 精簡診斷：每 120 幀輸出一次斜坡 IK 狀態 ★★★
+	if Engine.get_physics_frames() % 120 == 0:
+		var body_y_diag = _char_body.global_position.y if _char_body else 0.0
+		var l_gnd = _left_ground_y
+		var r_gnd = _right_ground_y
+		var l_nrm = _left_ground_normal
+		var r_nrm = _right_ground_normal
+		var l_mk = left_target.global_position.y if left_target else -1.0
+		var r_mk = right_target.global_position.y if right_target else -1.0
+		var l_infl = left_ik.influence if left_ik else 0.0
+		var r_infl = right_ik.influence if right_ik else 0.0
+		print("[FootIK] %s body=%.2f | L: ph=%.2f anim=%.3f gnd=%.3f mk=%.3f infl=%.2f n=(%.2f,%.2f,%.2f) | R: ph=%.2f anim=%.3f gnd=%.3f mk=%.3f infl=%.2f n=(%.2f,%.2f,%.2f)" % [
+			"MOVE" if is_moving else "IDLE", body_y_diag,
+			_left_foot_phase, _left_anim_foot_y, l_gnd, l_mk, l_infl, l_nrm.x, l_nrm.y, l_nrm.z,
+			_right_foot_phase, _right_anim_foot_y, r_gnd, r_mk, r_infl, r_nrm.x, r_nrm.y, r_nrm.z
+		])
+	
+	# ★ Profiling 統計輸出
+	if enable_profiling:
+		_prof_phase_us += _t1 - _t0
+		_prof_ground_us += _t2 - _t1
+		_prof_pelvis_us += _t3 - _t2
+		_prof_ik_target_us += _t4 - _t3
+		_prof_ankle_us += _t5 - _t4
+		_prof_debug_us += _t6 - _t5
+		_prof_total_us += _t6 - _t0
+		_prof_frame_count += 1
+		if _prof_frame_count >= 120:
+			var n := float(_prof_frame_count)
+			print("[FootIK Profile] %d frames | phase=%.0fus | ground=%.0fus | pelvis=%.0fus | ik_target=%.0fus | ankle=%.0fus | debug=%.0fus | TOTAL=%.0fus" % [
+				_prof_frame_count,
+				_prof_phase_us / n, _prof_ground_us / n, _prof_pelvis_us / n,
+				_prof_ik_target_us / n, _prof_ankle_us / n, _prof_debug_us / n,
+				_prof_total_us / n
+			])
+			_prof_frame_count = 0
+			_prof_ground_us = 0
+			_prof_pelvis_us = 0
+			_prof_ik_target_us = 0
+			_prof_ankle_us = 0
+			_prof_debug_us = 0
+			_prof_phase_us = 0
+			_prof_total_us = 0
 
 
 ## ★★★ 統一地面偵測：ShapeCast 優先，RayCast 備用 ★★★
@@ -485,6 +698,13 @@ func _detect_ground(foot_idx: int, shape_cast: ShapeCast3D, space: PhysicsDirect
 	var bone_global = skeleton.global_transform * skeleton.get_bone_global_pose(foot_idx)
 	var foot_pos = bone_global.origin
 	
+	# ★★★ 補償 Pelvis 偏移 ★★★
+	# skeleton.position.y 被 _update_pelvis_offset 修改過
+	# → bone position 已經包含 pelvis 下推量 → 射線從錯誤高度發射
+	# → 在斜坡上會穿過坡面打到平地 → 反饋迴路
+	# 修正：將 foot_pos 還原到「沒有 pelvis 偏移」的高度
+	foot_pos.y -= _current_pelvis_offset  # 減去偏移 = 還原
+	
 	# ★★★ GASP-Style Phase-Driven 預測（Phase C 增強）★★★
 	# Stance (planted): 鎖定地面接觸點，不再重新 raycast → 消除微抖
 	# Swing (in air):   模擬軌跡預測未來落地點 → 提前 raycast
@@ -498,12 +718,16 @@ func _detect_ground(foot_idx: int, shape_cast: ShapeCast3D, space: PhysicsDirect
 	var is_stance = foot_phase > STANCE_LOCK_THRESHOLD
 	var _is_swing = foot_phase < SWING_UNLOCK_THRESHOLD
 	
-	if enable_predictive_ik and _char_body:
+	if enable_predictive_ik and _char_body and not temporary_disable_predict_ik and not stop_anim_active:
 		var h_vel = Vector3(_char_body.velocity.x, 0, _char_body.velocity.z)
 		var h_speed = h_vel.length()
 		
 		if h_speed > min_prediction_speed:
-			if is_stance and was_locked:
+			var pred_active = _left_pred_active if is_left else _right_pred_active
+			var pred_end = _left_pred_end_pos if is_left else _right_pred_end_pos
+			if pred_active and foot_phase < plant_enter_phase_threshold:
+				predict_pos = Vector3(pred_end.x, foot_pos.y, pred_end.z)
+			elif is_stance and was_locked:
 				# ★ Stance Phase：使用鎖定的地面位置（不 raycast）
 				predict_pos = foot_pos  # 不偏移，用腳骨位置做 raycast
 			else:
@@ -512,6 +736,26 @@ func _detect_ground(foot_idx: int, shape_cast: ShapeCast3D, space: PhysicsDirect
 				var predict_time = (prediction_stride_length / h_speed) * swing_factor
 				
 				var predict_offset = _simulate_trajectory_offset(h_vel, predict_time)
+				
+				# ★ Feature #6：斜面步幅補償 — 上坡縮短、下坡拉長
+				var ground_normal = _left_ground_normal if is_left else _right_ground_normal
+				var slope_cos = ground_normal.dot(Vector3.UP)
+				if slope_cos < 0.99:  # 不是完全平地
+					predict_offset *= slope_cos  # cos(30°)=0.87, cos(45°)=0.71
+				
+				# ★ Feature #7：轉彎步幅補償 — 內側腳縮短、外側腳拉長
+				if _prediction_input_dir.length_squared() > 0.01:
+					var target_dir = _prediction_input_dir.normalized()
+					var h_dir = h_vel.normalized()
+					var turn_cross_y = h_dir.x * target_dir.z - h_dir.z * target_dir.x
+					var turn_amount = clampf(absf(turn_cross_y), 0.0, 0.5)
+					# turn_cross_y > 0 = 左轉 → 左腳是內側
+					var turn_scale: float
+					if is_left:
+						turn_scale = 1.0 - turn_amount * signf(turn_cross_y)
+					else:
+						turn_scale = 1.0 + turn_amount * signf(turn_cross_y)
+					predict_offset *= clampf(turn_scale, 0.5, 1.5)
 				
 				# 限制最大偏移（防急轉彎跳動）
 				if predict_offset.length() > max_prediction_offset:
@@ -524,54 +768,660 @@ func _detect_ground(foot_idx: int, shape_cast: ShapeCast3D, space: PhysicsDirect
 	else:
 		_debug_right_predict_pos = predict_pos
 	
-	# ★ 方法一：ShapeCast（球形掃描，更準確）
-	if shape_cast:
-		# 讓 ShapeCast 跟隨預測位置（而非腳骨位置）
-		var parent_node = shape_cast.get_parent()
-		if parent_node:
-			var local_pos = parent_node.global_transform.affine_inverse() * predict_pos
-			# 從預測位置上方 0.3m 開始掃描
-			shape_cast.position = Vector3(local_pos.x, local_pos.y + 0.3, local_pos.z)
-		
-		shape_cast.force_shapecast_update()
-		
-		if shape_cast.is_colliding():
-			# 取最近的碰撞點
-			var closest_point = Vector3(0, -INF, 0)
-			var closest_normal = Vector3.UP
-			for i in shape_cast.get_collision_count():
-				var point = shape_cast.get_collision_point(i)
-				var normal = shape_cast.get_collision_normal(i)
-				if point.y > closest_point.y:
-					closest_point = point
-					closest_normal = normal
-			return GroundResult.new(closest_point, closest_normal)
+	# ★ ShapeCast 已停用（球體在斜坡上「最高碰撞點」比實際地面高 → 造成懸空）
+	# 改用下方的 RayCast（精確打在腳正下方的地面）
+	#if shape_cast:
+	#	...（原 ShapeCast 邏輯保留但不執行）
 	
-	# ★ 方法二：RayCast 備用（也使用預測位置）
-	var ray_start = predict_pos + Vector3.UP * 0.3
-	var ray_end = predict_pos + Vector3.DOWN * ray_length
-	_cached_ray_query.from = ray_start
-	_cached_ray_query.to = ray_end
+	# ★ 單點 RayCast：從腳踝正下方精準偵測地面
+	# 腳趾穿模由 AnkleAlignModifier3D 旋轉腳掌自然解決
+	_cached_ray_query.from = predict_pos + Vector3.UP * 0.3
+	_cached_ray_query.to = predict_pos + Vector3.DOWN * ray_length
 	_cached_ray_query.exclude = exclude
-	
 	var result = space.intersect_ray(_cached_ray_query)
 	if not result.is_empty():
 		return GroundResult.new(result.position, result.normal)
-	return GroundResult.new(foot_pos, Vector3.UP) # 沒擊中 → 用動畫位置
+	
+	# ★ Feature #4：Swing 落點驗證 — 預測點無地面（懸崖），回退到腳骨位置
+	if predict_pos != foot_pos:
+		_cached_ray_query.from = foot_pos + Vector3.UP * 0.3
+		_cached_ray_query.to = foot_pos + Vector3.DOWN * ray_length
+		var fallback = space.intersect_ray(_cached_ray_query)
+		if not fallback.is_empty():
+			return GroundResult.new(fallback.position, fallback.normal)
+	
+	return GroundResult.new(foot_pos, Vector3.UP)
+
+
+func _reset_stair_support_lock() -> void:
+	left_foot_locked = false
+	right_foot_locked = false
+	_stair_support_lock_timer = 0.0
+	_stair_last_support_foot = ""
+	_stair_expected_support_foot = ""
+	_stair_left_lock_candidate_frames = 0
+	_stair_right_lock_candidate_frames = 0
+	_stair_left_release_candidate_frames = 0
+	_stair_right_release_candidate_frames = 0
+
+
+func _is_stair_ascending_active() -> bool:
+	if not _char_body:
+		return false
+	# 優先檢查 PlayerStairsController 的 data（新系統）
+	var stair_sys = _char_body.get("_stair_system")
+	if stair_sys and stair_sys.data:
+		return bool(stair_sys.data.on_stairs and stair_sys.data.ascending)
+	# 退回檢查 SimpleCapsuleMove.stair（舊系統）
+	var stair_data = _char_body.get("stair")
+	if stair_data == null:
+		return false
+	return bool(stair_data.on_stairs and stair_data.ascending)
+
+
+func _update_stair_support_lock(delta: float) -> void:
+	_reset_stair_support_lock()
+	return
+	if not _is_stair_ascending_active():
+		_reset_stair_support_lock()
+		return
+
+	_stair_support_lock_timer += delta
+	
+	# 用預測落點判斷哪隻腳在上面
+	var l_pred_y = _left_pred_end_y if _left_pred_active else _left_ground_y
+	var r_pred_y = _right_pred_end_y if _right_pred_active else _right_ground_y
+	var left_higher = l_pred_y > r_pred_y + STAIR_SUPPORT_LOCK_MIN_GROUND_DIFF
+	var right_higher = r_pred_y > l_pred_y + STAIR_SUPPORT_LOCK_MIN_GROUND_DIFF
+
+	# 檢查腳是否已經到達預測落點附近
+	var l_at_target = false
+	var r_at_target = false
+	if left_target and _left_pred_active:
+		var l_target_xz = Vector2(left_target.global_position.x, left_target.global_position.z)
+		var l_pred_xz = Vector2(_left_pred_end_pos.x, _left_pred_end_pos.z)
+		l_at_target = absf(left_target.global_position.y - (_left_pred_end_y + foot_height_offset)) < 0.06 and l_target_xz.distance_to(l_pred_xz) < STAIR_LOCK_XZ_EPSILON
+	if right_target and _right_pred_active:
+		var r_target_xz = Vector2(right_target.global_position.x, right_target.global_position.z)
+		var r_pred_xz = Vector2(_right_pred_end_pos.x, _right_pred_end_pos.z)
+		r_at_target = absf(right_target.global_position.y - (_right_pred_end_y + foot_height_offset)) < 0.06 and r_target_xz.distance_to(r_pred_xz) < STAIR_LOCK_XZ_EPSILON
+
+	if _stair_expected_support_foot.is_empty():
+		if _stair_last_support_foot == "left":
+			_stair_expected_support_foot = "right"
+		elif _stair_last_support_foot == "right":
+			_stair_expected_support_foot = "left"
+		elif _left_foot_phase < _right_foot_phase:
+			_stair_expected_support_foot = "left"
+		else:
+			_stair_expected_support_foot = "right"
+
+	if not left_foot_locked and not right_foot_locked:
+		var left_lock_ready = _stair_expected_support_foot == "left" and left_higher and l_at_target
+		var right_lock_ready = _stair_expected_support_foot == "right" and right_higher and r_at_target
+
+		_stair_left_lock_candidate_frames = _stair_left_lock_candidate_frames + 1 if left_lock_ready else 0
+		_stair_right_lock_candidate_frames = _stair_right_lock_candidate_frames + 1 if right_lock_ready else 0
+
+		if _stair_left_lock_candidate_frames >= STAIR_LOCK_STABLE_FRAMES:
+			left_foot_locked = true
+			_left_locked_ground = left_target.global_position if left_target else (_left_ground_pos + Vector3(0, foot_height_offset, 0))
+			_stair_support_lock_timer = 0.0
+			_stair_last_support_foot = "left"
+			_stair_left_lock_candidate_frames = 0
+			_stair_right_lock_candidate_frames = 0
+			_stair_left_release_candidate_frames = 0
+			_stair_right_release_candidate_frames = 0
+			if debug_draw and Engine.get_physics_frames() % 30 == 0:
+				print("[StairLock] LEFT 鎖定 y=%.3f expected=%s" % [_left_locked_ground.y, _stair_expected_support_foot])
+		elif _stair_right_lock_candidate_frames >= STAIR_LOCK_STABLE_FRAMES:
+			right_foot_locked = true
+			_right_locked_ground = right_target.global_position if right_target else (_right_ground_pos + Vector3(0, foot_height_offset, 0))
+			_stair_support_lock_timer = 0.0
+			_stair_last_support_foot = "right"
+			_stair_left_lock_candidate_frames = 0
+			_stair_right_lock_candidate_frames = 0
+			_stair_left_release_candidate_frames = 0
+			_stair_right_release_candidate_frames = 0
+			if debug_draw and Engine.get_physics_frames() % 30 == 0:
+				print("[StairLock] RIGHT 鎖定 y=%.3f expected=%s" % [_right_locked_ground.y, _stair_expected_support_foot])
+	elif left_foot_locked:
+		# 左腳鎖定，等右腳追上（到達它自己的預測位置附近）
+		var right_caught_up = r_at_target or (_right_ground_y >= _left_locked_ground.y - 0.08)
+		_stair_right_release_candidate_frames = _stair_right_release_candidate_frames + 1 if right_caught_up else 0
+		if (_stair_support_lock_timer >= 0.15 and _stair_right_release_candidate_frames >= STAIR_RELEASE_STABLE_FRAMES) or _stair_support_lock_timer >= STAIR_SUPPORT_LOCK_TIMEOUT:
+			left_foot_locked = false
+			_stair_support_lock_timer = 0.0
+			_stair_last_support_foot = "left"
+			_stair_expected_support_foot = "right"
+			_stair_left_release_candidate_frames = 0
+			_stair_right_release_candidate_frames = 0
+			if debug_draw and Engine.get_physics_frames() % 30 == 0:
+				print("[StairLock] LEFT 解鎖 (caught=%s next=%s)" % [right_caught_up, _stair_expected_support_foot])
+	elif right_foot_locked:
+		# 右腳鎖定，等左腳追上
+		var left_caught_up = l_at_target or (_left_ground_y >= _right_locked_ground.y - 0.08)
+		_stair_left_release_candidate_frames = _stair_left_release_candidate_frames + 1 if left_caught_up else 0
+		if (_stair_support_lock_timer >= 0.15 and _stair_left_release_candidate_frames >= STAIR_RELEASE_STABLE_FRAMES) or _stair_support_lock_timer >= STAIR_SUPPORT_LOCK_TIMEOUT:
+			right_foot_locked = false
+			_stair_support_lock_timer = 0.0
+			_stair_last_support_foot = "right"
+			_stair_expected_support_foot = "left"
+			_stair_left_release_candidate_frames = 0
+			_stair_right_release_candidate_frames = 0
+			if debug_draw and Engine.get_physics_frames() % 30 == 0:
+				print("[StairLock] RIGHT 解鎖 (caught=%s next=%s)" % [left_caught_up, _stair_expected_support_foot])
+
+
+## ★★★ PredictIK - Swing 開始時預測落腳點 ★★★
+## 由步態事件觸發，而不是單純靠距離重算。
+## 1. Swing 開始時鎖定一條完整步態預測
+## 2. 用模擬軌跡估算落腳水平位移
+## 3. Down ray + path samples + sphere cast 求出自然 swing apex
+## 4. 後續用時間驅動曲線，而不是用腳骨沿前向投影推進度
+func _get_prediction_heading(h_vel: Vector3) -> Vector3:
+	var heading = Vector3.ZERO
+	if _prediction_input_dir.length_squared() > 0.01:
+		heading = _prediction_input_dir
+		heading.y = 0.0
+	if heading.length_squared() < 0.0001 and h_vel.length_squared() > 0.0001:
+		heading = h_vel
+		heading.y = 0.0
+	if heading.length_squared() < 0.0001 and _char_body:
+		heading = -_char_body.global_transform.basis.z
+		heading.y = 0.0
+	if heading.length_squared() < 0.0001:
+		return Vector3.FORWARD
+	return heading.normalized()
+
+
+func _estimate_swing_duration(h_speed: float) -> float:
+	var stride_scale = 1.0
+	if enable_stride_warping and _stride_anim_speed > 0.1 and h_speed > 0.01:
+		stride_scale = clampf(h_speed / _stride_anim_speed, stride_warp_min, stride_warp_max)
+	var effective_stride = prediction_stride_length / maxf(stride_scale, 0.1)
+	var duration = effective_stride / maxf(h_speed, min_prediction_speed)
+	return clampf(duration, MIN_SWING_DURATION, MAX_SWING_DURATION)
+
+
+func _get_swing_progress(is_left: bool) -> float:
+	var elapsed = _left_swing_elapsed
+	var duration = _left_swing_duration
+	var phase = _left_foot_phase
+	if not is_left:
+		elapsed = _right_swing_elapsed
+		duration = _right_swing_duration
+		phase = _right_foot_phase
+	var time_t = clampf(elapsed / maxf(duration, 0.001), 0.0, 1.0)
+	if phase >= plant_enter_phase_threshold:
+		return 1.0
+	var phase_t = 1.0 - clampf((phase - swing_enter_phase_threshold) / maxf(plant_enter_phase_threshold - swing_enter_phase_threshold, 0.001), 0.0, 1.0)
+	return clampf(lerpf(time_t, phase_t, 0.35), 0.0, 1.0)
+
+
+func _should_replan_prediction(is_left: bool, move_dir: Vector3) -> bool:
+	if move_dir.length_squared() < 0.0001:
+		return false
+	var pred_forward = _left_pred_forward
+	var elapsed = _left_swing_elapsed
+	var duration = _left_swing_duration
+	if not is_left:
+		pred_forward = _right_pred_forward
+		elapsed = _right_swing_elapsed
+		duration = _right_swing_duration
+	if pred_forward.length_squared() < 0.0001:
+		return false
+	if elapsed > duration * 0.45:
+		return false
+	return pred_forward.dot(move_dir) < cos(deg_to_rad(predictive_replan_turn_degrees))
+
+
+func _predict_step_landing(foot_idx: int, space: PhysicsDirectSpaceState3D, exclude: Array) -> void:
+	var bone_global = skeleton.global_transform * skeleton.get_bone_global_pose(foot_idx)
+	var foot_pos = bone_global.origin
+	var is_left = (foot_idx == _left_foot_idx)
+	var h_vel := Vector3.ZERO
+	if _char_body:
+		h_vel = Vector3(_char_body.velocity.x, 0, _char_body.velocity.z)
+	var h_speed = h_vel.length()
+	
+	var forward_dir = _get_prediction_heading(h_vel)
+	var swing_duration = _left_swing_duration
+	if not is_left:
+		swing_duration = _right_swing_duration
+	if swing_duration <= 0.001:
+		swing_duration = _estimate_swing_duration(h_speed)
+
+	var predicted_offset = _simulate_trajectory_offset(h_vel, swing_duration)
+	predicted_offset.y = 0.0
+	if predicted_offset.length() > max_prediction_offset:
+		predicted_offset = predicted_offset.normalized() * max_prediction_offset
+	if predicted_offset.length() < 0.05:
+		predicted_offset = forward_dir * prediction_stride_length
+	else:
+		forward_dir = predicted_offset.normalized()
+	
+	# === Step 1: 起點 — 從腳向下 raycast ===
+	_cached_ray_query.from = foot_pos + Vector3.UP * 0.15
+	_cached_ray_query.to = foot_pos + Vector3.DOWN * 0.5
+	_cached_ray_query.exclude = exclude
+	var start_hit = space.intersect_ray(_cached_ray_query)
+	
+	var start_pos: Vector3
+	if not start_hit.is_empty():
+		start_pos = start_hit.position
+	else:
+		start_pos = foot_pos
+		start_pos.y = _char_body.global_position.y if _char_body else foot_pos.y
+	
+	# === Step 2: 終點 — 用預測軌跡的水平位移來找落腳點 ===
+	var lookahead_pos = start_pos + predicted_offset + Vector3.UP * (max_step_up + predictive_step_clearance + 0.1)
+	_cached_ray_query.from = lookahead_pos
+	_cached_ray_query.to = lookahead_pos + Vector3.DOWN * (max_step_up * 4.0)
+	var end_hit = space.intersect_ray(_cached_ray_query)
+	
+	var end_pos: Vector3
+	if not end_hit.is_empty():
+		end_pos = end_hit.position
+	else:
+		end_pos = start_pos + predicted_offset
+		end_pos.y = start_pos.y
+	
+	# === Step 2b: 樓梯踏面偵測 — 多段前向 raycast 找第一個台階 ===
+	# 每 STAIR_PROBE_STEP 掃描前方，偵測高度突變（riser）→ snap 到踏面
+	const STAIR_PROBE_STEP := 0.08   # 每 8cm 一個探測點
+	const STAIR_MIN_RISER := 0.05    # 最小台階高度差
+	const STAIR_MAX_PROBES := 16     # 最多探測次數（增加以覆蓋更遠距離）
+	# ★ 探測範圍 = max(步幅 * 1.5, 1.0m)，確保平地接近樓梯時能偵測到第一階
+	var probe_range = maxf(predicted_offset.length() * 1.5, 1.0)
+	var probe_count = mini(int(probe_range / STAIR_PROBE_STEP), STAIR_MAX_PROBES)
+	var prev_probe_y := start_pos.y
+	
+	for i in range(probe_count):
+		var probe_dist = STAIR_PROBE_STEP * (i + 2)  # 從 0.16m 開始（跳過腳下）
+		var probe_origin = start_pos + forward_dir * probe_dist + Vector3.UP * (max_step_up + 0.15)
+		_cached_ray_query.from = probe_origin
+		_cached_ray_query.to = probe_origin + Vector3.DOWN * (max_step_up * 3.0)
+		_cached_ray_query.exclude = exclude
+		var probe_hit = space.intersect_ray(_cached_ray_query)
+		if probe_hit.is_empty():
+			continue
+		var probe_y = probe_hit.position.y
+		var dy = probe_y - prev_probe_y
+		var is_flat_tread = probe_hit.normal.dot(Vector3.UP) > 0.85
+		
+		# 偵測到上台階 riser（地面突然升高）
+		if dy > STAIR_MIN_RISER and is_flat_tread:
+			end_pos = probe_hit.position
+			end_pos += forward_dir * 0.05  # 偏移到踏面中央，避免踩邊緣
+			if Engine.get_physics_frames() % 30 == 0:
+				print("[PredIK-Stair] ↑ 偵測到上台階: dy=%.3f pos=(%.2f, %.2f, %.2f)" % [
+					dy, end_pos.x, end_pos.y, end_pos.z
+				])
+			break
+		
+		# 偵測到下台階 riser（地面突然下降）
+		if dy < -STAIR_MIN_RISER and is_flat_tread:
+			end_pos = probe_hit.position
+			end_pos += forward_dir * 0.05
+			if Engine.get_physics_frames() % 30 == 0:
+				print("[PredIK-Stair] ↓ 偵測到下台階: dy=%.3f pos=(%.2f, %.2f, %.2f)" % [
+					dy, end_pos.x, end_pos.y, end_pos.z
+				])
+			break
+		
+		prev_probe_y = probe_y
+	
+	# === Step 3: 障礙物偵測 — SphereCast 起點→終點 ===
+	var has_obstacle := false
+	var obstacle_pos := Vector3.ZERO
+	
+	var move_vec = (end_pos - start_pos)
+	var move_dir = forward_dir
+	if move_vec.length_squared() > 0.0001:
+		move_dir = move_vec.normalized()
+	var move_right = Vector3.UP.cross(move_dir).normalized()
+	var move_up = move_dir.cross(move_right).normalized()
+	
+	if not _predict_sphere_shape:
+		_predict_sphere_shape = SphereShape3D.new()
+		_predict_sphere_shape.radius = 0.06
+	
+	var shape_query = PhysicsShapeQueryParameters3D.new()
+	shape_query.shape = _predict_sphere_shape
+	shape_query.collision_mask = _cached_ray_query.collision_mask
+	shape_query.exclude = exclude
+	
+	# 從起點上方掃向終點上方，向下偵測障礙物
+	var cast_start = start_pos + move_up * max_step_up + move_dir * 0.1
+	var cast_end = end_pos + move_up * max_step_up - move_dir * 0.1
+	var cast_motion = cast_end - cast_start
+	
+	shape_query.transform = Transform3D(Basis(), cast_start)
+	shape_query.motion = cast_motion
+	
+	var cast_results = space.cast_motion(shape_query)
+	if cast_results[0] < 1.0:
+		var hit_point = cast_start + cast_motion * cast_results[0]
+		_cached_ray_query.from = hit_point
+		_cached_ray_query.to = hit_point + Vector3.DOWN * (max_step_up + 0.3)
+		_cached_ray_query.exclude = exclude
+		var obs_hit = space.intersect_ray(_cached_ray_query)
+		if not obs_hit.is_empty():
+			has_obstacle = true
+			obstacle_pos = obs_hit.position
+
+	# === Step 3b: 追加路徑取樣 — 補強複雜台階邊緣 ===
+	var highest_path_y = -INF
+	var highest_path_t = 0.5
+	var sample_height = max_step_up + predictive_step_clearance + 0.2
+	for i in range(PREDICT_PATH_SAMPLE_COUNT):
+		var t = float(i + 1) / float(PREDICT_PATH_SAMPLE_COUNT + 1)
+		var sample_origin = start_pos.lerp(end_pos, t) + Vector3.UP * sample_height
+		_cached_ray_query.from = sample_origin
+		_cached_ray_query.to = sample_origin + Vector3.DOWN * (sample_height + max_step_up + 0.5)
+		_cached_ray_query.exclude = exclude
+		var sample_hit = space.intersect_ray(_cached_ray_query)
+		if not sample_hit.is_empty() and sample_hit.position.y > highest_path_y:
+			highest_path_y = sample_hit.position.y
+			highest_path_t = t
+
+	var heel_probe = end_pos - forward_dir * absf(heel_offset.z)
+	var toe_probe = end_pos + forward_dir * absf(toe_offset.z)
+	var heel_probe_start = heel_probe + Vector3.UP * sample_height
+	_cached_ray_query.from = heel_probe_start
+	_cached_ray_query.to = heel_probe_start + Vector3.DOWN * (sample_height + max_step_up + 0.5)
+	_cached_ray_query.exclude = exclude
+	var heel_probe_hit = space.intersect_ray(_cached_ray_query)
+	if not heel_probe_hit.is_empty() and heel_probe_hit.position.y > highest_path_y:
+		highest_path_y = heel_probe_hit.position.y
+		highest_path_t = 0.8
+
+	var toe_probe_start = toe_probe + Vector3.UP * sample_height
+	_cached_ray_query.from = toe_probe_start
+	_cached_ray_query.to = toe_probe_start + Vector3.DOWN * (sample_height + max_step_up + 0.5)
+	_cached_ray_query.exclude = exclude
+	var toe_probe_hit = space.intersect_ray(_cached_ray_query)
+	if not toe_probe_hit.is_empty() and toe_probe_hit.position.y > highest_path_y:
+		highest_path_y = toe_probe_hit.position.y
+		highest_path_t = 0.85
+	
+	# === Step 4: 記錄自然 swing arc ===
+	var apex_y = maxf(start_pos.y, end_pos.y) + predictive_step_clearance
+	var apex_t = 0.5
+	var path_len = maxf(start_pos.distance_to(end_pos), 0.001)
+	if has_obstacle:
+		var obstacle_t = clampf(start_pos.distance_to(obstacle_pos) / path_len, 0.1, 0.9)
+		var obstacle_apex = obstacle_pos.y + predictive_step_clearance * 0.5
+		if obstacle_apex > apex_y:
+			apex_y = obstacle_apex
+			apex_t = obstacle_t
+	if highest_path_y > -INF:
+		var sampled_apex = highest_path_y + predictive_step_clearance * 0.35
+		if sampled_apex > apex_y:
+			apex_y = sampled_apex
+			apex_t = highest_path_t
+	apex_t = clampf(apex_t, 0.15, 0.85)
+
+	if is_left:
+		_left_pred_start_pos = start_pos
+		_left_pred_end_y = end_pos.y
+		_left_pred_end_pos = end_pos
+		_left_pred_forward = forward_dir
+		_left_pred_mid_y = apex_y
+		_left_pred_mid_t = apex_t
+		_left_pred_active = true
+	else:
+		_right_pred_start_pos = start_pos
+		_right_pred_end_y = end_pos.y
+		_right_pred_end_pos = end_pos
+		_right_pred_forward = forward_dir
+		_right_pred_mid_y = apex_y
+		_right_pred_mid_t = apex_t
+		_right_pred_active = true
+
+
+## ★ 3 點高度曲線求值 ★
+## t: 0.0 = 起點, 1.0 = 終點
+## 返回高度 Y
+func _eval_predict_curve(start_y: float, mid_y: float, end_y: float, mid_t: float, t: float) -> float:
+	var clamped_t = clampf(t, 0.0, 1.0)
+	var peak_y = maxf(mid_y, maxf(start_y, end_y))
+	if clamped_t <= mid_t:
+		var seg_t = clampf(clamped_t / maxf(mid_t, 0.001), 0.0, 1.0)
+		seg_t = seg_t * seg_t * (3.0 - 2.0 * seg_t)
+		return lerpf(start_y, peak_y, seg_t)
+	var seg_t = clampf((clamped_t - mid_t) / maxf(1.0 - mid_t, 0.001), 0.0, 1.0)
+	seg_t = seg_t * seg_t * (3.0 - 2.0 * seg_t)
+	return lerpf(peak_y, end_y, seg_t)
+
+
+## ★ 停用預測時：清除狀態 + 重設彈簧到骨骼位置（避免腳飛回來）
+func _deactivate_predictions() -> void:
+	var was_active = _left_pred_active or _right_pred_active
+	
+	_left_pred_active = false
+	_right_pred_active = false
+	_left_was_swing = false
+	_right_was_swing = false
+	_left_swing_elapsed = 0.0
+	_right_swing_elapsed = 0.0
+	
+	# ★ 關鍵：如果之前預測是啟用的，彈簧和 IK target 還停留在預測位置
+	# 必須立即 snap 回骨骼當前位置，否則會出現「腳從後面飛過來」
+	if was_active and skeleton and _spring_initialized:
+		if _left_foot_idx >= 0:
+			var l_bone = (skeleton.global_transform * skeleton.get_bone_global_pose(_left_foot_idx)).origin
+			_left_spring_pos = l_bone
+			_left_spring_vel = Vector3.ZERO
+			if left_target:
+				left_target.global_position = l_bone
+		if _right_foot_idx >= 0:
+			var r_bone = (skeleton.global_transform * skeleton.get_bone_global_pose(_right_foot_idx)).origin
+			_right_spring_pos = r_bone
+			_right_spring_vel = Vector3.ZERO
+			if right_target:
+				right_target.global_position = r_bone
+
+
+## ★ 更新 Predictive IK 狀態（每物理幀呼叫）
+## 注意：即使樓梯動畫中也持續計算預測（用於 debug 可視化驗證）
+## IK 效果由 _update_ik_target 中的 temporary_disable_predict_ik 控制
+func _update_predict_ik(delta: float, space: PhysicsDirectSpaceState3D, exclude: Array) -> void:
+	if _is_stair_ascending_active():
+		_deactivate_predictions()
+		return
+	if not enable_predictive_ik or not _char_body or stop_anim_active:
+		if debug_draw and Engine.get_physics_frames() % 30 == 0:
+			print("[PredIK] OFF enable=%s char=%s stop=%s" % [enable_predictive_ik, _char_body != null, stop_anim_active])
+		_deactivate_predictions()
+		return
+	if not skeleton or _left_foot_idx < 0 or _right_foot_idx < 0:
+		if debug_draw and Engine.get_physics_frames() % 30 == 0:
+			print("[PredIK] WAIT skeleton=%s left=%d right=%d" % [skeleton != null, _left_foot_idx, _right_foot_idx])
+		return
+	var h_vel = Vector3(_char_body.velocity.x, 0, _char_body.velocity.z)
+	var h_speed = h_vel.length()
+	if h_speed < min_prediction_speed and _prediction_input_dir.length_squared() < 0.01 and not stair_ik_active:
+		if debug_draw and Engine.get_physics_frames() % 30 == 0:
+			print("[PredIK] IDLE speed=%.2f input=%.2f" % [h_speed, _prediction_input_dir.length()])
+		_deactivate_predictions()
+		return
+	
+	var move_dir = _get_prediction_heading(h_vel)
+
+	# ★★★ 樓梯模式：繞過相位偵測，定期強制更新預測 ★★★
+	# 樓梯上行走時 swing/stance 偵測可能不可靠
+	# 改為每 10 物理幀強制重新預測兩腳
+	if stair_ik_active:
+		var should_update = (Engine.get_physics_frames() % 10 == 0)
+		if should_update:
+			if _left_foot_idx >= 0:
+				_predict_step_landing(_left_foot_idx, space, exclude)
+			if _right_foot_idx >= 0:
+				_predict_step_landing(_right_foot_idx, space, exclude)
+		if debug_draw and Engine.get_physics_frames() % 30 == 0:
+			print("[PredIK-Stair] active=%s L=%s R=%s speed=%.2f" % [stair_ik_active, _left_pred_active, _right_pred_active, h_speed])
+		# 保持 pred_active，不更新 virtual_y（樓梯 IK 直接用 pred_end_y）
+		return
+
+	var left_swing_threshold = swing_enter_phase_threshold
+	if _left_was_swing:
+		left_swing_threshold = plant_enter_phase_threshold
+	var left_is_swing = _left_foot_phase < left_swing_threshold
+	if left_is_swing and not _left_was_swing:
+		_left_swing_elapsed = 0.0
+		_left_swing_duration = _estimate_swing_duration(h_speed)
+		_predict_step_landing(_left_foot_idx, space, exclude)
+	elif left_is_swing:
+		_left_swing_elapsed += delta
+		if _should_replan_prediction(true, move_dir):
+			_left_swing_duration = _estimate_swing_duration(h_speed)
+			_predict_step_landing(_left_foot_idx, space, exclude)
+	elif _left_pred_active:
+		_left_swing_elapsed = _left_swing_duration
+	_left_was_swing = left_is_swing
+
+	var right_swing_threshold = swing_enter_phase_threshold
+	if _right_was_swing:
+		right_swing_threshold = plant_enter_phase_threshold
+	var right_is_swing = _right_foot_phase < right_swing_threshold
+	if right_is_swing and not _right_was_swing:
+		_right_swing_elapsed = 0.0
+		_right_swing_duration = _estimate_swing_duration(h_speed)
+		_predict_step_landing(_right_foot_idx, space, exclude)
+	elif right_is_swing:
+		_right_swing_elapsed += delta
+		if _should_replan_prediction(false, move_dir):
+			_right_swing_duration = _estimate_swing_duration(h_speed)
+			_predict_step_landing(_right_foot_idx, space, exclude)
+	elif _right_pred_active:
+		_right_swing_elapsed = _right_swing_duration
+	_right_was_swing = right_is_swing
+	
+	if _left_pred_active:
+		var progress_l = _get_swing_progress(true)
+		_left_pred_virtual_y = _eval_predict_curve(_left_pred_start_pos.y, _left_pred_mid_y, _left_pred_end_y, _left_pred_mid_t, progress_l)
+	else:
+		_left_pred_virtual_y = _left_ground_y
+	
+	if _right_pred_active:
+		var progress_r = _get_swing_progress(false)
+		_right_pred_virtual_y = _eval_predict_curve(_right_pred_start_pos.y, _right_pred_mid_y, _right_pred_end_y, _right_pred_mid_t, progress_r)
+	else:
+		_right_pred_virtual_y = _right_ground_y
+	
+	# ★ DEBUG
+	if Engine.get_physics_frames() % 30 == 0:
+		print("[PredIK] L_pred=%s L_vY=%.3f R_pred=%s R_vY=%.3f | speed=%.2f" % [
+			_left_pred_active, _left_pred_virtual_y,
+			_right_pred_active, _right_pred_virtual_y,
+			h_speed
+		])
 
 
 ## ★ 更新 IK 目標位置（Spring-Damper + 防懸空牽引）
 func _update_ik_target(target: Marker3D, foot_idx: int, hip_idx: int, ground_res: GroundResult, delta: float) -> void:
 	var bone_global = skeleton.global_transform * skeleton.get_bone_global_pose(foot_idx)
 	var foot_pos = bone_global.origin
+	if _char_body:
+		var stair_sys = _char_body.get("_stair_system")
+		if stair_sys and stair_sys.data.support_lock_active:
+			var is_left_target = (foot_idx == _left_foot_idx)
+			if stair_sys.data.support_lock_is_left == is_left_target:
+				target.global_position = stair_sys.data.support_lock_world_pos
+				return
 	
-	# 目標 Y = 地面 + 腳踝到腳底的偏移
-	var target_y = ground_res.y + foot_height_offset
+	var is_left_side = (foot_idx == _left_foot_idx)
+	var pred_active = _left_pred_active if is_left_side else _right_pred_active
+	var pred_virtual_y = _left_pred_virtual_y if is_left_side else _right_pred_virtual_y
+	var is_stair_locked = stair_ik_active and ((is_left_side and left_foot_locked) or (not is_left_side and right_foot_locked))
+	if is_stair_locked:
+		var hard_lock_pos = _left_locked_ground if is_left_side else _right_locked_ground
+		target.global_position = hard_lock_pos
+		return
+	
+	# ★★★ 樓梯 PredictIK：直接用預測落點高度覆蓋 IK 目標 Y ★★★
+	# 樓梯上行走時，swing 腳朝預測踏面移動，support 腳由 hard lock 分支固定。
+	if stair_ik_active and pred_active and enable_predictive_ik:
+		var pred_end_y = _left_pred_end_y if is_left_side else _right_pred_end_y
+		var pred_end_pos = _left_pred_end_pos if is_left_side else _right_pred_end_pos
+		var foot_phase = _left_foot_phase if is_left_side else _right_foot_phase
+		var expected_support = _stair_expected_support_foot
+		var expected_is_this_foot = (expected_support == "left" and is_left_side) or (expected_support == "right" and not is_left_side)
+		var is_stance = foot_phase > 0.7
+		
+		# 還沒正式 commit 之前，預期支撐腳不能沿階面前滑。
+		# 只允許極小的 XZ 漂移，主要用來穩定接觸點；真正的前進只交給 swing 腳。
+		if expected_is_this_foot and is_stance:
+			var stance_goal = target.global_position
+			stance_goal.y = maxf(ground_res.y, pred_end_y) + foot_height_offset
+			var xz_drift = pred_end_pos - target.global_position
+			xz_drift.y = 0.0
+			if xz_drift.length() > STAIR_STANCE_XZ_DRIFT_EPSILON:
+				xz_drift = xz_drift.normalized() * STAIR_STANCE_XZ_DRIFT_EPSILON
+			stance_goal.x += xz_drift.x
+			stance_goal.z += xz_drift.z
+			target.global_position = target.global_position.lerp(stance_goal, delta * smooth_speed * 1.5)
+			return
+		
+		# ★ Swing 腳：跟隨動畫的抬腳弧線，Y 軸逐步逼近預測踏面
+		var swing_blend = clampf(1.0 - foot_phase, 0.15, 1.0)
+		
+		# IK 目標 = 從動畫骨骼逐步逼近預測踏面，避免只改 Y 造成懸空。
+		var stair_goal_y = maxf(ground_res.y, pred_end_y) + foot_height_offset
+		var stair_goal_x = lerpf(foot_pos.x, pred_end_pos.x, swing_blend)
+		var stair_goal_z = lerpf(foot_pos.z, pred_end_pos.z, swing_blend)
+		var stair_goal = Vector3(stair_goal_x, stair_goal_y, stair_goal_z)
+		
+		# 安全檢查：不讓腳離髖關節太遠
+		if hip_idx >= 0:
+			var hip_global = skeleton.global_transform * skeleton.get_bone_global_pose(hip_idx)
+			var hip_pos = hip_global.origin
+			var d = stair_goal.distance_to(hip_pos)
+			if d > max_reach_distance:
+				stair_goal = stair_goal.lerp(foot_pos, (d - max_reach_distance) / 0.3)
+		
+		# 用 lerp 平滑：讓動畫的抬腳動作仍有一定效果
+		target.global_position = target.global_position.lerp(stair_goal, delta * smooth_speed * 2.0)
+		
+		if Engine.get_physics_frames() % 120 == 0:
+			var side = "L" if is_left_side else "R"
+			print("[StairIK-%s] pred=(%.2f,%.2f,%.2f) swing=%.2f bone=(%.2f,%.2f) tgt=(%.2f,%.2f)" % [
+				side, pred_end_pos.x, pred_end_y, pred_end_pos.z, swing_blend,
+				foot_pos.x, foot_pos.z, target.global_position.x, target.global_position.z
+			])
+		return
+	
+	# ★★★ PredictIK 模式（一般地形）：完全使用 PredictIK.cs 架構 ★★★
+	# 繞過 Phase-Driven blend，直接用 bone.y + (virtualFoot - virtualHeight)
+	if pred_active and enable_predictive_ik and not temporary_disable_predict_ik and not stop_anim_active:
+		var virtual_height = minf(_left_pred_virtual_y, _right_pred_virtual_y)
+		var foot_offset = pred_virtual_y - virtual_height
+		# IK 目標 = 動畫腳位置 + 高度偏移
+		var pred_goal_pos = Vector3(foot_pos.x, foot_pos.y + foot_offset, foot_pos.z)
+		
+		# DEBUG
+		if Engine.get_physics_frames() % 15 == 0:
+			var side = "L" if is_left_side else "R"
+			print("[PredIK-%s] vY=%.3f vH=%.3f offset=%.3f boneY=%.3f goalY=%.3f" % [
+				side, pred_virtual_y, virtual_height, foot_offset, foot_pos.y, pred_goal_pos.y
+			])
+		
+		# 平滑 IK 目標
+		target.global_position = target.global_position.lerp(pred_goal_pos, delta * smooth_speed)
+		return
+	
+	# === 一般模式（非 PredictIK）===
+	var target_y = ground_res.y + foot_height_offset + 0.01
 	
 	# 高度差檢查
 	var height_diff = target_y - foot_pos.y
 	if height_diff < -max_step_down or height_diff > max_step_up:
-		# 超出合理範圍 → 平滑回到動畫位置
+		if Engine.get_physics_frames() % 60 == 0:
+			print("[IK-DIAG] %s REJECTED height_diff=%.3f" % [
+				"L" if is_left_side else "R", height_diff
+			])
 		target.global_position = target.global_position.lerp(foot_pos, delta * smooth_speed)
 		return
 	
@@ -582,21 +1432,63 @@ func _update_ik_target(target: Marker3D, foot_idx: int, hip_idx: int, ground_res
 	if xz_dist > 0.05:
 		target_xz = target_xz.lerp(hit_xz, 0.5)
 	
-	# 目標位置
+	# 目標位置（地面 + 偏移）
 	var goal_pos = Vector3(target_xz.x, target_y, target_xz.y)
+	
+	# ★★★ Phase-Driven 目標混合（一般行走用）★★★
+	var foot_phase_blend = _left_foot_phase if is_left_side else _right_foot_phase
+	var char_is_moving_blend = _char_body and Vector2(_char_body.velocity.x, _char_body.velocity.z).length() > standing_threshold
+	var is_hard_locked = (is_left_side and left_foot_locked) or ((not is_left_side) and right_foot_locked)
+	if is_hard_locked:
+		var locked_pos = _left_locked_ground if is_left_side else _right_locked_ground
+		if is_left_side:
+			_left_spring_pos = locked_pos
+			_left_spring_vel = Vector3.ZERO
+		else:
+			_right_spring_pos = locked_pos
+			_right_spring_vel = Vector3.ZERO
+		target.global_position = locked_pos
+		return
+	
+	if char_is_moving_blend:
+		var sharp_phase = pow(foot_phase_blend, 0.3)
+		var anim_y = _left_anim_foot_y if is_left_side else _right_anim_foot_y
+		var anim_goal = Vector3(foot_pos.x, anim_y, foot_pos.z)
+		goal_pos = anim_goal.lerp(goal_pos, sharp_phase)
+	
+	# ★ Feature #1：Stride Warping — 消除滑步
+	if enable_stride_warping and _char_body and _stride_anim_speed > 0.1:
+		var actual_speed = Vector2(_char_body.velocity.x, _char_body.velocity.z).length()
+		if actual_speed > 0.5:  # 只在移動時
+			var stride_scale = clampf(actual_speed / _stride_anim_speed, stride_warp_min, stride_warp_max)
+			# 沿移動方向偏移 goal_pos
+			var move_dir = Vector3(_char_body.velocity.x, 0, _char_body.velocity.z).normalized()
+			var foot_to_goal = goal_pos - foot_pos
+			var along_movement = foot_to_goal.dot(move_dir)
+			# 只調整沿移動方向的分量（拉伸/壓縮步幅）
+			goal_pos += move_dir * along_movement * (stride_scale - 1.0)
+	
+	var foot_phase_ik = _left_foot_phase if (foot_idx == _left_foot_idx) else _right_foot_phase
 	
 	# 距離限制：防止腳延伸超過腿的長度
 	if hip_idx >= 0:
 		var hip_global = skeleton.global_transform * skeleton.get_bone_global_pose(hip_idx)
 		var hip_pos = hip_global.origin
 		var dist = goal_pos.distance_to(hip_pos)
+		
+		# ★ 防呆機制：如果腿被拉得太長，強制解除 Stance Lock，讓 IK 彈回動畫位置
 		if dist > max_reach_distance:
+			if (foot_idx == _left_foot_idx):
+				_left_stance_locked = false
+			else:
+				_right_stance_locked = false
+			
+			foot_phase_ik = 0.0  # 強制進入 Swing，防止等一下又被意外鎖定回去
 			goal_pos = goal_pos.lerp(foot_pos, (dist - max_reach_distance) / 0.3)
 	
 	# ★★★ Phase-Driven Spring-Damper（Phase C 增強）★★★
 	# Swing→Stance 過渡時加硬彈簧，讓腳快速到位
 	var new_pos: Vector3
-	var foot_phase_ik = _left_foot_phase if (foot_idx == _left_foot_idx) else _right_foot_phase
 	var is_left_ik = (foot_idx == _left_foot_idx)
 	
 	if enable_predictive_ik:
@@ -615,40 +1507,70 @@ func _update_ik_target(target: Marker3D, foot_idx: int, hip_idx: int, ground_res
 		if is_landing:
 			spring_frequency = orig_freq * 2.0  # 暫時加硬
 		
+		# ★★★ 膠囊體移動系統專用 Stance Lock ★★★
+		# 關鍵洞見：膠囊體移動 ≠ Root Motion！
+		# 膠囊體系統中，整個 Skeleton 會跟著膠囊體一起平移。
+		# 如果 Stance Lock 釘死世界 XZ，身體往前走，腳卻被固定在後方 → 無限拉長。
+		# 正確做法：移動中只鎖定 Y（地面高度），XZ 交給動畫控制。
+		#           站立時才鎖定完整的 XYZ（防微滑）。
+		var char_is_moving = stop_anim_active or (_char_body and Vector2(_char_body.velocity.x, _char_body.velocity.z).length() > standing_threshold)
+		
 		if is_left_ik:
-			var result = _spring_damper_vec3(_left_spring_pos, _left_spring_vel, goal_pos, delta)
-			_left_spring_pos = result[0]
-			_left_spring_vel = result[1]
-			new_pos = _left_spring_pos
+			if _left_stance_locked:
+				if char_is_moving:
+					pass  # goal_pos 保持地面偵測的最新值
+				else:
+					# ★ 站立中：XZ 鎖定防微滑，Y 用新鮮地面偵測值
+					# 防止 pelvis 調整後 locked_y 過時導致腳浮空
+					goal_pos.x = _left_locked_ground.x
+					goal_pos.z = _left_locked_ground.z
+					# goal_pos.y 保留地面偵測 + offset 的新鮮值
+
+			# ★ Stance 時跳過彈簧 → 直達地面（消除 spring lag）
+			if _left_stance_locked:
+				_left_spring_pos = goal_pos
+				_left_spring_vel = Vector3.ZERO
+				new_pos = goal_pos
+			else:
+				new_pos = _apply_spring_damper_step(true, goal_pos, delta)
+			
 			# ★ 更新 Stance Lock 狀態
 			if foot_phase_ik > STANCE_LOCK_THRESHOLD and not _left_stance_locked:
 				_left_stance_locked = true
 				_left_locked_ground = goal_pos
 				_left_locked_normal = _left_ground_normal
-				# ★ 關鍵修復：進入 Stance 時清除彈簧殘留速度，防止過沖甩向後方
 				_left_spring_vel = Vector3.ZERO
 				_left_spring_pos = goal_pos
 				new_pos = goal_pos
-				# ★ 同步 temporal interpolation，防止 _process 的 lerp 拉回舊位置
 				_prev_left_target = goal_pos
 				_curr_left_target = goal_pos
 			elif foot_phase_ik < SWING_UNLOCK_THRESHOLD:
 				_left_stance_locked = false
 		else:
-			var result = _spring_damper_vec3(_right_spring_pos, _right_spring_vel, goal_pos, delta)
-			_right_spring_pos = result[0]
-			_right_spring_vel = result[1]
-			new_pos = _right_spring_pos
+			if _right_stance_locked:
+				if char_is_moving:
+					pass
+				else:
+					# ★ 同左腳：XZ 鎖定，Y 用新鮮值
+					goal_pos.x = _right_locked_ground.x
+					goal_pos.z = _right_locked_ground.z
+
+			# ★ Stance 時跳過彈簧 → 直達地面
+			if _right_stance_locked:
+				_right_spring_pos = goal_pos
+				_right_spring_vel = Vector3.ZERO
+				new_pos = goal_pos
+			else:
+				new_pos = _apply_spring_damper_step(false, goal_pos, delta)
+			
 			# ★ 更新 Stance Lock 狀態
 			if foot_phase_ik > STANCE_LOCK_THRESHOLD and not _right_stance_locked:
 				_right_stance_locked = true
 				_right_locked_ground = goal_pos
 				_right_locked_normal = _right_ground_normal
-				# ★ 關鍵修復：進入 Stance 時清除彈簧殘留速度
 				_right_spring_vel = Vector3.ZERO
 				_right_spring_pos = goal_pos
 				new_pos = goal_pos
-				# ★ 同步 temporal interpolation
 				_prev_right_target = goal_pos
 				_curr_right_target = goal_pos
 			elif foot_phase_ik < SWING_UNLOCK_THRESHOLD:
@@ -668,12 +1590,57 @@ func _update_ik_target(target: Marker3D, foot_idx: int, hip_idx: int, ground_res
 		_prev_right_target = _curr_right_target
 		_curr_right_target = new_pos
 	
+	# ★ 直接寫入 target.global_position（_process 已不再覆蓋）
+	# TwoBoneIK 讀取的就是這個位置 → 確保精確貼地
 	target.global_position = new_pos
 
 
-# ═══════════════════════════════════════════════════════════════
-# ★★★ Predictive IK - 核心工具函數 ★★★
-# ═══════════════════════════════════════════════════════════════
+## ★ 直接骨骼旋轉：讓腳踝對齊地面法線（不需 LookAt Modifier）
+var _left_foot_rot: Quaternion = Quaternion.IDENTITY
+var _right_foot_rot: Quaternion = Quaternion.IDENTITY
+
+func _apply_foot_rotation(delta: float) -> void:
+	# 對每隻腳，根據地面法線計算旋轉
+	if _left_foot_idx >= 0:
+		_rotate_foot_bone(_left_foot_idx, _left_ground_normal, true, delta)
+	if _right_foot_idx >= 0:
+		_rotate_foot_bone(_right_foot_idx, _right_ground_normal, false, delta)
+
+func _rotate_foot_bone(foot_idx: int, ground_normal: Vector3, is_left: bool, delta: float) -> void:
+	if ground_normal.is_zero_approx():
+		return
+	
+	# ★ 斜坡因子：平地不旋轉，斜坡才旋轉
+	var slope_dot = ground_normal.dot(Vector3.UP)
+	var slope_factor = clampf((0.98 - slope_dot) / 0.03, 0.0, 1.0)
+	if slope_factor < 0.01:
+		# 平地 → 清除旋轉覆蓋，用動畫原生旋轉
+		if is_left:
+			_left_foot_rot = _left_foot_rot.slerp(Quaternion.IDENTITY, delta * foot_rotation_speed)
+		else:
+			_right_foot_rot = _right_foot_rot.slerp(Quaternion.IDENTITY, delta * foot_rotation_speed)
+		return
+	
+	# 計算需要的旋轉：從 UP 到 ground_normal
+	var axis = Vector3.UP.cross(ground_normal)
+	if axis.length_squared() < 0.0001:
+		return
+	axis = axis.normalized()
+	var angle = acos(clampf(slope_dot, -1.0, 1.0))
+	angle = clampf(angle, 0.0, deg_to_rad(max_pitch_angle))
+	
+	var target_rot = Quaternion(axis, angle * slope_factor)
+	
+	# 平滑插值
+	if is_left:
+		_left_foot_rot = _left_foot_rot.slerp(target_rot, delta * foot_rotation_speed)
+		# 將旋轉疊加到當前骨骼旋轉上
+		var current = skeleton.get_bone_pose_rotation(foot_idx)
+		skeleton.set_bone_pose_rotation(foot_idx, _left_foot_rot * current)
+	else:
+		_right_foot_rot = _right_foot_rot.slerp(target_rot, delta * foot_rotation_speed)
+		var current = skeleton.get_bone_pose_rotation(foot_idx)
+		skeleton.set_bone_pose_rotation(foot_idx, _right_foot_rot * current)
 
 ## ★★★ GASP-Style 模擬軌跡預測 ★★★
 ## 取代線性預測 (vel * time)，模擬未來 N 步的加速/減速/轉向
@@ -732,10 +1699,11 @@ func _simulate_trajectory_offset(current_vel: Vector3, total_time: float) -> Vec
 ## Critically-Damped Spring-Damper（臨界阻尼彈簧）
 ## 比 lerp 更自然：有慣性、不會突然跳動、收斂速度可控
 ## 參考：https://theorangeduck.com/page/spring-roll-call
-func _spring_damper_vec3(current: Vector3, velocity: Vector3, target_val: Vector3, dt: float) -> Array:
-	# ★ 保護：無效 dt
+func _apply_spring_damper_step(is_left: bool, target_val: Vector3, dt: float) -> Vector3:
+	var current = _left_spring_pos if is_left else _right_spring_pos
+	var velocity = _left_spring_vel if is_left else _right_spring_vel
 	if dt <= 0.0001:
-		return [current, velocity]
+		return current
 	
 	var omega = spring_frequency * TAU  # 角頻率 = 2π * f
 	
@@ -749,8 +1717,13 @@ func _spring_damper_vec3(current: Vector3, velocity: Vector3, target_val: Vector
 	
 	var new_pos = target_val + (j0 + j1 * dt) * exp_term
 	var new_vel = (velocity - j1 * omega * dt) * exp_term
-	
-	return [new_pos, new_vel]
+	if is_left:
+		_left_spring_pos = new_pos
+		_left_spring_vel = new_vel
+	else:
+		_right_spring_pos = new_pos
+		_right_spring_vel = new_vel
+	return new_pos
 
 
 ## ★★★ Temporal Interpolation：在渲染幀之間插值 IK Target ★★★
@@ -762,17 +1735,35 @@ func _process(_delta: float) -> void:
 	if not skeleton or not left_target or not right_target:
 		return
 	
+	# ★★★ 讀取動畫原始骨骼高度（核心！打斷 IK 反饋迴路）★★★
+	# _process 在 Skeleton modifier (TwoBoneIK) 之前執行（場景樹順序）
+	# 這裡的 get_bone_global_pose 回傳的是 AnimationTree 套用後的純動畫值
+	# 不包含 TwoBoneIK 的修改 → 不受 IK 反饋影響
+	if _left_foot_idx >= 0:
+		_left_anim_foot_y = (skeleton.global_transform * skeleton.get_bone_global_pose(_left_foot_idx)).origin.y
+	if _right_foot_idx >= 0:
+		_right_anim_foot_y = (skeleton.global_transform * skeleton.get_bone_global_pose(_right_foot_idx)).origin.y
+	
 	# ★ 防當機策略：必須在 enable_predictive_ik 判斷之前！
 	# 不然 enable_predictive_ik=false 時 IK 永遠不會被啟動！
 	if _safe_startup_delay < 1.0:
 		_safe_startup_delay += _delta
 		if _safe_startup_delay >= 0.5 and _left_hip_idx >= 0:
-			# 確認骨架已經與臀部骨骼有實質距離（表示骨架已完整載入）
 			var l_hip = skeleton.global_transform * skeleton.get_bone_global_pose(_left_hip_idx)
 			if left_target.global_position.distance_to(l_hip.origin) > 0.1:
 				if left_ik and not left_ik.active: left_ik.active = true
 				if right_ik and not right_ik.active: right_ik.active = true
 				if left_lookat_modifier and not left_lookat_modifier.active: left_lookat_modifier.active = true
+				# ★ 一次性 IK 狀態診斷
+				if left_ik:
+					var lt = left_ik.get("settings/0/target_node")
+					var lt_ok = left_ik.get_node_or_null(lt) if lt else null
+					print("[FootIK-DIAG] LeftIK: active=%s infl=%.2f target=%s resolved=%s" % [left_ik.active, left_ik.influence, lt, lt_ok != null])
+				if right_ik:
+					var rt = right_ik.get("settings/0/target_node")
+					var rt_ok = right_ik.get_node_or_null(rt) if rt else null
+					print("[FootIK-DIAG] RightIK: active=%s infl=%.2f target=%s resolved=%s" % [right_ik.active, right_ik.influence, rt, rt_ok != null])
+				_safe_startup_delay = 10.0  # ★ 只印一次
 				if right_lookat_modifier and not right_lookat_modifier.active: right_lookat_modifier.active = true
 	
 	if not enable_predictive_ik:
@@ -792,22 +1783,14 @@ func _process(_delta: float) -> void:
 	if _prev_right_target.is_zero_approx() or _curr_right_target.is_zero_approx():
 		return
 	
-	# 取得渲染幀在兩個物理步驟之間的比例（0.0 ~ 1.0）
-	var frac = Engine.get_physics_interpolation_fraction()
-	
-	# 在 prev 和 curr 之間線性插值
-	left_target.global_position = _prev_left_target.lerp(_curr_left_target, frac)
-	right_target.global_position = _prev_right_target.lerp(_curr_right_target, frac)
+	# ★ Temporal interpolation 已移除
+	# 問題：_process 插值後的位置比 physics 計算的 curr 滯後 1 幀  
+	# → 斜坡上 TwoBoneIK 讀的是滯後位置 → 腳永遠到不了地面
+	# 解決：_physics_process 直接寫入 target（唯一真實位置），_process 不覆蓋
+	# 下面這行保留以防萬一，但實際由 _physics_process 決定 target 位置
+	# left_target.global_position = _prev_left_target.lerp(_curr_left_target, frac)
+	# right_target.global_position = _prev_right_target.lerp(_curr_right_target, frac)
 
-
-## ★★★ 腳踝對齊地面法線（直接法線旋轉，不依賴骨骼軸向） ★★★
-func _apply_ankle_pitch(delta: float, ankle_weight: float = 1.0) -> void:
-	# 左腳
-	if _left_foot_idx >= 0:
-		_align_foot_to_ground(_left_foot_idx, _left_ground_normal, delta, true, ankle_weight)
-	# 右腳
-	if _right_foot_idx >= 0:
-		_align_foot_to_ground(_right_foot_idx, _right_ground_normal, delta, false, ankle_weight)
 
 
 ## 將腳骨旋轉對齊地面法線（在 IK 之後覆寫）
@@ -945,121 +1928,87 @@ func _update_foot_target_minimal(target: Marker3D, bone_idx: int, hip_idx: int, 
 	return ground_y
 
 
-## 更新 LookAt 目標位置 - 使用地面法線讓腳平行於斜坡
+## 更新 LookAt 目標位置 - 讓腳掌與地面平行
 func _update_lookat_targets(delta: float) -> void:
-	"""計算並更新 LookAt 目標位置。
-	使用地面法線計算腳應該指向的方向，使腳底平行於斜坡表面。"""
+	"""使用 Quaternion.LookRotation 原理：
+	   target = foot_pos + project(char_forward, ground_plane) * offset
+	   → LookAtModifier 讓腳尖朝向 target → 腳掌自動平行地面
+	"""
 	var parent = _char_body
+	if not parent:
+		return
 	var space_state = get_world_3d().direct_space_state
 	var exclude_rid = [parent.get_rid()] if parent is CharacterBody3D else []
-	var char_forward = - parent.global_transform.basis.z if parent else Vector3.FORWARD
+	var char_forward = -parent.global_transform.basis.z
+	var smooth_speed_lookat = 15.0
 	
-	# 更新左腳 LookAt 目標
+	# ★ 通用函數：計算單腳 LookAt 目標
+	# ground_normal: 地面法線, foot_pos: 腳踝世界座標
+	# 回傳：LookAt target 世界座標
+	var _calc_target = func(foot_pos: Vector3, ground_normal: Vector3) -> Vector3:
+		# 將 char_forward 投影到地面法線定義的平面上
+		# slope_forward = forward - normal * dot(forward, normal)
+		var slope_forward = char_forward - ground_normal * char_forward.dot(ground_normal)
+		if slope_forward.length_squared() < 0.0001:
+			slope_forward = char_forward  # fallback
+		else:
+			slope_forward = slope_forward.normalized()
+		
+		# target = 腳踝 + 沿地面的前方 * 偏移
+		# 這樣在上坡時 target.y > foot.y → 腳尖朝上
+		# 在下坡時 target.y < foot.y → 腳尖朝下
+		return foot_pos + slope_forward * lookat_forward_offset
+	
+	# ★ 通用函數：射線偵測並更新 LookAt target
+	var _update_foot_lookat = func(
+		foot_idx: int, lookat_target: Marker3D, is_left: bool
+	) -> void:
+		var foot_global = skeleton.global_transform * skeleton.get_bone_global_pose(foot_idx)
+		var foot_pos = foot_global.origin
+		
+		# 射線偵測地面
+		var ray_start = foot_pos + Vector3.UP * 0.3
+		var ray_end = foot_pos + Vector3.DOWN * ray_length
+		var query = PhysicsRayQueryParameters3D.create(ray_start, ray_end)
+		query.collision_mask = 1
+		query.exclude = exclude_rid
+		var result = space_state.intersect_ray(query)
+		
+		var target_pos: Vector3
+		if not result.is_empty():
+			target_pos = _calc_target.call(foot_pos, result.normal)
+		else:
+			# 沒擊中地面 → 水平前方
+			target_pos = foot_pos + char_forward * lookat_forward_offset
+		
+		# 平滑
+		lookat_target.global_position = lookat_target.global_position.lerp(
+			target_pos, delta * smooth_speed_lookat
+		)
+	
+	# 更新左腳
 	if left_lookat_target and _left_foot_idx >= 0:
-		var left_foot_global = skeleton.global_transform * skeleton.get_bone_global_pose(_left_foot_idx)
-		var left_foot_pos = left_foot_global.origin
-		
-		# 在腳下方射線偵測地面法線
-		var ray_start = left_foot_pos + Vector3.UP * 0.3
-		var ray_end = left_foot_pos + Vector3.DOWN * ray_length
-		
-		var query = PhysicsRayQueryParameters3D.create(ray_start, ray_end)
-		query.collision_mask = 1
-		query.exclude = exclude_rid
-		var result = space_state.intersect_ray(query)
-		
-		if not result.is_empty():
-			var ground_normal = result.normal
-			var ground_point = result.position
-			
-			# 檢查是否在斜坡上 (法線偏離 UP 的程度)
-			var slope_angle = ground_normal.angle_to(Vector3.UP)
-			var is_on_slope = slope_angle > 0.05 # 約 3 度以上視為斜坡
-			
-			if is_on_slope:
-				# 在斜坡上：計算沿著斜坡的前進方向
-				var slope_forward = char_forward - ground_normal * char_forward.dot(ground_normal)
-				slope_forward = slope_forward.normalized()
-				
-				# LookAt 目標 = 地面點 + 沿斜坡方向的偏移
-				var target_pos = ground_point + slope_forward * lookat_forward_offset
-				target_pos.y += 0.02 # 微小抬升
-				
-				left_lookat_target.global_position = left_lookat_target.global_position.lerp(
-					target_pos, delta * smooth_speed
-				)
-			else:
-				# 在平地上：目標放在腳的高度，保持腳平
-				var target_pos = left_foot_pos + char_forward * lookat_forward_offset
-				left_lookat_target.global_position = left_lookat_target.global_position.lerp(
-					target_pos, delta * smooth_speed
-				)
-		else:
-			# 沒擊中地面時，保持在腳正前方水平
-			var fallback_pos = left_foot_pos + char_forward * lookat_forward_offset
-			left_lookat_target.global_position = left_lookat_target.global_position.lerp(
-				fallback_pos, delta * smooth_speed
-			)
+		_update_foot_lookat.call(_left_foot_idx, left_lookat_target, true)
 	
-	# 更新右腳 LookAt 目標
+	# 更新右腳
 	if right_lookat_target and _right_foot_idx >= 0:
-		var right_foot_global = skeleton.global_transform * skeleton.get_bone_global_pose(_right_foot_idx)
-		var right_foot_pos = right_foot_global.origin
-		
-		# 在腳下方射線偵測地面法線
-		var ray_start = right_foot_pos + Vector3.UP * 0.3
-		var ray_end = right_foot_pos + Vector3.DOWN * ray_length
-		
-		var query = PhysicsRayQueryParameters3D.create(ray_start, ray_end)
-		query.collision_mask = 1
-		query.exclude = exclude_rid
-		var result = space_state.intersect_ray(query)
-		
-		if not result.is_empty():
-			var ground_normal = result.normal
-			var ground_point = result.position
-			
-			# 檢查是否在斜坡上
-			var slope_angle = ground_normal.angle_to(Vector3.UP)
-			var is_on_slope = slope_angle > 0.05 # 約 3 度以上視為斜坡
-			
-			if is_on_slope:
-				# 在斜坡上：計算沿著斜坡的前進方向
-				var slope_forward = char_forward - ground_normal * char_forward.dot(ground_normal)
-				slope_forward = slope_forward.normalized()
-				
-				var target_pos = ground_point + slope_forward * lookat_forward_offset
-				target_pos.y += 0.02
-				
-				right_lookat_target.global_position = right_lookat_target.global_position.lerp(
-					target_pos, delta * smooth_speed
-				)
-			else:
-				# 在平地上：目標放在腳的高度，保持腳平
-				var target_pos = right_foot_pos + char_forward * lookat_forward_offset
-				right_lookat_target.global_position = right_lookat_target.global_position.lerp(
-					target_pos, delta * smooth_speed
-				)
-		else:
-			var fallback_pos = right_foot_pos + char_forward * lookat_forward_offset
-			right_lookat_target.global_position = right_lookat_target.global_position.lerp(
-				fallback_pos, delta * smooth_speed
-			)
+		_update_foot_lookat.call(_right_foot_idx, right_lookat_target, false)
 	
-	# 更新 LookAtModifier 的 influence
+	# ★ LookAt influence = Phase × IK × 斜坡因子
+	# 平地 (normal·UP > 0.98) → influence=0 → 動畫原生旋轉（不需修正）
+	# 斜坡 (normal·UP < 0.95) → influence=1 → 旋轉貼合斜面
+	var l_slope_dot = _left_ground_normal.dot(Vector3.UP)
+	var r_slope_dot = _right_ground_normal.dot(Vector3.UP)
+	# 0.98 → 0.0,  0.95 → 1.0 的平滑映射
+	var l_slope_factor = clampf((0.98 - l_slope_dot) / 0.03, 0.0, 1.0)
+	var r_slope_factor = clampf((0.98 - r_slope_dot) / 0.03, 0.0, 1.0)
+	
+	var l_lookat_infl = _current_influence * _left_foot_phase * l_slope_factor
+	var r_lookat_infl = _current_influence * _right_foot_phase * r_slope_factor
 	if left_lookat_modifier:
-		left_lookat_modifier.influence = _current_influence
+		left_lookat_modifier.influence = l_lookat_infl
 	if right_lookat_modifier:
-		right_lookat_modifier.influence = _current_influence
-	
-	# 診斷輸出 - 顯示 LookAt 目標位置
-	if Engine.get_process_frames() % 60 == 0:
-		var left_pos = left_lookat_target.global_position if left_lookat_target else Vector3.ZERO
-		var right_pos = right_lookat_target.global_position if right_lookat_target else Vector3.ZERO
-		print("[LookAt] L=(%.2f, %.2f, %.2f) R=(%.2f, %.2f, %.2f)" % [
-			left_pos.x, left_pos.y, left_pos.z,
-			right_pos.x, right_pos.y, right_pos.z
-		])
+		right_lookat_modifier.influence = r_lookat_infl
 
 
 func _update_foot_target_with_rotation(target: Marker3D, bone_idx: int, delta: float, is_left: bool) -> float:
@@ -1200,7 +2149,7 @@ func _cast_ground_ray(space_state: PhysicsDirectSpaceState3D, origin: Vector3, e
 	return {"hit": false, "position": Vector3.ZERO, "normal": Vector3.UP}
 
 
-func _rotate_foot_bone(bone_idx: int, pitch: float, normal: Vector3, delta: float) -> void:
+func _rotate_foot_bone_legacy(bone_idx: int, pitch: float, normal: Vector3, delta: float) -> void:
 	"""使用 pose_override 在 IK 之後旋轉腳骨"""
 	if bone_idx < 0 or not skeleton:
 		return
@@ -1285,14 +2234,69 @@ func _apply_pelvis_offset(delta: float) -> void:
 	if not parent:
 		return
 	
+	# ★ 空中保護：跳躍/掉落時不做 pelvis 下沉
+	if not parent.is_on_floor():
+		_current_pelvis_offset = lerp(_current_pelvis_offset, 0.0, delta * pelvis_smooth_speed * 0.5)
+		skeleton.position.y = _original_skeleton_y + _current_pelvis_offset
+		return
+	
+	# ★ 方案 B: 樓梯上不做 pelvis 下沉（地面射線在不同台階高度會造成異常下蹲）
+	if stair_ik_active:
+		_current_pelvis_offset = lerp(_current_pelvis_offset, 0.0, delta * pelvis_smooth_speed)
+		skeleton.position.y = _original_skeleton_y + _current_pelvis_offset
+		return
+	
 	var body_y = parent.global_position.y
 	
-	var lowest_ground = min(_left_ground_y, _right_ground_y)
-	var highest_ground = max(_left_ground_y, _right_ground_y)
+	# ★★★ PredictIK 模式：Pelvis 跟隨最低虛擬腳 ★★★
+	# 樓梯上不要直接使用虛擬腳高度驅動骨盆，否則 body_y 與預測踏面高度落差過大時
+	# 會出現明顯的下蹲/吸地。樓梯交給一般模式用真實地面高度處理。
+	if enable_predictive_ik and not stair_ik_active and not temporary_disable_predict_ik and _left_pred_active and _right_pred_active:
+		var virtual_height = minf(_left_pred_virtual_y, _right_pred_virtual_y)
+		# 動畫 Pelvis 偏移 = 骨盆到角色原點的高度
+		var anim_pelvis_offset = _original_skeleton_y
+		# 目標 pelvis Y = virtualHeight - body_y (相對偏移)
+		var target_pelvis = virtual_height - body_y + anim_pelvis_offset
+		_current_pelvis_offset = lerp(_current_pelvis_offset, target_pelvis, delta * pelvis_smooth_speed)
+		skeleton.position.y = _original_skeleton_y + _current_pelvis_offset
+		
+		if Engine.get_physics_frames() % 30 == 0:
+			print("[PredIK-Pelvis] vH=%.3f body=%.3f tgt=%.3f cur=%.3f" % [
+				virtual_height, body_y, target_pelvis, _current_pelvis_offset
+			])
+		return
 	
-	# 如果其中一隻腳沒有有效偵測到地面 (例如極端懸空為 0.0, body_y=0.6)，我們要避免因此造成骨盆暴跌。
-	# 我們計算 lower 和 higher 的 deficit。
-	var needed_offset = lowest_ground - body_y
+	# === 一般模式 ===
+	# ★ 懸崖防暴跌：過濾掉不合理的地面值
+	var l_valid = (_left_ground_y - body_y) > -max_reach_distance
+	var r_valid = (_right_ground_y - body_y) > -max_reach_distance
+	var l_gnd = _left_ground_y if l_valid else body_y
+	var r_gnd = _right_ground_y if r_valid else body_y
+	
+	var lowest_ground = min(l_gnd, r_gnd)
+	var highest_ground = max(l_gnd, r_gnd)
+	
+	# ★★★ IK 到達距離感知 pelvis 偏移 ★★★
+	var hip_rest_height := 0.93
+	var leg_length := 0.86
+	var reach_margin := 0.05
+	var effective_reach := leg_length - reach_margin
+	
+	var l_target_y = l_gnd + foot_height_offset
+	var r_target_y = r_gnd + foot_height_offset
+	var hip_y = body_y + hip_rest_height
+	
+	var l_needed_drop = effective_reach - (hip_y - l_target_y)
+	var r_needed_drop = effective_reach - (hip_y - r_target_y)
+	
+	var needed_drop = min(l_needed_drop, r_needed_drop)
+	var reference_ground: float
+	if needed_drop < 0.0:
+		reference_ground = body_y + needed_drop
+	else:
+		reference_ground = body_y
+	
+	var needed_offset = reference_ground - body_y
 	
 	var target_offset = 0.0
 	if needed_offset < -0.01:
@@ -1387,53 +2391,216 @@ func clear_right_influence_override() -> void:
 
 
 func _draw_debug() -> void:
-	"""繪製除錯視覺化 - 使用 DebugDraw3D 或 print 輸出"""
-	# 使用快取的 singleton（在 _ready 中初始化）
 	var dd = _debug_draw_3d
-	if dd:
-		# 左腳 raycast (綠色)
-		dd.draw_line(_debug_left_ray_start, _debug_left_ray_end, Color.GREEN)
-		if _debug_left_hit:
-			dd.draw_sphere(_debug_left_ground, 0.05, Color.GREEN)
-		if left_target:
-			dd.draw_sphere(left_target.global_position, 0.03, Color.LIME)
-		
-		# 右腳 raycast (藍色)
-		dd.draw_line(_debug_right_ray_start, _debug_right_ray_end, Color.CYAN)
-		if _debug_right_hit:
-			dd.draw_sphere(_debug_right_ground, 0.05, Color.CYAN)
-		if right_target:
-			dd.draw_sphere(right_target.global_position, 0.03, Color.AQUA)
-		
-		# 骨盆偏移指示 (黃色)
-		if skeleton:
-			var pelvis_pos = skeleton.global_position
-			dd.draw_line(pelvis_pos, pelvis_pos + Vector3.DOWN * abs(_current_pelvis_offset), Color.YELLOW)
-		
-		# ★ Phase-Driven Predictive IK 預測點
-		if enable_predictive_ik:
-			# 預測點：stance=綠色(鎖定), swing=紅色(預測中), 過渡=橙色(落地中)
-			var l_color = Color.GREEN if _left_stance_locked else (Color.ORANGE if _left_foot_phase > 0.4 else Color.RED)
-			var r_color = Color.GREEN if _right_stance_locked else (Color.ORANGE if _right_foot_phase > 0.4 else Color.RED)
-			dd.draw_sphere(_debug_left_predict_pos, 0.04, l_color)
-			dd.draw_sphere(_debug_right_predict_pos, 0.04, r_color)
-			# 預測方向線（stance 時短線，swing 時長線）
-			if left_target:
-				dd.draw_line(left_target.global_position, _debug_left_predict_pos, l_color)
-			if right_target:
-				dd.draw_line(right_target.global_position, _debug_right_predict_pos, r_color)
-			# ★ Phase 數值標記（在腳骨上方顯示 L/R）
-			if skeleton and _left_foot_idx >= 0:
-				var lf_pos = (skeleton.global_transform * skeleton.get_bone_global_pose(_left_foot_idx)).origin
-				dd.draw_sphere(lf_pos + Vector3.UP * 0.15, 0.02, l_color)
-			if skeleton and _right_foot_idx >= 0:
-				var rf_pos = (skeleton.global_transform * skeleton.get_bone_global_pose(_right_foot_idx)).origin
-				dd.draw_sphere(rf_pos + Vector3.UP * 0.15, 0.02, r_color)
+	if not dd:
+		if Engine.get_process_frames() % 60 == 0:
+			print("[FootIK Debug] DebugDraw3D not found. Set debug_draw=false to suppress.")
+		return
+	if not skeleton:
+		return
+
+	# ─── 顏色定義 ───────────────────────────────────────────────
+	var C_STANCE   := Color(0.2, 1.0, 0.2, 1.0)   # 亮綠：stance（貼地）
+	var C_TRANSIT  := Color(1.0, 0.8, 0.0, 1.0)   # 黃：過渡（landing）
+	var C_SWING    := Color(1.0, 0.3, 0.1, 1.0)   # 橙紅：swing（空中）
+	var C_TARGET   := Color(0.3, 0.9, 1.0, 1.0)   # 青：IK Target
+	var C_GROUND   := Color(0.5, 0.5, 1.0, 1.0)   # 藍紫：地面偵測
+	var C_PELVIS   := Color(1.0, 1.0, 0.3, 0.8)   # 黃：骨盆
+	var C_PRED_ARC := Color(1.0, 0.6, 0.0, 0.9)   # 橙：預測軌跡弧
+	var C_PRED_END := Color(1.0, 0.9, 0.1, 1.0)   # 亮黃：預測落點
+
+	# ─── 輔助：根據 Phase 回傳顏色 ──────────────────────────────
+	var l_col: Color
+	if _left_stance_locked or _left_foot_phase >= STANCE_LOCK_THRESHOLD:
+		l_col = C_STANCE
+	elif _left_foot_phase >= plant_enter_phase_threshold:
+		l_col = C_TRANSIT
 	else:
-		# 沒有 DebugDraw3D，每隔一段時間輸出文字
-		if Engine.get_process_frames() % 30 == 0:
-			print("[FootIK Debug] L_hit=%s L_ground=%.2f | R_hit=%s R_ground=%.2f | Pelvis=%.3f" % [
-				_debug_left_hit, _debug_left_ground.y if _debug_left_hit else 0.0,
-				_debug_right_hit, _debug_right_ground.y if _debug_right_hit else 0.0,
-				_current_pelvis_offset
-			])
+		l_col = C_SWING
+	
+	var r_col: Color
+	if _right_stance_locked or _right_foot_phase >= STANCE_LOCK_THRESHOLD:
+		r_col = C_STANCE
+	elif _right_foot_phase >= plant_enter_phase_threshold:
+		r_col = C_TRANSIT
+	else:
+		r_col = C_SWING
+
+	# ─── 取得骨骼位置 ──────────────────────────────────────────
+	var l_bone_pos := Vector3.ZERO
+	var r_bone_pos := Vector3.ZERO
+	if _left_foot_idx >= 0:
+		l_bone_pos = (skeleton.global_transform * skeleton.get_bone_global_pose(_left_foot_idx)).origin
+	if _right_foot_idx >= 0:
+		r_bone_pos = (skeleton.global_transform * skeleton.get_bone_global_pose(_right_foot_idx)).origin
+
+	# ─────────────────────────────────────────────
+	# 1. 地面偵測射線 + 法線（左=藍紫，右=藍紫）
+	# ─────────────────────────────────────────────
+	dd.draw_line(_debug_left_ray_start, _debug_left_ray_end, Color(C_GROUND, 0.4))
+	if _debug_left_hit:
+		dd.draw_sphere(_debug_left_ground, 0.04, C_GROUND)
+		dd.draw_line(_debug_left_ground, _debug_left_ground + _left_ground_normal * 0.12, Color(C_GROUND, 0.7))
+
+	dd.draw_line(_debug_right_ray_start, _debug_right_ray_end, Color(C_GROUND, 0.4))
+	if _debug_right_hit:
+		dd.draw_sphere(_debug_right_ground, 0.04, C_GROUND)
+		dd.draw_line(_debug_right_ground, _debug_right_ground + _right_ground_normal * 0.12, Color(C_GROUND, 0.7))
+
+	# ─────────────────────────────────────────────
+	# 2. 骨骼實際位置（相位顏色的小球）
+	# ─────────────────────────────────────────────
+	if _left_foot_idx >= 0:
+		dd.draw_sphere(l_bone_pos, 0.035, l_col)
+	if _right_foot_idx >= 0:
+		dd.draw_sphere(r_bone_pos, 0.035, r_col)
+
+	# ─────────────────────────────────────────────
+	# 3. IK Target（青色大球 + 目標到骨骼的誤差線）
+	# ─────────────────────────────────────────────
+	if left_target:
+		var lt = left_target.global_position
+		dd.draw_sphere(lt, 0.05, C_TARGET)
+		if _left_foot_idx >= 0:
+			dd.draw_line(lt, l_bone_pos, Color(C_TARGET, 0.5))
+	if right_target:
+		var rt = right_target.global_position
+		dd.draw_sphere(rt, 0.05, C_TARGET)
+		if _right_foot_idx >= 0:
+			dd.draw_line(rt, r_bone_pos, Color(C_TARGET, 0.5))
+
+	# ─────────────────────────────────────────────
+	# 4. PredictIK 預測軌跡弧 + 預測落點
+	# ─────────────────────────────────────────────
+	if enable_predictive_ik:  # 樓梯時也顯示，用於驗證台階偵測準確度
+		const ARC_STEPS := 10
+		const DEBUG_ARC_LIFT := 0.15  # 弧線往上抬，避免被地面蓋住
+
+		# 左腳預測弧
+		if _left_pred_active:
+			var prev_arc_pos := Vector3.ZERO
+			for i in range(ARC_STEPS + 1):
+				var t = float(i) / float(ARC_STEPS)
+				var arc_y = _eval_predict_curve(
+					_left_pred_start_pos.y, _left_pred_mid_y, _left_pred_end_y,
+					_left_pred_mid_t, t
+				)
+				var arc_pos = _left_pred_start_pos.lerp(_left_pred_end_pos, t)
+				# 實際弧高 + 視覺抬升 + swing 拋物線（平地也有弧形）
+				var parabola = 4.0 * t * (1.0 - t) * 0.12  # 拋物線 apex=0.12m
+				arc_pos.y = arc_y + DEBUG_ARC_LIFT + parabola
+				if i > 0:
+					dd.draw_line(prev_arc_pos, arc_pos, C_PRED_ARC)
+				dd.draw_sphere(arc_pos, 0.018, C_PRED_ARC if i > 0 and i < ARC_STEPS else C_PRED_END)
+				prev_arc_pos = arc_pos
+
+			# 預測落點圈（地面高程）
+			var l_end_ground = _left_pred_end_pos
+			l_end_ground.y = _left_pred_end_y + DEBUG_ARC_LIFT
+			dd.draw_sphere(l_end_ground, 0.07, C_PRED_END)
+
+			# 當前進度指示（現在走到哪了）
+			var prog_l = _get_swing_progress(true)
+			var cur_l_y = _eval_predict_curve(
+				_left_pred_start_pos.y, _left_pred_mid_y, _left_pred_end_y,
+				_left_pred_mid_t, prog_l
+			)
+			var cur_parabola_l = 4.0 * prog_l * (1.0 - prog_l) * 0.12
+			var cur_l_pos = _left_pred_start_pos.lerp(_left_pred_end_pos, prog_l)
+			cur_l_pos.y = cur_l_y + DEBUG_ARC_LIFT + cur_parabola_l
+			dd.draw_sphere(cur_l_pos, 0.04, Color.WHITE)
+			dd.draw_line(l_bone_pos, cur_l_pos, Color(1, 1, 1, 0.5))
+
+		# 右腳預測弧
+		if _right_pred_active:
+			var prev_arc_pos := Vector3.ZERO
+			for i in range(ARC_STEPS + 1):
+				var t = float(i) / float(ARC_STEPS)
+				var arc_y = _eval_predict_curve(
+					_right_pred_start_pos.y, _right_pred_mid_y, _right_pred_end_y,
+					_right_pred_mid_t, t
+				)
+				var arc_pos = _right_pred_start_pos.lerp(_right_pred_end_pos, t)
+				var parabola = 4.0 * t * (1.0 - t) * 0.12
+				arc_pos.y = arc_y + DEBUG_ARC_LIFT + parabola
+				if i > 0:
+					dd.draw_line(prev_arc_pos, arc_pos, C_PRED_ARC)
+				dd.draw_sphere(arc_pos, 0.018, C_PRED_ARC if i > 0 and i < ARC_STEPS else C_PRED_END)
+				prev_arc_pos = arc_pos
+
+			var r_end_ground = _right_pred_end_pos
+			r_end_ground.y = _right_pred_end_y + DEBUG_ARC_LIFT
+			dd.draw_sphere(r_end_ground, 0.07, C_PRED_END)
+
+			var prog_r = _get_swing_progress(false)
+			var cur_r_y = _eval_predict_curve(
+				_right_pred_start_pos.y, _right_pred_mid_y, _right_pred_end_y,
+				_right_pred_mid_t, prog_r
+			)
+			var cur_parabola_r = 4.0 * prog_r * (1.0 - prog_r) * 0.12
+			var cur_r_pos = _right_pred_start_pos.lerp(_right_pred_end_pos, prog_r)
+			cur_r_pos.y = cur_r_y + DEBUG_ARC_LIFT + cur_parabola_r
+			dd.draw_sphere(cur_r_pos, 0.04, Color.WHITE)
+			dd.draw_line(r_bone_pos, cur_r_pos, Color(1, 1, 1, 0.5))
+
+		# 虛擬高度水平面（薄黃線連接兩腳）
+		if _left_pred_active and _right_pred_active:
+			var l_virt = l_bone_pos
+			l_virt.y = _left_pred_virtual_y
+			var r_virt = r_bone_pos
+			r_virt.y = _right_pred_virtual_y
+			dd.draw_sphere(l_virt, 0.03, Color(1, 1, 0, 0.6))
+			dd.draw_sphere(r_virt, 0.03, Color(1, 1, 0, 0.6))
+
+	# ─────────────────────────────────────────────
+	# 5. 骨盆偏移指示
+	# ─────────────────────────────────────────────
+	if skeleton and abs(_current_pelvis_offset) > 0.002:
+		var sk_pos = skeleton.global_position
+		var pelvis_target_pos = sk_pos + Vector3(0, _current_pelvis_offset, 0)
+		dd.draw_line(sk_pos, pelvis_target_pos, C_PELVIS)
+		dd.draw_sphere(pelvis_target_pos, 0.04, C_PELVIS)
+
+	# ─────────────────────────────────────────────
+	# 6. 相位狀態小菱形（左右腳骨骨骼正上方）
+	# ─────────────────────────────────────────────
+	if _left_foot_idx >= 0:
+		var lf_indicator = l_bone_pos + Vector3.UP * 0.22
+		dd.draw_sphere(lf_indicator, 0.025, l_col)
+	if _right_foot_idx >= 0:
+		var rf_indicator = r_bone_pos + Vector3.UP * 0.22
+		dd.draw_sphere(rf_indicator, 0.025, r_col)
+
+	# ─────────────────────────────────────────────
+	# 7. 樓梯支撐腳鎖定 + 預測落點可視化
+	# ─────────────────────────────────────────────
+	var C_LOCK := Color(1.0, 0.0, 1.0, 1.0)  # 洋紅：鎖定支撐腳
+	var C_STAIR_ON := Color(0.0, 1.0, 0.5, 1.0)  # 綠：樓梯模式開
+	var C_STAIR_OFF := Color(0.5, 0.5, 0.5, 0.5)  # 灰：樓梯模式關
+
+	# 樓梯模式指示器（角色頭頂上方）
+	if _char_body:
+		var head_pos = _char_body.global_position + Vector3.UP * 2.0
+		var stair_col = C_STAIR_ON if stair_ik_active else C_STAIR_OFF
+		dd.draw_sphere(head_pos, 0.06, stair_col)
+
+	# 鎖定支撐腳位置（洋紅大球 + 線到骨骼）
+	if left_foot_locked:
+		dd.draw_sphere(_left_locked_ground, 0.08, C_LOCK)
+		if _left_foot_idx >= 0:
+			dd.draw_line(l_bone_pos, _left_locked_ground, C_LOCK)
+	if right_foot_locked:
+		dd.draw_sphere(_right_locked_ground, 0.08, C_LOCK)
+		if _right_foot_idx >= 0:
+			dd.draw_line(r_bone_pos, _right_locked_ground, C_LOCK)
+
+	# 樓梯 IK 目標踏面高度指示（pred_end_y 水平線）
+	if stair_ik_active and enable_predictive_ik:
+		if _left_pred_active:
+			var l_tread = Vector3(l_bone_pos.x, _left_pred_end_y + foot_height_offset, l_bone_pos.z)
+			dd.draw_sphere(l_tread, 0.05, Color(0.0, 1.0, 1.0, 0.8))
+			dd.draw_line(l_tread + Vector3(-0.15, 0, 0), l_tread + Vector3(0.15, 0, 0), Color(0.0, 1.0, 1.0, 0.8))
+		if _right_pred_active:
+			var r_tread = Vector3(r_bone_pos.x, _right_pred_end_y + foot_height_offset, r_bone_pos.z)
+			dd.draw_sphere(r_tread, 0.05, Color(0.0, 1.0, 1.0, 0.8))
+			dd.draw_line(r_tread + Vector3(-0.15, 0, 0), r_tread + Vector3(0.15, 0, 0), Color(0.0, 1.0, 1.0, 0.8))
