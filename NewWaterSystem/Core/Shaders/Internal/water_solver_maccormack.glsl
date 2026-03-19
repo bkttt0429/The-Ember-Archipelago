@@ -111,8 +111,7 @@ void main() {
     // MacCormack Correction
     vec4 phi_final = phi_n1_hat + (dataC - phi_n_hat) * 0.5;
 
-    // Limiter (prevents oscillations extrema)
-    // Min/Max of 4-neighborhood + center
+    // Unity-SWE style: bounds check with fallback to semi-Lagrangian
     vec4 v_min = dataC;
     vec4 v_max = dataC;
     
@@ -123,12 +122,14 @@ void main() {
         v_max = max(v_max, neighbor);
     }
     
-    phi_final = clamp(phi_final, v_min, v_max);
+    // If MacCormack exceeds neighborhood bounds, fallback to semi-Lagrangian
+    bool in_bounds = all(greaterThanEqual(phi_final.rgb, v_min.rgb))
+                  && all(lessThanEqual(phi_final.rgb, v_max.rgb));
+    vec4 phi_result = in_bounds ? phi_final : phi_n1_hat;
     
-    // Advected quantities
-    float h_adv = phi_final.r;
-    float hu_adv = phi_final.g;
-    float hv_adv = phi_final.b;
+    float h_adv = phi_result.r;
+    float hu_adv = phi_result.g;
+    float hv_adv = phi_result.b;
 
     // 3. Pressure / Gravity Step (SWE Source Terms)
     // ∂U/∂t = ... - [0, g∂h/∂x, g∂h/∂y]
@@ -177,7 +178,7 @@ void main() {
     if (params.interact_count > 0) {
         vec2 my_pos = vec2(id) / vec2(size);
         for (int i = 0; i < params.interact_count; i++) {
-            vec4 it = interaction_data.interactions[i];
+            vec4 it = interaction_data.interactions[i * 2]; // Skip velocity slot (interleaved 2×vec4)
             float dist = distance(my_pos, it.xy);
             if (dist < it.w && it.w > 0.001) {
                 float gauss = exp(-(dist * dist) / (it.w * it.w * 0.25));
@@ -211,6 +212,38 @@ void main() {
         next_hu *= factor;
         next_hv *= factor;
         next_h *= (0.8 + 0.2 * factor);
+    }
+
+    // Height clamp
+    float min_h = -params.base_depth + 0.05;
+    next_h = clamp(next_h, min_h, 4.0);
+    
+    // Dry state: dampen momentum
+    if (next_h <= min_h + 0.05) {
+        next_hu *= 0.5;
+        next_hv *= 0.5;
+    }
+    
+    // Dry-wet interface (Unity-SWE style)
+    float HC_dry = max(params.base_depth + next_h, 0.0);
+    if (HC_dry < 0.001 && is_obstacle < 0.5) {
+        float eta_self = params.base_depth + next_h;
+        if (eta_self < params.base_depth + hL * 0.5) next_hu = max(next_hu, 0.0);
+        if (eta_self < params.base_depth + hR * 0.5) next_hu = min(next_hu, 0.0);
+        if (eta_self < params.base_depth + hU * 0.5) next_hv = max(next_hv, 0.0);
+        if (eta_self < params.base_depth + hD * 0.5) next_hv = min(next_hv, 0.0);
+    }
+    
+    // CFL-based speed limiting (Unity-SWE style)
+    float cfl_alpha = 0.5;
+    float cfl_max = dx / max(params.dt, 1e-6) * cfl_alpha;
+    float H_cfl = max(params.base_depth + next_h, 0.1);
+    vec2 v_cfl = vec2(next_hu, next_hv) / H_cfl;
+    float v_len = length(v_cfl);
+    if (v_len > cfl_max && v_len > 0.0) {
+        v_cfl = v_cfl / v_len * cfl_max;
+        next_hu = v_cfl.x * H_cfl;
+        next_hv = v_cfl.y * H_cfl;
     }
 
     // Output

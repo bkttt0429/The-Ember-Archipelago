@@ -138,6 +138,19 @@ void main() {
         next_hv = 0.0;
     }
 
+    // 7b. Dry-Wet Interface (Unity-SWE style)
+    // When current cell is nearly dry, block flow toward higher terrain
+    float HC_check = max(H0 + next_h, 0.0);
+    if (HC_check < h_eps * 10.0 && is_obstacle < 0.5) {
+        float eta_C = H0 + next_h;
+        // Block X-flow if neighbor total elevation is lower (terrain blocks)
+        if (eta_C < H0 + qR.x * 0.5) next_hu = min(next_hu, 0.0);
+        if (eta_C < H0 + qL.x * 0.5) next_hu = max(next_hu, 0.0);
+        // Block Y-flow
+        if (eta_C < H0 + qD.x * 0.5) next_hv = min(next_hv, 0.0);
+        if (eta_C < H0 + qU.x * 0.5) next_hv = max(next_hv, 0.0);
+    }
+
     // 8. Rain System
     if (params.rain_intensity > 0.0) {
         float r = hash(vec2(global_id) + floor(params.time * 60.0));
@@ -150,7 +163,7 @@ void main() {
     if (params.interact_count > 0) {
         vec2 my_pos = vec2(global_id) / vec2(size);
         for (int i = 0; i < params.interact_count; i++) {
-            vec4 it = interaction_data.interactions[i];
+            vec4 it = interaction_data.interactions[i * 2]; // Skip velocity slot (interleaved 2x vec4)
             vec2 pos = it.xy;
             float strength = it.z;
             float radius = it.w;
@@ -197,19 +210,27 @@ void main() {
         }
     }
 
-    // Final Safety Clamp (Stricter bounds to prevent NaNs / grids of white dots)
-    // 嚴防乾涸狀態 (Dry State)：水位絕對不能低於海床 (-H0)
+    // Final Safety: Height clamp
     float min_h = -H0 + 0.05;
     next_h = clamp(next_h, min_h, 4.0);
     
-    // 如果水非常淺，強制消除動量，避免殘留的速度形成不穩定的薄水膜
+    // Dry state: dampen momentum on very shallow water
     if (next_h <= min_h + 0.05) {
         next_hu *= 0.5;
         next_hv *= 0.5;
     }
     
-    next_hu = clamp(next_hu, -3.0, 3.0);
-    next_hv = clamp(next_hv, -3.0, 3.0);
+    // CFL-based speed limiting (Unity-SWE style, replaces hardcoded ±3.0)
+    float cfl_alpha = 0.5;
+    float cfl_max_vel = dx / max(params.dt, 1e-6) * cfl_alpha;
+    float H_for_cfl = max(H0 + next_h, 0.1);
+    vec2 vel_cfl = vec2(next_hu, next_hv) / H_for_cfl;
+    float vel_len = length(vel_cfl);
+    if (vel_len > cfl_max_vel && vel_len > 0.0) {
+        vel_cfl = vel_cfl / vel_len * cfl_max_vel;
+        next_hu = vel_cfl.x * H_for_cfl;
+        next_hv = vel_cfl.y * H_for_cfl;
+    }
 
     // Save to OUTPUT texture (R=h, G=hu, B=hv, A=is_obstacle)
     imageStore(tex_out, global_id, vec4(next_h, next_hu, next_hv, is_obstacle));

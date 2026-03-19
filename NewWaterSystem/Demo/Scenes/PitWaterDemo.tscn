@@ -1,0 +1,254 @@
+[gd_scene format=3 uid="uid://bmyevof4kxsin"]
+
+[ext_resource type="Script" uid="uid://cd6doksvbjqcw" path="res://NewWaterSystem/Core/Scripts/WaterManager.gd" id="1_2724y"]
+[ext_resource type="Script" uid="uid://baww1bgef575r" path="res://NewWaterSystem/Demo/Scripts/PitWaterDemo.gd" id="2_w6hlk"]
+[ext_resource type="Script" uid="uid://c526jdcf7ql4r" path="res://NewWaterSystem/Core/Scripts/ShipBuoyancyDriver.gd" id="3_ms08o"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_5oyd4"]
+sky_top_color = Color(0.3, 0.5, 0.9, 1)
+sky_horizon_color = Color(0.6, 0.7, 0.9, 1)
+ground_bottom_color = Color(0.2, 0.15, 0.1, 1)
+
+[sub_resource type="Sky" id="Sky_aeyrj"]
+sky_material = SubResource("ProceduralSkyMaterial_5oyd4")
+
+[sub_resource type="Environment" id="Environment_4tusx"]
+background_mode = 2
+sky = SubResource("Sky_aeyrj")
+ambient_light_source = 3
+ambient_light_energy = 0.5
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_1nfsf"]
+seed = 862513977
+frequency = 0.05
+fractal_octaves = 3
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_2y51m"]
+width = 256
+height = 256
+noise = SubResource("FastNoiseLite_1nfsf")
+seamless = true
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_suqfx"]
+noise_type = 2
+seed = -228262537
+frequency = 0.05
+fractal_type = 0
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_1776t"]
+noise = SubResource("FastNoiseLite_suqfx")
+seamless = true
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_0q4tn"]
+seed = 12345
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_3fcdt"]
+noise = SubResource("FastNoiseLite_0q4tn")
+seamless = true
+as_normal_map = true
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_fwus8"]
+seed = 67890
+frequency = 0.08
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_7k6vf"]
+noise = SubResource("FastNoiseLite_fwus8")
+seamless = true
+as_normal_map = true
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_5fsxw"]
+size = Vector3(18, 3, 1)
+
+[sub_resource type="BoxMesh" id="BoxMesh_r6u0n"]
+size = Vector3(18, 3, 1)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_hwsf0"]
+albedo_color = Color(0.4, 0.35, 0.3, 1)
+roughness = 0.9
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_hvakf"]
+size = Vector3(18, 3, 1)
+
+[sub_resource type="BoxMesh" id="BoxMesh_5awwi"]
+size = Vector3(18, 3, 1)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_jjqd7"]
+size = Vector3(1, 3, 16)
+
+[sub_resource type="BoxMesh" id="BoxMesh_q5s0r"]
+size = Vector3(1, 3, 16)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_8ka3e"]
+size = Vector3(1, 3, 16)
+
+[sub_resource type="BoxMesh" id="BoxMesh_eavue"]
+size = Vector3(1, 3, 16)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_s54sx"]
+size = Vector3(16, 0.5, 16)
+
+[sub_resource type="BoxMesh" id="BoxMesh_3idvn"]
+size = Vector3(16, 0.5, 16)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_wjpv0"]
+albedo_color = Color(0.5, 0.45, 0.35, 1)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_p6yd0"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_lbtaj"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_sj60f"]
+albedo_color = Color(0.7, 0.5, 0.2, 1)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_xcvoe"]
+size = Vector3(0.8, 1.2, 0.8)
+
+[sub_resource type="BoxMesh" id="BoxMesh_38p1p"]
+size = Vector3(0.8, 1.2, 0.8)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_yoaqs"]
+albedo_color = Color(0.5, 0.3, 0.15, 1)
+
+[node name="PitWaterDemo" type="Node3D" unique_id=941414386]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1400270580]
+environment = SubResource("Environment_4tusx")
+
+[node name="Sun" type="DirectionalLight3D" parent="." unique_id=1074497262]
+transform = Transform3D(0.8660254, -0.35355338, 0.35355338, 0, 0.70710677, 0.70710677, -0.5, -0.6123724, 0.6123724, 0, 0, 0)
+light_energy = 1.2
+shadow_enabled = true
+
+[node name="Camera3D" type="Camera3D" parent="." unique_id=1508422653]
+transform = Transform3D(1, 0, 0, 0, 0.81915206, 0.57357645, 0, -0.57357645, 0.81915206, 0, 15, 20)
+
+[node name="OceanWaterManager" type="Node3D" parent="." unique_id=1893678425 groups=["WaterSystem_Managers"]]
+script = ExtResource("1_2724y")
+sea_size = Vector2(16, 16)
+damping = 0.998
+simulation_base_depth = 3.0
+swe_fill_mode = null
+swe_fill_threshold = null
+skip_obstacle_bake = null
+wave_steepness = 0.0
+foam_noise_tex = SubResource("NoiseTexture2D_2y51m")
+enable_barrel_spawner = true
+caustics_texture = SubResource("NoiseTexture2D_1776t")
+normal_map1 = SubResource("NoiseTexture2D_3fcdt")
+normal_map2 = SubResource("NoiseTexture2D_7k6vf")
+
+[node name="PitWalls" type="Node3D" parent="." unique_id=1684832880]
+
+[node name="WallNorth" type="StaticBody3D" parent="PitWalls" unique_id=1014611463]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, -8)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="PitWalls/WallNorth" unique_id=109587347]
+shape = SubResource("BoxShape3D_5fsxw")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="PitWalls/WallNorth" unique_id=1303774797]
+mesh = SubResource("BoxMesh_r6u0n")
+surface_material_override/0 = SubResource("StandardMaterial3D_hwsf0")
+
+[node name="WallSouth" type="StaticBody3D" parent="PitWalls" unique_id=24887596]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 8)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="PitWalls/WallSouth" unique_id=1606835679]
+shape = SubResource("BoxShape3D_hvakf")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="PitWalls/WallSouth" unique_id=188765954]
+mesh = SubResource("BoxMesh_5awwi")
+surface_material_override/0 = SubResource("StandardMaterial3D_hwsf0")
+
+[node name="WallEast" type="StaticBody3D" parent="PitWalls" unique_id=142130360]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 0.5, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="PitWalls/WallEast" unique_id=99115253]
+shape = SubResource("BoxShape3D_jjqd7")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="PitWalls/WallEast" unique_id=1762779785]
+mesh = SubResource("BoxMesh_q5s0r")
+surface_material_override/0 = SubResource("StandardMaterial3D_hwsf0")
+
+[node name="WallWest" type="StaticBody3D" parent="PitWalls" unique_id=696920290]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8, 0.5, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="PitWalls/WallWest" unique_id=1378621509]
+shape = SubResource("BoxShape3D_8ka3e")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="PitWalls/WallWest" unique_id=742168426]
+mesh = SubResource("BoxMesh_eavue")
+surface_material_override/0 = SubResource("StandardMaterial3D_hwsf0")
+
+[node name="SeabedFloor" type="StaticBody3D" parent="." unique_id=1334704840]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -2, 0)
+
+[node name="@CollisionShape3D@80838" type="CollisionShape3D" parent="SeabedFloor" unique_id=1164768752]
+shape = SubResource("BoxShape3D_s54sx")
+
+[node name="@MeshInstance3D@80839" type="MeshInstance3D" parent="SeabedFloor" unique_id=2081902291]
+mesh = SubResource("BoxMesh_3idvn")
+surface_material_override/0 = SubResource("StandardMaterial3D_wjpv0")
+
+[node name="DemoController" type="Node3D" parent="." unique_id=1710049599]
+script = ExtResource("2_w6hlk")
+
+[node name="FloatingCrate" type="RigidBody3D" parent="." unique_id=1831867826]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3, 2, 3)
+mass = 20.0
+linear_damp = 0.5
+angular_damp = 1.0
+
+[node name="@CollisionShape3D@80840" type="CollisionShape3D" parent="FloatingCrate" unique_id=1875004535]
+shape = SubResource("BoxShape3D_p6yd0")
+
+[node name="@MeshInstance3D@80841" type="MeshInstance3D" parent="FloatingCrate" unique_id=515794217]
+mesh = SubResource("BoxMesh_lbtaj")
+surface_material_override/0 = SubResource("StandardMaterial3D_sj60f")
+
+[node name="BuoyancyDriver" type="Node3D" parent="FloatingCrate" unique_id=1626566901]
+script = ExtResource("3_ms08o")
+buoyancy_force = 120.0
+water_drag = 2.0
+
+[node name="FloaterFL" type="Marker3D" parent="FloatingCrate/BuoyancyDriver" unique_id=1961176159]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.45, -0.5, -0.45)
+
+[node name="FloaterFR" type="Marker3D" parent="FloatingCrate/BuoyancyDriver" unique_id=1631346020]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.45, -0.5, -0.45)
+
+[node name="FloaterBL" type="Marker3D" parent="FloatingCrate/BuoyancyDriver" unique_id=103456660]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.45, -0.5, 0.45)
+
+[node name="FloaterBR" type="Marker3D" parent="FloatingCrate/BuoyancyDriver" unique_id=484175138]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.45, -0.5, 0.45)
+
+[node name="FloatingBarrel" type="RigidBody3D" parent="." unique_id=221447374]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3, 2, -2)
+mass = 20.0
+linear_damp = 0.8
+angular_damp = 1.5
+
+[node name="@CollisionShape3D@80842" type="CollisionShape3D" parent="FloatingBarrel" unique_id=1809582841]
+shape = SubResource("BoxShape3D_xcvoe")
+
+[node name="@MeshInstance3D@80843" type="MeshInstance3D" parent="FloatingBarrel" unique_id=1650434253]
+mesh = SubResource("BoxMesh_38p1p")
+surface_material_override/0 = SubResource("StandardMaterial3D_yoaqs")
+
+[node name="BuoyancyDriver" type="Node3D" parent="FloatingBarrel" unique_id=1326786537]
+script = ExtResource("3_ms08o")
+buoyancy_force = 80.0
+water_drag = 3.0
+
+[node name="FloaterFL" type="Marker3D" parent="FloatingBarrel/BuoyancyDriver" unique_id=62873769]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.35999998, -0.4, -0.35999998)
+
+[node name="FloaterFR" type="Marker3D" parent="FloatingBarrel/BuoyancyDriver" unique_id=173839063]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.35999998, -0.4, -0.35999998)
+
+[node name="FloaterBL" type="Marker3D" parent="FloatingBarrel/BuoyancyDriver" unique_id=1184234650]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.35999998, -0.4, 0.35999998)
+
+[node name="FloaterBR" type="Marker3D" parent="FloatingBarrel/BuoyancyDriver" unique_id=1708461017]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.35999998, -0.4, 0.35999998)
