@@ -19,7 +19,11 @@ func _ready():
 	call_deferred("_initialize_cascades")
 
 func _process(_delta):
-	if not Engine.is_editor_hint() or true: # Also run in editor for preview
+	if Engine.is_editor_hint():
+		# 編輯器預覽：每 10 幀更新一次，省 editor CPU
+		if Engine.get_frames_drawn() % 10 == 0:
+			_update_cascade_positions()
+	else:
 		_update_cascade_positions()
 
 func _initialize_cascades():

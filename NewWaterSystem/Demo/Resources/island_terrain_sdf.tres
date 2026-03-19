@@ -1,0 +1,11 @@
+[gd_resource type="JarTerrainSdf" format=3 uid="uid://bbi271p7a1124"]
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_island"]
+noise_type = 3
+seed = 42
+frequency = 0.003
+fractal_weighted_strength = 0.15
+
+[resource]
+noise = SubResource("FastNoiseLite_island")
+height_scale = 20.0

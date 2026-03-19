@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://bprs0uwe74gh"
+path="res://.godot/imported/FoamInfluence.glsl-c962d85c52b53cba58c3d043d4bddabe.res"
+
+[deps]
+
+source_file="res://NewWaterSystem/Core/Shaders/Internal/FoamInfluence.glsl"
+dest_files=["res://.godot/imported/FoamInfluence.glsl-c962d85c52b53cba58c3d043d4bddabe.res"]
+
+[params]
+

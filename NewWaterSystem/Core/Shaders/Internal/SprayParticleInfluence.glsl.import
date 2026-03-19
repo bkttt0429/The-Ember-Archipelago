@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://cakkidgkj6oqk"
+path="res://.godot/imported/SprayParticleInfluence.glsl-bfd41f4f0c3eccd83a411e5c8a15dd98.res"
+
+[deps]
+
+source_file="res://NewWaterSystem/Core/Shaders/Internal/SprayParticleInfluence.glsl"
+dest_files=["res://.godot/imported/SprayParticleInfluence.glsl-bfd41f4f0c3eccd83a411e5c8a15dd98.res"]
+
+[params]
+

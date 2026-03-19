@@ -8,6 +8,7 @@ extends Node3D
 enum SimulationPrecision {Half_FP16, Full_FP32}
 enum SimulationFPS {FPS_30, FPS_60, Full_Speed}
 enum SolverType {LaxFriedrichs, MacCormack}
+enum EffectViewportQuality {Quarter = 0, Half = 1, Full = 2}
 
 @export_group("Performance & Precision")
 @export var solver_type: SolverType = SolverType.LaxFriedrichs:
@@ -21,6 +22,14 @@ enum SolverType {LaxFriedrichs, MacCormack}
 		if is_node_ready(): _request_restart()
 
 @export var simulation_fps: SimulationFPS = SimulationFPS.FPS_60
+@export var foam_viewport_quality: EffectViewportQuality = EffectViewportQuality.Half:
+	set(v):
+		foam_viewport_quality = v
+		if is_node_ready(): _sync_effect_viewports()
+@export var spray_viewport_quality: EffectViewportQuality = EffectViewportQuality.Half:
+	set(v):
+		spray_viewport_quality = v
+		if is_node_ready(): _sync_effect_viewports()
 
 @export_group("Simulation Grid")
 @export var grid_res: int = 128:
@@ -38,7 +47,7 @@ enum SolverType {LaxFriedrichs, MacCormack}
 		if is_node_ready() and has_node("WaterPlane"): $WaterPlane.mesh.size = sea_size
 		_update_shader_params_deferred()
 @export var propagation_speed: float = 20.0
-@export var damping: float = 0.9 # Increased stability
+@export var damping: float = 0.8 # 越低回復越快（0.9=果凍，0.8=快速回彈）
 @export var simulation_gravity: float = 9.81:
 	set(v): simulation_gravity = v; _update_shader_params_deferred()
 @export var simulation_base_depth: float = 1.0:
@@ -48,6 +57,9 @@ enum SolverType {LaxFriedrichs, MacCormack}
 @export var interact_strength: float = 50.0
 @export var interact_radius: float = 0.5
 @export var swe_strength: float = 1.0
+@export var swe_fill_mode: float = 0.0  # ★ 0=normal ocean, 1=fill mode (only SWE areas visible)
+@export var swe_fill_threshold: float = 0.02
+@export var skip_obstacle_bake: bool = false  # ★ Skip obstacle raycasting entirely
 
 @export_group("Environmental Effects")
 @export var rain_intensity: float = 0.0:
@@ -91,6 +103,28 @@ enum SolverType {LaxFriedrichs, MacCormack}
 	set(v): absorption_coeff = v; _update_shader_params_deferred()
 @export var color_foam: Color = Color(1.0, 1.0, 1.0):
 	set(v): color_foam = v; _update_shader_params_deferred()
+
+@export_subgroup("Depth Zones")
+@export var color_shore: Color = Color(0.0, 0.85, 0.85):
+	set(v): color_shore = v; _update_shader_params_deferred()
+@export var color_mid: Color = Color(0.05, 0.4, 0.7):
+	set(v): color_mid = v; _update_shader_params_deferred()
+@export var depth_zone_mid: float = 1.5:
+	set(v): depth_zone_mid = v; _update_shader_params_deferred()
+@export var depth_zone_deep: float = 5.0:
+	set(v): depth_zone_deep = v; _update_shader_params_deferred()
+
+@export_subgroup("Climate & Reflections")
+@export var sun_color: Color = Color(1.0, 0.95, 0.8):
+	set(v): sun_color = v; _update_shader_params_deferred()
+@export var sky_color: Color = Color(0.5, 0.7, 1.0):
+	set(v): sky_color = v; _update_shader_params_deferred()
+@export var horizon_color: Color = Color(0.7, 0.8, 0.9):
+	set(v): horizon_color = v; _update_shader_params_deferred()
+@export var sun_intensity: float = 1.0:
+	set(v): sun_intensity = v; _update_shader_params_deferred()
+@export var sun_direction: Vector3 = Vector3(0.3, -0.8, 0.5):
+	set(v): sun_direction = v; _update_shader_params_deferred()
 @export var foam_noise_tex: NoiseTexture2D:
 	set(v): foam_noise_tex = v; _update_shader_params_deferred()
 @export var foam_detail_tex: Texture2D:
@@ -153,7 +187,17 @@ func set_breaking_wave_data(data: Dictionary):
 	# 檢查是否已存在（避免重複）
 	for i in range(breaking_waves.size()):
 		if breaking_waves[i].position.distance_to(data.position) < 5.0:
-			breaking_waves[i] = data
+			var existing = breaking_waves[i]
+			existing.position = existing.get("position", data.position).lerp(data.position, 0.4)
+			existing.height = lerp(existing.get("height", 0.0), data.get("height", 0.0), 0.3)
+			existing.width = lerp(existing.get("width", 1.0), data.get("width", 1.0), 0.25)
+			existing.curl = lerp(existing.get("curl", 0.0), data.get("curl", 0.0), 0.35)
+			existing.break_point = lerp(existing.get("break_point", 0.5), data.get("break_point", 0.5), 0.25)
+			existing.base_t = data.get("base_t", existing.get("base_t", 0.0))
+			existing.state = data.get("state", existing.get("state", 0))
+			existing.direction = data.get("direction", existing.get("direction", wind_direction)).normalized()
+			existing.energy = lerp(existing.get("energy", 0.0), data.get("energy", 0.0), 0.3)
+			breaking_waves[i] = existing
 			return
 	
 	# 添加新波浪（限制數量）
@@ -163,6 +207,23 @@ func set_breaking_wave_data(data: Dictionary):
 		# 替換最老的
 		breaking_waves[0] = data
 	_update_shader_params_deferred()
+
+
+func get_breaking_wave_emitters() -> Array:
+	var emitters: Array = []
+	for wave in breaking_waves:
+		emitters.append({
+			"position": wave.get("position", Vector2.ZERO),
+			"height": wave.get("height", 0.0),
+			"width": wave.get("width", 1.0),
+			"curl": wave.get("curl", 0.0),
+			"break_point": wave.get("break_point", 0.5),
+			"state": wave.get("state", 0),
+			"direction": wave.get("direction", wind_direction).normalized(),
+			"base_t": wave.get("base_t", 0.0),
+			"energy": wave.get("energy", 0.0),
+		})
+	return emitters
 
 func get_breaking_wave_at(pos_xz: Vector2) -> Dictionary:
 	var closest_wave = null
@@ -264,6 +325,15 @@ func get_breaking_wave_at(pos_xz: Vector2) -> Dictionary:
 
 
 @export_group("Debug Actions")
+## ★ 關掉所有海浪（Gerstner + FFT），只留 SWE 互動，方便觀察尾流
+@export var debug_disable_waves: bool = false:
+	set(v):
+		debug_disable_waves = v
+		if v:
+			wind_strength = 0.0
+			fft_scale = 0.0
+		_update_shader_params_deferred()
+
 @export var restart_simulation: bool = false:
 	set(v):
 		if v and is_inside_tree():
@@ -303,6 +373,10 @@ var current_sim_idx: int = 0
 var has_submitted: bool = false
 var sim_image: Image
 
+# ★ Toroidal Scrolling Grid State
+var swe_scroll_origin: Vector2 = Vector2.ZERO  # World XZ center of SWE grid
+var swe_scroll_offset: Vector2i = Vector2i.ZERO  # Accumulated texel offset (not used in current impl, but kept for future)
+
 # Cached Uniform Sets to prevent RID leaks
 var fft_init_set: RID
 var fft_update_set: RID
@@ -315,6 +389,7 @@ const MAX_INTERACTIONS = 128
 
 # External Interactions (List of dictionaries: {uv, strength, radius})
 var interaction_points: Array = []
+var _interact_float_buf: PackedFloat32Array  # ★ Pre-allocated GPU upload buffer
 
 # Updated Paths for NewStructure
 # Updated Paths for NewStructure
@@ -328,6 +403,10 @@ const FFT_INIT_PATH = "res://NewWaterSystem/Core/Shaders/Internal/OceanFFT_Init.
 const FFT_UPDATE_PATH = "res://NewWaterSystem/Core/Shaders/Internal/OceanFFT_Update.glsl"
 const FFT_BUTTERFLY_PATH = "res://NewWaterSystem/Core/Shaders/Internal/OceanFFT_Butterfly.glsl"
 const FFT_DISPLACE_PATH = "res://NewWaterSystem/Core/Shaders/Internal/OceanFFT_Displace.glsl"
+const FOAM_INFLUENCE_PATH = "res://NewWaterSystem/Core/Shaders/Internal/FoamInfluence.glsl"
+const SPRAY_PARTICLE_UPDATE_PATH = "res://NewWaterSystem/Core/Shaders/Internal/SprayParticleUpdate.glsl"
+const SPRAY_PARTICLE_INFLUENCE_PATH = "res://NewWaterSystem/Core/Shaders/Internal/SprayParticleInfluence.glsl"
+const SPRAY_INFLUENCE_PATH = "res://NewWaterSystem/Core/Shaders/Internal/SprayInfluence.glsl"
 
 
 # Weather System RIDs
@@ -341,6 +420,31 @@ var waterspout_pipeline_rid: RID
 var vortex_params_buffer: RID
 var waterspout_params_buffer: RID
 var weather_uniform_set: RID
+var foam_influence_shader: RID
+var foam_influence_pipeline: RID
+var foam_influence_texture: RID
+var foam_influence_uniform_set: RID
+var foam_influence_params_buffer: RID
+var foam_influence_tex: Texture2DRD
+var foam_influence_size: Vector2i = Vector2i.ZERO
+var spray_particle_update_shader: RID
+var spray_particle_update_pipeline: RID
+var spray_particle_influence_shader: RID
+var spray_particle_influence_pipeline: RID
+var spray_particle_buffer: RID
+var spray_particle_emitters_buffer: RID
+var spray_particle_update_set: RID
+var spray_particle_influence_set: RID
+var spray_particle_influence_texture: RID
+var spray_particle_influence_tex: Texture2DRD
+var spray_particle_pool_size: int = 256
+var spray_influence_shader: RID
+var spray_influence_pipeline: RID
+var spray_influence_texture: RID
+var spray_influence_uniform_set: RID
+var spray_influence_params_buffer: RID
+var spray_influence_tex: Texture2DRD
+var spray_influence_size: Vector2i = Vector2i.ZERO
 
 # Active Skills State
 var active_vortex = null # {position: Vector2, radius: float, intensity: float, speed: float, depth: float}
@@ -352,12 +456,13 @@ var _is_initialized: bool = false
 
 var _idle_timer: float = 0.0
 
-# === Foam Rendering System Variables ===
+# === Foam Rendering System Variables (已移除泡沫貼圖系統) ===
 var foam_sub_viewport: SubViewport
 var foam_camera: Camera3D
 var foam_viewport_tex: ViewportTexture
-var foam_renderer: MultiMeshInstance3D # FoamParticleRenderer
-var foam_particles: Array = [] # To store particle data
+var spray_sub_viewport: SubViewport
+var spray_camera: Camera3D
+var spray_viewport_tex: ViewportTexture
 
 # === Player Interaction Ripple System ===
 var interaction_camera: Node3D # WaterInteractionCamera instance (舊版 CPU，已棄用)
@@ -367,48 +472,237 @@ var ripple_simulator: WaterRippleSimulator # GPU 版漣漪模擬器
 # Array of {node: Node3D, strength: float}
 var _registered_ripple_sources: Array = []
 
-func _setup_foam_system():
-	if foam_sub_viewport: return
+# ★ 快取水面網格（避免每幀遞歸搜索）
+var _cached_water_mesh: MeshInstance3D = null
 
-	# 1. Create SubViewport
-	foam_sub_viewport = SubViewport.new()
-	foam_sub_viewport.name = "FoamSubViewport"
-	foam_sub_viewport.size = Vector2(1024, 1024) # Adjustable resolution
-	foam_sub_viewport.transparent_bg = true
-	foam_sub_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
-	add_child(foam_sub_viewport)
-	
-	# 2. Create Top-Down Camera
-	foam_camera = Camera3D.new()
-	foam_camera.name = "FoamCamera"
-	foam_camera.projection = Camera3D.PROJECTION_ORTHOGONAL
-	foam_camera.size = sea_size.x # Match sea size
-	foam_camera.position = Vector3(0, 100, 0)
-	foam_camera.look_at(Vector3.ZERO, Vector3.FORWARD)
-	foam_camera.cull_mask = 1 << 19 # Layer 20 for Foam Particles
-	foam_sub_viewport.add_child(foam_camera)
-	
-	# 3. Create Particle Renderer (MultiMesh)
-	var renderer_script = load("res://NewWaterSystem/Core/Scripts/Foam/FoamParticleRenderer.gd")
-	if renderer_script:
-		foam_renderer = MultiMeshInstance3D.new()
-		foam_renderer.name = "FoamParticleRenderer"
-		foam_renderer.set_script(renderer_script)
-		foam_renderer.water_manager_path = ".." # Point back to WaterManager
-		foam_renderer.layers = 1 << 19 # Layer 20
-		foam_sub_viewport.add_child(foam_renderer)
-		
-		# Set MultiMesh
-		var mm = MultiMesh.new()
-		mm.transform_format = MultiMesh.TRANSFORM_3D
-		mm.use_custom_data = true
-		mm.instance_count = 1000 # Max particles
-		mm.mesh = QuadMesh.new()
-		mm.mesh.size = Vector2(2, 2)
-		foam_renderer.multimesh = mm
-	
-	# Get Texture
-	foam_viewport_tex = foam_sub_viewport.get_texture()
+func _setup_foam_system():
+	# 泡沫貼圖系統已移除（billboard 效果不佳）
+	pass
+
+
+func _setup_spray_system():
+	if spray_sub_viewport:
+		return
+
+	var spray_manager = get_node_or_null("GaussianSprayManager")
+	if not spray_manager:
+		# ★ 自動建立 GaussianSprayManager
+		var spray_script = load("res://NewWaterSystem/Core/Scripts/Foam/GaussianSprayManager.gd")
+		if spray_script:
+			spray_manager = Node3D.new()
+			spray_manager.name = "GaussianSprayManager"
+			spray_manager.set_script(spray_script)
+			spray_manager.water_manager = self
+			add_child(spray_manager)
+		else:
+			push_warning("[WaterManager] GaussianSprayManager.gd not found, skipping spray setup")
+			return
+
+	spray_sub_viewport = SubViewport.new()
+	spray_sub_viewport.name = "SpraySubViewport"
+	spray_sub_viewport.size = Vector2i(1024, 1024)
+	spray_sub_viewport.transparent_bg = true
+	spray_sub_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	add_child(spray_sub_viewport)
+
+	spray_camera = Camera3D.new()
+	spray_camera.name = "SprayCamera"
+	spray_camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+	spray_camera.size = sea_size.x
+	spray_camera.position = Vector3(0, 100, 0)
+	spray_camera.rotation_degrees = Vector3(-90, 0, 0)
+	spray_camera.cull_mask = 1 << 20
+	spray_sub_viewport.add_child(spray_camera)
+
+	var mirrored = Node3D.new()
+	mirrored.name = "GaussianSprayViewportRoot"
+	spray_sub_viewport.add_child(mirrored)
+	var viewport_spray_script = load("res://NewWaterSystem/Core/Scripts/Foam/GaussianSprayManager.gd")
+	if viewport_spray_script:
+		mirrored.set_script(viewport_spray_script)
+		mirrored.water_manager = self
+
+	spray_viewport_tex = spray_sub_viewport.get_texture()
+	_sync_effect_viewports()
+
+
+func _sync_effect_viewports():
+	var ortho_size = max(sea_size.x, sea_size.y)
+	var top_down_pos = Vector3(global_position.x, global_position.y + 100.0, global_position.z)
+	var foam_size = _get_effect_viewport_size(foam_viewport_quality)
+	var spray_size = _get_effect_viewport_size(spray_viewport_quality)
+
+	if foam_sub_viewport:
+		foam_sub_viewport.size = foam_size
+	if spray_sub_viewport:
+		spray_sub_viewport.size = spray_size
+
+	if foam_camera:
+		foam_camera.size = ortho_size
+		foam_camera.global_position = top_down_pos
+		foam_camera.rotation_degrees = Vector3(-90, 0, 0)
+
+	if spray_camera:
+		spray_camera.size = ortho_size
+		spray_camera.global_position = top_down_pos
+		spray_camera.rotation_degrees = Vector3(-90, 0, 0)
+
+	if rd and foam_influence_size != foam_size:
+		_setup_foam_influence_pipeline()
+	if rd and spray_influence_size != spray_size:
+		_setup_spray_particle_pipeline()
+		_setup_spray_influence_pipeline()
+
+
+func _get_effect_viewport_size(quality: EffectViewportQuality) -> Vector2i:
+	match quality:
+		EffectViewportQuality.Quarter:
+			return Vector2i(256, 256)
+		EffectViewportQuality.Half:
+			return Vector2i(512, 512)
+		EffectViewportQuality.Full:
+			return Vector2i(1024, 1024)
+	return Vector2i(512, 512)
+
+
+func _update_foam_influence_compute():
+	if not rd or not foam_influence_pipeline.is_valid() or not foam_influence_uniform_set.is_valid():
+		return
+	if not foam_influence_params_buffer.is_valid():
+		return
+
+	# 泡沫貼圖系統已移除，傳 count=0 清空 foam influence texture
+	var count := 0
+	var params := PackedFloat32Array()
+	params.resize(128 * 8)
+
+	rd.buffer_update(foam_influence_params_buffer, 0, params.size() * 4, params.to_byte_array())
+
+	var pc = StreamPeerBuffer.new()
+	pc.put_32(foam_influence_size.x)
+	pc.put_32(foam_influence_size.y)
+	pc.put_32(count)
+	pc.put_32(0)
+	pc.put_float(sea_size.x)
+	pc.put_float(sea_size.y)
+	pc.put_float(global_position.x)
+	pc.put_float(global_position.z)
+
+	var cl = rd.compute_list_begin()
+	rd.compute_list_bind_compute_pipeline(cl, foam_influence_pipeline)
+	rd.compute_list_bind_uniform_set(cl, foam_influence_uniform_set, 0)
+	rd.compute_list_set_push_constant(cl, pc.data_array, pc.data_array.size())
+	rd.compute_list_dispatch(cl, int(ceil(foam_influence_size.x / 8.0)), int(ceil(foam_influence_size.y / 8.0)), 1)
+	rd.compute_list_end()
+
+
+func _update_spray_influence_compute():
+	if not rd or not spray_influence_pipeline.is_valid() or not spray_influence_uniform_set.is_valid():
+		return
+
+	var params = PackedFloat32Array()
+	params.resize(3 * 8)
+	for i in range(3):
+		var base = i * 8
+		if i < breaking_waves.size():
+			var wave = breaking_waves[i]
+			var pos: Vector2 = wave.get("position", Vector2.ZERO)
+			var dir: Vector2 = wave.get("direction", wind_direction).normalized()
+			params[base + 0] = pos.x
+			params[base + 1] = pos.y
+			params[base + 2] = wave.get("height", 0.0)
+			params[base + 3] = wave.get("width", 1.0)
+			params[base + 4] = wave.get("curl", 0.0)
+			params[base + 5] = wave.get("base_t", 0.0)
+			params[base + 6] = dir.x
+			params[base + 7] = dir.y
+		else:
+			for j in range(8):
+				params[base + j] = 0.0
+
+	rd.buffer_update(spray_influence_params_buffer, 0, params.size() * 4, params.to_byte_array())
+
+	var pc = StreamPeerBuffer.new()
+	pc.put_32(spray_influence_size.x)
+	pc.put_32(spray_influence_size.y)
+	pc.put_32(min(breaking_waves.size(), 3))
+	pc.put_32(0)
+	pc.put_float(sea_size.x)
+	pc.put_float(sea_size.y)
+	pc.put_float(global_position.x)
+	pc.put_float(global_position.z)
+
+	var cl = rd.compute_list_begin()
+	rd.compute_list_bind_compute_pipeline(cl, spray_influence_pipeline)
+	rd.compute_list_bind_uniform_set(cl, spray_influence_uniform_set, 0)
+	rd.compute_list_set_push_constant(cl, pc.data_array, pc.data_array.size())
+	rd.compute_list_dispatch(cl, int(ceil(spray_influence_size.x / 8.0)), int(ceil(spray_influence_size.y / 8.0)), 1)
+	rd.compute_list_end()
+
+
+func _update_spray_particle_compute(dt: float):
+	if not rd or not spray_particle_update_pipeline.is_valid() or not spray_particle_update_set.is_valid() or not spray_particle_influence_pipeline.is_valid() or not spray_particle_influence_set.is_valid():
+		return
+
+	var params = PackedFloat32Array()
+	params.resize(3 * 8)
+	var emitter_count = min(breaking_waves.size(), 3)
+	for i in range(emitter_count):
+		var wave = breaking_waves[i]
+		var base = i * 8
+		var pos: Vector2 = wave.get("position", Vector2.ZERO)
+		var dir: Vector2 = wave.get("direction", wind_direction).normalized()
+		params[base + 0] = pos.x
+		params[base + 1] = pos.y
+		params[base + 2] = wave.get("height", 0.0)
+		params[base + 3] = wave.get("width", 1.0)
+		params[base + 4] = wave.get("curl", 0.0)
+		params[base + 5] = wave.get("base_t", 0.0)
+		params[base + 6] = dir.x
+		params[base + 7] = dir.y
+	rd.buffer_update(spray_particle_emitters_buffer, 0, params.size() * 4, params.to_byte_array())
+
+	var update_pc = StreamPeerBuffer.new()
+	update_pc.put_float(min(dt, 0.033))
+	update_pc.put_float(_time)
+	update_pc.put_float(global_position.y)
+	update_pc.put_32(emitter_count)
+	update_pc.put_float(sea_size.x)
+	update_pc.put_float(sea_size.y)
+	update_pc.put_float(global_position.x)
+	update_pc.put_float(global_position.z)
+	update_pc.put_32(spray_particle_pool_size)
+	update_pc.put_float(9.8)
+	update_pc.put_float(0.28)
+	update_pc.put_float(0.0)
+
+	var cl = rd.compute_list_begin()
+	rd.compute_list_bind_compute_pipeline(cl, spray_particle_update_pipeline)
+	rd.compute_list_bind_uniform_set(cl, spray_particle_update_set, 0)
+	rd.compute_list_set_push_constant(cl, update_pc.data_array, update_pc.data_array.size())
+	rd.compute_list_dispatch(cl, int(ceil(spray_particle_pool_size / 64.0)), 1, 1)
+	rd.compute_list_end()
+
+	var influence_pc = StreamPeerBuffer.new()
+	influence_pc.put_32(spray_influence_size.x)
+	influence_pc.put_32(spray_influence_size.y)
+	influence_pc.put_32(spray_particle_pool_size)
+	influence_pc.put_32(0)
+	influence_pc.put_float(sea_size.x)
+	influence_pc.put_float(sea_size.y)
+	influence_pc.put_float(global_position.x)
+	influence_pc.put_float(global_position.z)
+	influence_pc.put_float(global_position.y)
+	influence_pc.put_float(0.9)
+	influence_pc.put_float(1.0)
+	influence_pc.put_float(0.0)
+
+	cl = rd.compute_list_begin()
+	rd.compute_list_bind_compute_pipeline(cl, spray_particle_influence_pipeline)
+	rd.compute_list_bind_uniform_set(cl, spray_particle_influence_set, 0)
+	rd.compute_list_set_push_constant(cl, influence_pc.data_array, influence_pc.data_array.size())
+	rd.compute_list_dispatch(cl, int(ceil(spray_influence_size.x / 8.0)), int(ceil(spray_influence_size.y / 8.0)), 1)
+	rd.compute_list_end()
 
 
 func _setup_interaction_camera() -> void:
@@ -429,6 +723,17 @@ func _setup_interaction_camera() -> void:
 	
 	add_child(ripple_simulator)
 	print("[WaterManager] GPU 漣漪系統已初始化")
+	
+	# ★ 局部高解析度漣漪（Far Cry 5 風格 ping-pong 波動方程）
+	if not has_node("LocalRipple"):
+		var local_ripple = LocalRippleSimulator.new()
+		local_ripple.name = "LocalRipple"
+		if ripple_follow_target and not ripple_follow_target.is_empty():
+			var target = get_node_or_null(ripple_follow_target)
+			if target:
+				local_ripple.follow_target = target
+		add_child(local_ripple)
+		print("[WaterManager] LocalRippleSimulator 已初始化 (256×256, 10m)")
 
 
 func _update_interaction_ripples() -> void:
@@ -447,8 +752,8 @@ func _update_interaction_ripples() -> void:
 			sources.append({"position": entry.node.global_position, "strength": entry.strength})
 	ripple_simulator.extra_impulse_sources = sources
 	
-	# Find the water surface mesh (search recursively)
-	var water_mesh: MeshInstance3D = _find_water_mesh(self)
+	# ★ 使用快取版本（避免每幀遞歸掃描整棵子樹）
+	var water_mesh: MeshInstance3D = _find_water_mesh_cached()
 	
 	if not water_mesh:
 		# Only warn once
@@ -472,8 +777,108 @@ func _update_interaction_ripples() -> void:
 	
 	mat.set_shader_parameter("ripple_normal_strength", ripple_normal_strength)
 
+	# === Kelvin Wake ===
+	_update_kelvin_wake_shader(mat)
+	
+	# === Local High-Res Ripple ===
+	var local_ripple = get_node_or_null("LocalRipple") as LocalRippleSimulator
+	if local_ripple and local_ripple.output_texture:
+		mat.set_shader_parameter("local_ripple_tex", local_ripple.output_texture)
+		mat.set_shader_parameter("local_ripple_center", local_ripple.get_center())
+		mat.set_shader_parameter("local_ripple_size", LocalRippleSimulator.WORLD_SIZE)
 
-## ★ C7: 註冊漣漪源 — 任何 Node3D 都能產生漣漪
+
+# ★ Kelvin Wake Source 追蹤系統
+var _kelvin_wake_sources: Array = []  # [{node: Node3D, strength: float, last_pos: Vector3}]
+const MAX_KELVIN_WAKES = 8
+
+func register_kelvin_wake_source(node: Node3D, strength: float = 1.0) -> void:
+	for entry in _kelvin_wake_sources:
+		if entry.node == node:
+			return
+	_kelvin_wake_sources.append({
+		"node": node,
+		"strength": strength,
+		"last_pos": node.global_position
+	})
+	print("[WaterManager] Registered Kelvin wake source: %s" % node.name)
+
+func unregister_kelvin_wake_source(node: Node3D) -> void:
+	for i in range(_kelvin_wake_sources.size() - 1, -1, -1):
+		if _kelvin_wake_sources[i].node == node:
+			_kelvin_wake_sources.remove_at(i)
+			return
+
+func _update_kelvin_wake_shader(mat: Material) -> void:
+	# 清理無效的 wake sources
+	for i in range(_kelvin_wake_sources.size() - 1, -1, -1):
+		if not is_instance_valid(_kelvin_wake_sources[i].node):
+			_kelvin_wake_sources.remove_at(i)
+	
+	var count = mini(_kelvin_wake_sources.size(), MAX_KELVIN_WAKES)
+	mat.set_shader_parameter("kelvin_wake_count", count)
+	
+	if count == 0:
+		return
+	
+	var pos_arr: Array = []
+	var vel_arr: Array = []
+	var dt = maxf(get_physics_process_delta_time(), 0.001)
+	
+	for i in range(count):
+		var entry = _kelvin_wake_sources[i]
+		var node: Node3D = entry.node
+		var cur_pos = node.global_position
+		var prev_pos: Vector3 = entry.last_pos
+		
+		var velocity = cur_pos - prev_pos
+		var speed = velocity.length() / dt
+		var vel_xz = Vector2(velocity.x, velocity.z)
+		var vel_len = vel_xz.length()
+		
+		# 防止 normalize(0,0) 產生 NaN
+		if vel_len > 0.001:
+			vel_xz = vel_xz / vel_len
+			# 記住最後的移動方向（消散時用）
+			entry["last_dir"] = vel_xz
+		else:
+			vel_xz = entry.get("last_dir", Vector2.ZERO)
+			speed = 0.0
+		
+		# ★ 漸進消散機制：
+		# 移動中 → active_strength 漸增到目標值
+		# 停止後 → active_strength 漸減到 0（約 2 秒消散）
+		var target_str = entry.strength if speed > 0.5 else 0.0
+		var current_str: float = entry.get("active_strength", 0.0)
+		if target_str > current_str:
+			current_str = move_toward(current_str, target_str, dt * 3.0)  # 0.33秒升到滿
+		else:
+			current_str = move_toward(current_str, target_str, dt * 1.5)  # 0.7秒消散
+		entry["active_strength"] = current_str
+		
+		# 消散時速度也跟著衰減（避免凍結的果凍波紋）
+		if speed > 0.5:
+			entry["last_speed"] = speed
+		else:
+			# 停止後 last_speed 漸減到 0
+			entry["last_speed"] = move_toward(entry.get("last_speed", 0.0), 0.0, dt * 4.0)
+		var effective_speed = entry.get("last_speed", 0.0) if current_str > 0.01 else 0.0
+		
+		pos_arr.append(Vector4(cur_pos.x, cur_pos.z, prev_pos.x, prev_pos.z))
+		vel_arr.append(Vector4(vel_xz.x, vel_xz.y, effective_speed, current_str))
+		
+		entry.last_pos = cur_pos
+	
+	# 填滿到 MAX_KELVIN_WAKES
+	while pos_arr.size() < MAX_KELVIN_WAKES:
+		pos_arr.append(Vector4(0, 0, 0, 0))
+		vel_arr.append(Vector4(0, 0, 0, 0))
+	
+	mat.set_shader_parameter("kelvin_wake_pos", pos_arr)
+	mat.set_shader_parameter("kelvin_wake_vel", vel_arr)
+
+
+
 func register_ripple_source(node: Node3D, strength: float = 0.04) -> void:
 	for entry in _registered_ripple_sources:
 		if entry.node == node:
@@ -490,82 +895,33 @@ func unregister_ripple_source(node: Node3D) -> void:
 			return
 
 
-func _find_water_mesh(node: Node) -> MeshInstance3D:
+func _find_water_mesh_cached() -> MeshInstance3D:
+	"""Return cached water mesh, or find and cache on first call.
+	Avoids per-frame recursive DFS over the entire subtree."""
+	if is_instance_valid(_cached_water_mesh):
+		return _cached_water_mesh
+	# 遞歸搜索一次並快取結果
+	_cached_water_mesh = _find_water_mesh_recursive(self)
+	return _cached_water_mesh
+
+func _find_water_mesh_recursive(node: Node) -> MeshInstance3D:
 	"""Recursively find MeshInstance3D that has the ocean shader"""
 	for child in node.get_children():
 		if child is MeshInstance3D:
 			var mat = child.get_active_material(0)
 			if mat is ShaderMaterial:
 				return child
-		var result = _find_water_mesh(child)
+		var result = _find_water_mesh_recursive(child)
 		if result:
 			return result
 	return null
 
 
-func spawn_foam_particle(pos: Vector3, velocity: Vector3):
-	if foam_particles.size() >= 1000:
-		foam_particles.pop_front() # Remove oldest
-	
-	foam_particles.append({
-		"position": pos,
-		"velocity": velocity,
-		"age": 0.0,
-		"lifetime": randf_range(2.0, 5.0),
-		"scale": randf_range(0.2, 0.8)
-	})
-
-func _update_foam_particles(delta: float):
-	for i in range(foam_particles.size() - 1, -1, -1):
-		var p = foam_particles[i]
-		
-		# 物理模擬
-		p.velocity.y -= 9.8 * delta # 重力
-		p.velocity *= 0.98 # 空氣阻力
-		p.position += p.velocity * delta
-		p.age += delta
-		
-		# 水面碰撞
-		var water_h = get_wave_height_at(Vector3(p.position.x, 0, p.position.z))
-		if p.position.y < water_h:
-			p.position.y = water_h
-			p.velocity.y = abs(p.velocity.y) * 0.3 # 反彈
-			p.velocity *= 0.7 # 濺射能量損失
-		
-		# 移除過期粒子
-		if p.age > p.lifetime:
-			foam_particles.remove_at(i)
+# spawn_foam_particle / _update_foam_particles 已移除（泡沫貼圖系統已停用）
 
 func _update_foam_texture():
-	# 將粒子數據烘焙到紋理（用於 Shader 採樣）
-	if not weather_image or weather_image.is_empty(): return
-	
-	# 🔥 Phase 0 Fix: Early exit for empty or very large arrays
-	if foam_particles.is_empty(): return
-	
-	# 🔥 Phase 0 Fix: Skip frames for large particle counts (CPU killer prevention)
-	if foam_particles.size() > 500:
-		if Engine.get_frames_drawn() % 3 != 0: return
-	elif foam_particles.size() > 200:
-		if Engine.get_frames_drawn() % 2 != 0: return
-	
-	# Avoid CPU killer on high-res grids
-	if grid_res > 256: return
-	
-	# 🔥 Phase 0 Fix: Batch process with early exit
-	var processed = 0
-	var max_per_frame = 100 # Limit texture updates per frame
-	
-	for p in foam_particles:
-		if processed >= max_per_frame: break
-		
-		var uv = _world_to_uv(Vector2(p.position.x, p.position.z))
-		if _is_valid_uv(uv):
-			var intensity = 1.0 - (p.age / p.lifetime)
-			_splat_to_texture(weather_image, uv, intensity * p.scale, 2.0)
-			processed += 1
-	
-	weather_visual_tex.update(weather_image)
+	# 泡沫貼圖系統已移除
+	pass
 
 func _world_to_uv(pos_xz: Vector2) -> Vector2:
 	var local_pos = pos_xz - Vector2(global_position.x, global_position.z)
@@ -608,8 +964,8 @@ func _request_restart():
 	print("[WaterManager] Requesting simulation restart...")
 	_cleanup()
 	_setup_simulation()
-	if get_world_3d():
-		_bake_obstacles()
+	if get_world_3d() and not skip_obstacle_bake:
+		await _bake_obstacles_async()
 	_setup_visuals()
 	_update_shader_parameters()
 	interaction_points.clear()
@@ -646,22 +1002,31 @@ func _apply_storm_preset():
 
 func _ready():
 	_is_initialized = false
+	swe_scroll_origin = Vector2.ZERO # Explicitly initialize
 	add_to_group("WaterSystem_Managers")
+	if Engine.is_editor_hint():
+		call_deferred("_setup_visuals")
+		call_deferred("_update_shader_parameters")
+		return
 	_cleanup()
 	_setup_simulation()
 
 	
 	await get_tree().process_frame
-	_bake_obstacles()
+	# ★ 等待地形碰撞體初始化（JarVoxelTerrain 等動態地形需要多幀生成 chunks）
+	for _i in range(30):
+		await get_tree().process_frame
+	if not skip_obstacle_bake:
+		await _bake_obstacles_async()
 	_setup_visuals()
+	_setup_foam_system()
+	_setup_spray_system()
 	
 	_init_foam_noise()
 	_init_caustics_noise()
 	_init_default_normals()
 	_generate_envelope_texture()
-	
-	_init_default_normals()
-	_generate_envelope_texture()
+	_sync_effect_viewports()
 	
 	# Safe Async Wait
 	if is_inside_tree():
@@ -1145,53 +1510,25 @@ func get_breaking_wave_positions(grid_density: int = 8) -> Array:
 
 func _init_default_normals():
 	if not normal_map1:
-		var noise1 = FastNoiseLite.new()
-		noise1.seed = 12345
-		noise1.frequency = 0.05
-		var tex1 = NoiseTexture2D.new()
-		tex1.width = 512
-		tex1.height = 512
-		tex1.seamless = true
-		tex1.as_normal_map = true
-		tex1.noise = noise1
-		normal_map1 = tex1
+		normal_map1 = _make_normal_noise_tex(12345, 0.05)
 		print("[WaterManager] Normal Map 1 created (Force Init): ", normal_map1)
-
 	if not normal_map2:
-		var noise2 = FastNoiseLite.new()
-		noise2.seed = 67890
-		noise2.frequency = 0.08
-		var tex2 = NoiseTexture2D.new()
-		tex2.width = 512
-		tex2.height = 512
-		tex2.seamless = true
-		tex2.as_normal_map = true
-		tex2.noise = noise2
-		normal_map2 = tex2
+		normal_map2 = _make_normal_noise_tex(67890, 0.08)
 		print("[WaterManager] Normal Map 2 created (Force Init): ", normal_map2)
-	if not normal_map1:
-		var noise1 = FastNoiseLite.new()
-		noise1.seed = 12345
-		noise1.frequency = 0.05
-		var tex1 = NoiseTexture2D.new()
-		tex1.width = 512
-		tex1.height = 512
-		tex1.seamless = true
-		tex1.as_normal_map = true
-		tex1.noise = noise1
-		normal_map1 = tex1
 
-	if not normal_map2:
-		var noise2 = FastNoiseLite.new()
-		noise2.seed = 67890
-		noise2.frequency = 0.08
-		var tex2 = NoiseTexture2D.new()
-		tex2.width = 512
-		tex2.height = 512
-		tex2.seamless = true
-		tex2.as_normal_map = true
-		tex2.noise = noise2
-		normal_map2 = tex2
+
+## 建立一張 seamless Normal Map (NoiseTexture2D)
+func _make_normal_noise_tex(seed_val: int, freq: float, size: int = 512) -> NoiseTexture2D:
+	var noise = FastNoiseLite.new()
+	noise.seed = seed_val
+	noise.frequency = freq
+	var tex = NoiseTexture2D.new()
+	tex.width = size
+	tex.height = size
+	tex.seamless = true
+	tex.as_normal_map = true
+	tex.noise = noise
+	return tex
 
 func _init_caustics_noise():
 	if not caustics_texture:
@@ -1290,24 +1627,25 @@ func _setup_simulation():
 	fmt.width = grid_res
 	fmt.height = grid_res
 	
+	# ★ Force FP32: compute shaders use rgba32f imageLoad/imageStore
+	#   FP16 textures + rgba32f shaders = format mismatch → corrupt neighbor reads → no wave propagation
+	fmt.format = RenderingDevice.DATA_FORMAT_R32G32B32A32_SFLOAT
 	if simulation_precision == SimulationPrecision.Half_FP16:
-		fmt.format = RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT
-		print("[WaterManager] Simulation Precision: FP16 (Optimized)")
+		print("[WaterManager] Simulation Precision: FP32 (forced for SWE shader compatibility)")
 	else:
-		fmt.format = RenderingDevice.DATA_FORMAT_R32G32B32A32_SFLOAT
 		print("[WaterManager] Simulation Precision: FP32 (High Quality)")
 		
 	fmt.usage_bits = RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT | RenderingDevice.TEXTURE_USAGE_STORAGE_BIT | RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT | RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT
 	
 	var data = PackedByteArray()
-	# Calculate size based on precision
-	var bytes_per_pixel = 16 if simulation_precision == SimulationPrecision.Full_FP32 else 8
+	var bytes_per_pixel = 16  # Always FP32 = 4 channels × 4 bytes
 	data.resize(grid_res * grid_res * bytes_per_pixel)
 	data.fill(0)
 	sim_texture_A = rd.texture_create(fmt, RDTextureView.new(), [data])
 	sim_texture_B = rd.texture_create(fmt, RDTextureView.new(), [data])
 	
-	var buffer_size = MAX_INTERACTIONS * 16
+	# ★ 每個互動點佔 2 個 vec4 (interleaved): [pos/strength/radius] + [vel_uv.x, vel_uv.y, speed, 0]
+	var buffer_size = MAX_INTERACTIONS * 32  # 2 vec4 × 4 bytes × 4 floats
 	interaction_buffer = rd.storage_buffer_create(buffer_size)
 
 	var u_in_A = RDUniform.new()
@@ -1339,17 +1677,198 @@ func _setup_simulation():
 	
 	uniform_set_B = rd.uniform_set_create([u_in_B, u_out_A, u_buffer], shader_rid, 0)
 	
-	if simulation_precision == SimulationPrecision.Half_FP16:
-		sim_image = Image.create(grid_res, grid_res, false, Image.FORMAT_RGBAH)
-	else:
-		sim_image = Image.create(grid_res, grid_res, false, Image.FORMAT_RGBAF)
-		
-	sim_image.fill(Color(0, 0, 0, 1))
+	# ★ Always FP32 to match forced FP32 texture
+	sim_image = Image.create(grid_res, grid_res, false, Image.FORMAT_RGBAF)
+	
+	sim_image.fill(Color(0, 0, 0, 0))  # ★ alpha=0 = no obstacles (alpha=1 = obstacle)
 	visual_texture = ImageTexture.create_from_image(sim_image)
 	rd.texture_update(sim_texture_A, 0, sim_image.get_data())
 	rd.texture_update(sim_texture_B, 0, sim_image.get_data())
 	
+	_setup_foam_influence_pipeline()
+	_setup_spray_particle_pipeline()
+	_setup_spray_influence_pipeline()
+	
 	_setup_fft_pipeline()
+
+## ★ 清除所有障礙物（alpha = 0），用於測試場景
+func clear_obstacles():
+	if not sim_image or not rd: return
+	for y in range(grid_res):
+		for x in range(grid_res):
+			var col = sim_image.get_pixel(x, y)
+			col.a = 0.0
+			sim_image.set_pixel(x, y, col)
+	rd.texture_update(sim_texture_A, 0, sim_image.get_data())
+	rd.texture_update(sim_texture_B, 0, sim_image.get_data())
+	print("[WaterManager] Obstacles cleared — all cells set to water")
+
+
+func _setup_foam_influence_pipeline():
+	if not rd:
+		return
+
+	var desired_size = _get_effect_viewport_size(foam_viewport_quality)
+	if foam_influence_texture.is_valid() and foam_influence_size == desired_size:
+		return
+
+	if foam_influence_uniform_set.is_valid(): rd.free_rid(foam_influence_uniform_set)
+	if foam_influence_pipeline.is_valid(): rd.free_rid(foam_influence_pipeline)
+	if foam_influence_shader.is_valid(): rd.free_rid(foam_influence_shader)
+	if foam_influence_texture.is_valid(): rd.free_rid(foam_influence_texture)
+	if foam_influence_params_buffer.is_valid(): rd.free_rid(foam_influence_params_buffer)
+
+	foam_influence_shader = _load_compute_shader(FOAM_INFLUENCE_PATH)
+	if not foam_influence_shader.is_valid():
+		return
+	foam_influence_pipeline = rd.compute_pipeline_create(foam_influence_shader)
+
+	var fmt = RDTextureFormat.new()
+	fmt.width = desired_size.x
+	fmt.height = desired_size.y
+	fmt.format = RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT
+	fmt.usage_bits = RenderingDevice.TEXTURE_USAGE_STORAGE_BIT | RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT | RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT
+	var data = PackedByteArray()
+	data.resize(desired_size.x * desired_size.y * 8)
+	data.fill(0)
+	foam_influence_texture = rd.texture_create(fmt, RDTextureView.new(), [data])
+	foam_influence_size = desired_size
+
+	# up to 128 particles, 2 vec4 each
+	foam_influence_params_buffer = rd.storage_buffer_create(128 * 8 * 4)
+
+	var u_tex = RDUniform.new()
+	u_tex.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
+	u_tex.binding = 0
+	u_tex.add_id(foam_influence_texture)
+
+	var u_buffer = RDUniform.new()
+	u_buffer.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	u_buffer.binding = 1
+	u_buffer.add_id(foam_influence_params_buffer)
+
+	foam_influence_uniform_set = rd.uniform_set_create([u_tex, u_buffer], foam_influence_shader, 0)
+
+	foam_influence_tex = Texture2DRD.new()
+	foam_influence_tex.texture_rd_rid = foam_influence_texture
+
+
+func _setup_spray_particle_pipeline():
+	if not rd:
+		return
+
+	var desired_size = _get_effect_viewport_size(spray_viewport_quality)
+	if spray_particle_influence_texture.is_valid() and spray_influence_size == desired_size and spray_particle_buffer.is_valid():
+		return
+
+	if spray_particle_update_set.is_valid(): rd.free_rid(spray_particle_update_set)
+	if spray_particle_influence_set.is_valid(): rd.free_rid(spray_particle_influence_set)
+	if spray_particle_update_pipeline.is_valid(): rd.free_rid(spray_particle_update_pipeline)
+	if spray_particle_influence_pipeline.is_valid(): rd.free_rid(spray_particle_influence_pipeline)
+	if spray_particle_update_shader.is_valid(): rd.free_rid(spray_particle_update_shader)
+	if spray_particle_influence_shader.is_valid(): rd.free_rid(spray_particle_influence_shader)
+	if spray_particle_buffer.is_valid(): rd.free_rid(spray_particle_buffer)
+	if spray_particle_emitters_buffer.is_valid(): rd.free_rid(spray_particle_emitters_buffer)
+	if spray_particle_influence_texture.is_valid(): rd.free_rid(spray_particle_influence_texture)
+
+	spray_particle_update_shader = _load_compute_shader(SPRAY_PARTICLE_UPDATE_PATH)
+	spray_particle_influence_shader = _load_compute_shader(SPRAY_PARTICLE_INFLUENCE_PATH)
+	if not spray_particle_update_shader.is_valid() or not spray_particle_influence_shader.is_valid():
+		return
+
+	spray_particle_update_pipeline = rd.compute_pipeline_create(spray_particle_update_shader)
+	spray_particle_influence_pipeline = rd.compute_pipeline_create(spray_particle_influence_shader)
+
+	var particle_bytes = PackedByteArray()
+	particle_bytes.resize(spray_particle_pool_size * 8 * 4)
+	particle_bytes.fill(0)
+	spray_particle_buffer = rd.storage_buffer_create(particle_bytes.size(), particle_bytes)
+
+	var emitter_bytes = PackedByteArray()
+	emitter_bytes.resize(3 * 8 * 4)
+	emitter_bytes.fill(0)
+	spray_particle_emitters_buffer = rd.storage_buffer_create(emitter_bytes.size(), emitter_bytes)
+
+	var fmt = RDTextureFormat.new()
+	fmt.width = desired_size.x
+	fmt.height = desired_size.y
+	fmt.format = RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT
+	fmt.usage_bits = RenderingDevice.TEXTURE_USAGE_STORAGE_BIT | RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT | RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT
+	var data = PackedByteArray()
+	data.resize(desired_size.x * desired_size.y * 8)
+	data.fill(0)
+	spray_particle_influence_texture = rd.texture_create(fmt, RDTextureView.new(), [data])
+
+	var u_particles_update = RDUniform.new()
+	u_particles_update.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	u_particles_update.binding = 0
+	u_particles_update.add_id(spray_particle_buffer)
+	var u_emitters = RDUniform.new()
+	u_emitters.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	u_emitters.binding = 1
+	u_emitters.add_id(spray_particle_emitters_buffer)
+	spray_particle_update_set = rd.uniform_set_create([u_particles_update, u_emitters], spray_particle_update_shader, 0)
+
+	var u_tex = RDUniform.new()
+	u_tex.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
+	u_tex.binding = 0
+	u_tex.add_id(spray_particle_influence_texture)
+	var u_particles_influence = RDUniform.new()
+	u_particles_influence.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	u_particles_influence.binding = 1
+	u_particles_influence.add_id(spray_particle_buffer)
+	spray_particle_influence_set = rd.uniform_set_create([u_tex, u_particles_influence], spray_particle_influence_shader, 0)
+
+	spray_particle_influence_tex = Texture2DRD.new()
+	spray_particle_influence_tex.texture_rd_rid = spray_particle_influence_texture
+
+
+func _setup_spray_influence_pipeline():
+	if not rd:
+		return
+
+	var desired_size = _get_effect_viewport_size(spray_viewport_quality)
+	if spray_influence_texture.is_valid() and spray_influence_size == desired_size:
+		return
+
+	if spray_influence_uniform_set.is_valid(): rd.free_rid(spray_influence_uniform_set)
+	if spray_influence_pipeline.is_valid(): rd.free_rid(spray_influence_pipeline)
+	if spray_influence_shader.is_valid(): rd.free_rid(spray_influence_shader)
+	if spray_influence_texture.is_valid(): rd.free_rid(spray_influence_texture)
+	if spray_influence_params_buffer.is_valid(): rd.free_rid(spray_influence_params_buffer)
+
+	spray_influence_shader = _load_compute_shader(SPRAY_INFLUENCE_PATH)
+	if not spray_influence_shader.is_valid():
+		return
+	spray_influence_pipeline = rd.compute_pipeline_create(spray_influence_shader)
+
+	var fmt = RDTextureFormat.new()
+	fmt.width = desired_size.x
+	fmt.height = desired_size.y
+	fmt.format = RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT
+	fmt.usage_bits = RenderingDevice.TEXTURE_USAGE_STORAGE_BIT | RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT | RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT
+	var data = PackedByteArray()
+	data.resize(desired_size.x * desired_size.y * 8)
+	data.fill(0)
+	spray_influence_texture = rd.texture_create(fmt, RDTextureView.new(), [data])
+	spray_influence_size = desired_size
+
+	spray_influence_params_buffer = rd.storage_buffer_create(3 * 8 * 4)
+
+	var u_tex = RDUniform.new()
+	u_tex.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
+	u_tex.binding = 0
+	u_tex.add_id(spray_influence_texture)
+
+	var u_buffer = RDUniform.new()
+	u_buffer.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	u_buffer.binding = 1
+	u_buffer.add_id(spray_influence_params_buffer)
+
+	spray_influence_uniform_set = rd.uniform_set_create([u_tex, u_buffer], spray_influence_shader, 0)
+
+	spray_influence_tex = Texture2DRD.new()
+	spray_influence_tex.texture_rd_rid = spray_influence_texture
 
 func _load_compute_shader(path: String) -> RID:
 	var f = FileAccess.open(path, FileAccess.READ)
@@ -1362,19 +1881,43 @@ func _load_compute_shader(path: String) -> RID:
 		return RID()
 	return rd.shader_create_from_spirv(spirv)
 
-func _bake_obstacles():
+## ★ 分幀版本：避免在單幀發射 grid_res² 條射線造成卡幀
+## grid_res=128 時，總共 16384 條射線，每幀單位只處理 ROWS_PER_FRAME 行
+const BAKE_ROWS_PER_FRAME: int = 8  # 每幀處理 8 行 = 8*128 = 1024 條射線
+
+func _bake_obstacles_async() -> void:
 	if not is_inside_tree(): return
 	var world = get_world_3d()
 	if not world or not world.direct_space_state: return
+	if skip_obstacle_bake:
+		print("[WaterManager] Obstacle baking skipped (skip_obstacle_bake=true)")
+		return
 	
 	var space_state = world.direct_space_state
 	var obstacles_hit = 0
 	
+	# 1. 重置 alpha 通道（障礙物標記）
 	for y in range(grid_res):
 		for x in range(grid_res):
 			var col = sim_image.get_pixel(x, y)
 			col.a = 0.0
 			sim_image.set_pixel(x, y, col)
+	
+	# 2. 分幀射線偵測
+	# 預建 query 物件（避免每次 create 新物件）
+	var query = PhysicsRayQueryParameters3D.new()
+	query.collide_with_areas = false
+	query.collide_with_bodies = true
+	# ★ Exclude the water plane itself to prevent self-detection
+	var exclude_rids: Array[RID] = []
+	var water_plane = get_node_or_null("WaterPlane")
+	if water_plane and water_plane is CollisionObject3D:
+		exclude_rids.append(water_plane.get_rid())
+	# Also exclude any StaticBody3D children of this node
+	for child in get_children():
+		if child is StaticBody3D:
+			exclude_rids.append(child.get_rid())
+	query.exclude = exclude_rids
 	
 	for y in range(grid_res):
 		for x in range(grid_res):
@@ -1382,26 +1925,42 @@ func _bake_obstacles():
 			var local_pos = Vector3((uv.x - 0.5) * sea_size.x, 100.0, (uv.y - 0.5) * sea_size.y)
 			var world_pos = to_global(local_pos)
 			
-			var query = PhysicsRayQueryParameters3D.create(world_pos, world_pos + Vector3.DOWN * 200.0)
-			query.collide_with_areas = false
-			query.collide_with_bodies = true
+			query.from = world_pos
+			query.to = world_pos + Vector3.DOWN * 200.0
 			
 			var result = space_state.intersect_ray(query)
 			if result:
-				if result.position.y > global_position.y - 2.0:
+				# ★ Only mark as obstacle if the hit is ABOVE the water surface
+				# (e.g., rocks, docks, ship hulls poking through)
+				# Previously -2.0 caught the seabed/terrain, making ALL cells obstacles
+				if result.position.y > global_position.y + 0.1:
 					var col = sim_image.get_pixel(x, y)
 					col.a = 1.0
 					sim_image.set_pixel(x, y, col)
 					obstacles_hit += 1
+		
+		# ★ 每處理 BAKE_ROWS_PER_FRAME 行就讓出一幀
+		if (y + 1) % BAKE_ROWS_PER_FRAME == 0 and y < grid_res - 1:
+			if is_inside_tree():
+				await get_tree().process_frame
+				# ★ 每幀再檢查一次，讓外部可以中途取消
+				if skip_obstacle_bake:
+					print("[WaterManager] Obstacle baking aborted mid-bake")
+					return
+			else:
+				return  # 節點已被移除，中止
 	
+	# 3. 上傳到 GPU
 	if rd:
 		rd.texture_update(sim_texture_A, 0, sim_image.get_data())
 		rd.texture_update(sim_texture_B, 0, sim_image.get_data())
-	visual_texture.update(sim_image)
+	if visual_texture:
+		visual_texture.update(sim_image)
 	
 	_setup_weather_pipeline()
 	
-	print("[WaterManager] Obstacles baked: ", obstacles_hit)
+	var total_frames = ceili(float(grid_res) / BAKE_ROWS_PER_FRAME)
+	print("[WaterManager] Obstacles baked: %d (async, %d frames)" % [obstacles_hit, total_frames])
 
 func _setup_weather_pipeline():
 	if not rd: return
@@ -1414,10 +1973,7 @@ func _setup_weather_pipeline():
 	fmt.usage_bits = RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT | RenderingDevice.TEXTURE_USAGE_STORAGE_BIT | RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT | RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT
 	
 	var data = PackedByteArray()
-	var bytes_per_pixel = 16 if simulation_precision == SimulationPrecision.Full_FP32 else 8
-	data.resize(grid_res * grid_res * bytes_per_pixel / 2) # Weather is R16 or R32 based? Actually code says R16G16B16A16 so 8 bytes
-	# Wait, original code for weather was R16G16B16A16_SFLOAT which is 8 bytes per pixel (64 bits total)
-	# The original resize was grid_res * grid_res * 8
+	data.resize(grid_res * grid_res * 8) # R16G16B16A16_SFLOAT is 8 bytes per pixel
 	# We should keep weather texture efficient, maybe always FP16 is enough for weather?
 	# Let's keep weather texture as is or match precision. 
 	# Original code: fmt.format = RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT
@@ -1532,7 +2088,7 @@ func _run_fft_init():
 	pc.put_float(wind_direction.x)
 	pc.put_float(wind_direction.y)
 	pc.put_float(0.0) # time
-	pc.put_float(0.0) # Padding to 32 bytes
+	# Init shader: Params { int, float, float, vec2, float } = 28 bytes
 	
 	if not fft_init_pipeline.is_valid(): return
 	var cl = rd.compute_list_begin()
@@ -1599,6 +2155,9 @@ func _update_shader_parameters():
 	mat.set_shader_parameter("weather_influence", weather_visual_tex)
 	mat.set_shader_parameter("sea_size", sea_size)
 	mat.set_shader_parameter("manager_world_pos", global_position)
+	mat.set_shader_parameter("swe_world_origin", swe_scroll_origin)
+	mat.set_shader_parameter("swe_fill_mode", swe_fill_mode)
+	mat.set_shader_parameter("swe_fill_threshold", swe_fill_threshold)
 	
 	var shader_mat = mat as ShaderMaterial
 	if shader_mat:
@@ -1621,17 +2180,28 @@ func _update_shader_parameters():
 		for i in range(breaking_waves.size()):
 			if i >= 3: break
 			var wave = breaking_waves[i]
+			var pos: Vector2 = wave.get("position", Vector2.ZERO)
+			var width: float = wave.get("width", 1.0)
 			# XY = Position (from Vector2), Z = Height, W = Width
 			# Note: wave.position is Vector2, wave.height is the wave height
-			bw_data[i] = Vector4(wave.position.x, wave.get("height", 0.0), wave.position.y, wave.width)
-			# X = Curl, Y = Break Point, Z = State
-			bw_params[i] = Vector4(wave.get("curl", 0.0), wave.break_point, wave.state, 0.0)
+			bw_data[i] = Vector4(pos.x, wave.get("height", 0.0), pos.y, width)
+			# X = Curl, Y = Base T, ZW = Direction
+			var dir: Vector2 = wave.get("direction", wind_direction).normalized()
+			bw_params[i] = Vector4(wave.get("curl", 0.0), wave.get("base_t", 0.0), dir.x, dir.y)
 			
 		shader_mat.set_shader_parameter("breaking_wave_data", bw_data)
 		shader_mat.set_shader_parameter("breaking_wave_params", bw_params)
 		
-		if foam_viewport_tex:
+		if foam_influence_tex:
+			shader_mat.set_shader_parameter("foam_particle_texture", foam_influence_tex)
+		elif foam_viewport_tex:
 			shader_mat.set_shader_parameter("foam_particle_texture", foam_viewport_tex)
+		if spray_particle_influence_tex:
+			shader_mat.set_shader_parameter("spray_particle_texture", spray_particle_influence_tex)
+		elif spray_influence_tex:
+			shader_mat.set_shader_parameter("spray_particle_texture", spray_influence_tex)
+		elif spray_viewport_tex:
+			shader_mat.set_shader_parameter("spray_particle_texture", spray_viewport_tex)
 		
 		shader_mat.set_shader_parameter("far_fade_start", far_fade_start)
 		shader_mat.set_shader_parameter("far_fade_max", far_fade_max)
@@ -1639,6 +2209,17 @@ func _update_shader_parameters():
 		shader_mat.set_shader_parameter("color_deep", color_deep)
 		shader_mat.set_shader_parameter("color_shallow", color_shallow)
 		shader_mat.set_shader_parameter("absorption_coeff", absorption_coeff)
+		# Depth zones
+		shader_mat.set_shader_parameter("color_shore", color_shore)
+		shader_mat.set_shader_parameter("color_mid", color_mid)
+		shader_mat.set_shader_parameter("depth_zone_mid", depth_zone_mid)
+		shader_mat.set_shader_parameter("depth_zone_deep", depth_zone_deep)
+		# Climate & Reflections
+		shader_mat.set_shader_parameter("sun_color", sun_color)
+		shader_mat.set_shader_parameter("sky_color", sky_color)
+		shader_mat.set_shader_parameter("horizon_color", horizon_color)
+		shader_mat.set_shader_parameter("sun_intensity", sun_intensity)
+		shader_mat.set_shader_parameter("sun_direction", sun_direction)
 
 	mat.set_shader_parameter("color_foam", color_foam)
 	mat.set_shader_parameter("foam_noise", foam_noise_tex)
@@ -1701,6 +2282,18 @@ func _update_shader_parameters():
 	# Reuse weather_visual_tex (which now contains foam splats in alpha)
 	mat.set_shader_parameter("foam_particle_texture", weather_visual_tex)
 	
+	# ★ HPWater 風格：同步 SWE 紋理到海底焦散 shader
+	var seabed = get_node_or_null("Seabed")
+	if seabed and seabed is MeshInstance3D:
+		var seabed_mat = seabed.material_override
+		if seabed_mat and seabed_mat is ShaderMaterial:
+			seabed_mat.set_shader_parameter("swe_texture", visual_texture)
+			seabed_mat.set_shader_parameter("swe_world_origin", swe_scroll_origin)
+			seabed_mat.set_shader_parameter("sea_size", sea_size)
+			seabed_mat.set_shader_parameter("water_surface_y", global_position.y)
+			# 光線方向跟隨太陽
+			seabed_mat.set_shader_parameter("light_direction", sun_direction)
+	
 	if use_lod and has_node("OceanLOD"):
 		for cascade in $OceanLOD.cascades:
 			cascade.set_surface_override_material(0, mat)
@@ -1710,11 +2303,19 @@ func _process(delta):
 	# Wait for _ready to complete initialization
 	if not rd or not _is_initialized: return
 	
+	# ★ F3 切換 Wireframe 顯示
+	if Input.is_action_just_pressed("ui_page_down") or Input.is_key_pressed(KEY_F3):
+		var vp = get_viewport()
+		if vp and Engine.get_frames_drawn() % 10 == 0:  # 防重複觸發
+			if vp.debug_draw == Viewport.DEBUG_DRAW_WIREFRAME:
+				vp.debug_draw = Viewport.DEBUG_DRAW_DISABLED
+			else:
+				vp.debug_draw = Viewport.DEBUG_DRAW_WIREFRAME
+	
 	accumulated_time += delta
 	_time = Time.get_ticks_msec() / 1000.0
 
-	# === Foam System Update ===
-	_update_foam_particles(delta)
+	# === Foam System Update (已移除) ===
 	
 	# === Player Interaction Ripple Update ===
 	if enable_interaction_ripples and ripple_simulator:
@@ -1729,14 +2330,16 @@ func _process(delta):
 			_attempt_spawn_barrel_wave()
 			_barrel_spawn_timer = 0.0
 	
-	# === Idle Timer & SWE Reset ===
+	# === Idle Timer & SWE Gradual Decay ===
+	# ★ 不再硬重置（會切斷傳播中的波浪），改為自然衰減
+	# damping 本身就會讓波浪逐漸消散，這裡只需加長閒置門檻
 	if interaction_points.is_empty() and active_vortex == null and active_waterspout == null:
 		_idle_timer += delta
-		if _idle_timer > 2.0:
-			_reset_swe_texture()
-			_idle_timer = 0.0
 	else:
 		_idle_timer = 0.0
+	
+	# ★ Toroidal Scroll: follow camera / player
+	_update_swe_scroll()
 
 	# === Visual Updates (Shader Params) ===
 	var plane = get_node_or_null("WaterPlane")
@@ -1744,6 +2347,7 @@ func _process(delta):
 		var mat = plane.get_surface_override_material(0)
 		if mat:
 			mat.set_shader_parameter("manager_world_pos", global_position)
+			mat.set_shader_parameter("swe_world_origin", swe_scroll_origin)
 			mat.set_shader_parameter("physics_time", physics_time)
 			
 			# Render Alpha
@@ -1757,6 +2361,11 @@ func _process(delta):
 			
 			# Foam Texture
 			mat.set_shader_parameter("foam_particle_texture", weather_visual_tex)
+
+	_sync_effect_viewports()
+	_update_foam_influence_compute()
+	_update_spray_particle_compute(get_physics_process_delta_time())
+	_update_spray_influence_compute()
 	
 	# === C++ Ocean Buoyancy Sampler Sync ===
 	# 這裡我們利用 Godot 的 Group 功能，找到場景中所有的 OceanBuoyancySampler3D
@@ -1771,6 +2380,9 @@ func _process(delta):
 			s.wave_steepness = wave_steepness
 			s.wave_chaos = wave_chaos
 			s.peak_sharpness = peak_sharpness
+			# ★ 同步水面高度偏移（排乾/注滿時 Y 會變）
+			if "water_level_offset" in s:
+				s.water_level_offset = global_position.y
 	
 	# === Texture Updates (Main Thread) ===
 	if has_submitted:
@@ -1781,8 +2393,27 @@ func _process(delta):
 		if result_texture.is_valid():
 			var data = rd.texture_get_data(result_texture, 0)
 			if not data.is_empty():
-				var fmt = Image.FORMAT_RGBAH if simulation_precision == SimulationPrecision.Half_FP16 else Image.FORMAT_RGBAF
+				var fmt = Image.FORMAT_RGBAF  # Always FP32
 				sim_image.set_data(grid_res, grid_res, false, fmt, data)
+				
+				# ★ SWE Diagnostic: Print pixel values to verify propagation
+				if Engine.get_frames_drawn() % 120 == 0:
+					var cx := int(grid_res / 2)
+					var cy := int(grid_res / 2)
+					var c = sim_image.get_pixel(cx, cy)
+					var r = sim_image.get_pixel(min(cx + 5, grid_res - 1), cy)
+					var _d = sim_image.get_pixel(cx, min(cy + 5, grid_res - 1))
+					# Find max |h| in the image
+					var max_h := 0.0
+					var max_hu := 0.0
+					var max_hv := 0.0
+					for sy in range(0, grid_res, 8):
+						for sx in range(0, grid_res, 8):
+							var p = sim_image.get_pixel(sx, sy)
+							max_h = max(max_h, abs(p.r))
+							max_hu = max(max_hu, abs(p.g))
+							max_hv = max(max_hv, abs(p.b))
+					print("[SWE-Diag] center(%d,%d): h=%.4f hu=%.4f hv=%.4f | right+5: h=%.4f hu=%.4f | max_h=%.4f max_hu=%.4f max_hv=%.4f" % [cx, cy, c.r, c.g, c.b, r.r, r.g, max_h, max_hu, max_hv])
 				visual_texture.update(sim_image)
 				
 		# Update Weather Texture
@@ -1792,10 +2423,7 @@ func _process(delta):
 				weather_image.set_data(grid_res, grid_res, false, Image.FORMAT_RGBAH, w_data)
 				weather_visual_tex.update(weather_image)
 				
-	# === Foam Renderer MulitMesh ===
-	if foam_renderer and foam_renderer.multimesh:
-		var count = min(foam_particles.size(), foam_renderer.multimesh.instance_count)
-		foam_renderer.multimesh.visible_instance_count = count
+	# === Foam Renderer (已移除) ===
 	
 	# === Rogue Wave Animation ===
 	if rogue_wave_present:
@@ -1851,10 +2479,16 @@ func _physics_process(delta):
 	physics_time += delta
 	accumulated_time = 0.0
 	
+	# ★ 強制歸零：每幀覆蓋，防止任何系統把風力改回來
+	if debug_disable_waves:
+		if wind_strength != 0.0:
+			wind_strength = 0.0
+		if fft_scale != 0.0:
+			fft_scale = 0.0
+	
 	_auto_adjust_for_safety()
 	
-	# === Physics Update for Foam Particles ===
-	_update_foam_particles(delta)
+	# === Physics Update for Foam Particles (已移除) ===
 	
 	# === Update Foam Texture (CPU Side) ===
 	# Warning: Doing this every physics frame might be too frequent for rendering, 
@@ -1865,7 +2499,7 @@ func _physics_process(delta):
 
 	# GlobalWind Integration
 	# Check if GlobalWind singleton exists (autoloaded name)
-	if use_global_wind_system and has_node("/root/GlobalWind"):
+	if use_global_wind_system and not debug_disable_waves and has_node("/root/GlobalWind"):
 		var gw = get_node("/root/GlobalWind")
 		if gw:
 			# Smoothly interpolate towards global wind settings
@@ -1911,12 +2545,73 @@ func _auto_adjust_for_safety():
 
 
 func trigger_ripple(world_pos: Vector3, strength: float = 1.0, radius: float = 0.05):
-	var lp = to_local(world_pos)
-	var uv = (Vector2(lp.x, lp.z) / sea_size) + Vector2(0.5, 0.5)
+	var uv = _world_to_swe_uv(world_pos)
 	var uv_radius = radius / max(sea_size.x, 1.0)
 	var min_radius = 2.0 / float(grid_res)
 	uv_radius = max(uv_radius, min_radius)
-	interaction_points.append({"uv": uv, "strength": strength, "radius": uv_radius})
+	interaction_points.append({"uv": uv, "strength": strength, "radius": uv_radius, "vel_uv": Vector2.ZERO, "speed": 0.0})
+
+## ★ V 型尾流：帶有方向性動量的互動點
+## velocity: 世界空間速度向量 (linear_velocity of the body)
+## strength: 水面凹陷強度（負值往下壓）
+## radius: 影響半徑（世界空間 meters）
+func trigger_wake(world_pos: Vector3, velocity: Vector3, strength: float = 1.0, radius: float = 3.0):
+	var uv = _world_to_swe_uv(world_pos)
+	var uv_radius = radius / max(sea_size.x, 1.0)
+	var min_radius = 2.0 / float(grid_res)
+	uv_radius = max(uv_radius, min_radius)
+	# 速度轉為 UV 空間方向（XZ → UV）
+	var vel_uv = Vector2(velocity.x, velocity.z) / sea_size
+	var speed = Vector2(velocity.x, velocity.z).length()
+	interaction_points.append({"uv": uv, "strength": -strength, "radius": uv_radius, "vel_uv": vel_uv, "speed": speed})
+
+## ★ 質量注入模式：直接增加水體高度 (Mass Injection)
+## world_pos: 掉落水方塊在世界空間的 XZ 座標
+## added_volume_height: 要增加的水位高度 (如果掉進一個大方塊，這個數字可能會很大)
+## radius: 方塊的影響半徑
+func trigger_water_injection(world_pos: Vector3, added_volume_height: float, radius: float = 2.0):
+	var uv = _world_to_swe_uv(world_pos)
+	var uv_radius = radius / max(sea_size.x, 1.0)
+	var min_radius = 2.0 / float(grid_res)
+	uv_radius = max(uv_radius, min_radius)
+	
+	# 將 interaction_flag 藏在 velocity 裡面的 w 變數 (用 2.0 代表 Injection Mode)
+	interaction_points.append({
+		"uv": uv, 
+		"strength": added_volume_height, 
+		"radius": uv_radius, 
+		"vel_uv": Vector2.ZERO, 
+		"speed": 0.0,
+		"injection_flag": 2.0 
+	})
+
+## ★ Toroidal: 世界座標 → SWE UV (wrap to [0,1])
+func _world_to_swe_uv(world_pos: Vector3) -> Vector2:
+	var world_xz = Vector2(world_pos.x, world_pos.z)
+	var uv = (world_xz - swe_scroll_origin) / sea_size + Vector2(0.5, 0.5)
+	# Wrap to [0, 1] for toroidal addressing
+	uv.x = fmod(fmod(uv.x, 1.0) + 1.0, 1.0)
+	uv.y = fmod(fmod(uv.y, 1.0) + 1.0, 1.0)
+	return uv
+
+## ★ Toroidal Scroll: 讓 SWE 網格跟著攝影機/玩家移動
+func _update_swe_scroll():
+	var cam = get_viewport().get_camera_3d() if get_viewport() else null
+	if not cam: return
+	if typeof(swe_scroll_origin) != TYPE_VECTOR2:
+		swe_scroll_origin = Vector2.ZERO
+		
+	var cam_xz = Vector2(cam.global_position.x, cam.global_position.z)
+	var cell_size = sea_size / Vector2(float(grid_res), float(grid_res))
+	var offset = (cam_xz - swe_scroll_origin) / cell_size
+	
+	# 只在偏移 >= 1 個格子時才滾動
+	var shift_x = int(offset.x)
+	var shift_y = int(offset.y)
+	if shift_x == 0 and shift_y == 0:
+		return
+	
+	swe_scroll_origin += Vector2(float(shift_x), float(shift_y)) * cell_size
 
 func trigger_vortex(world_pos: Vector3, radius: float = 10.0, intensity: float = 1.0, speed: float = 2.0, depth: float = 5.0):
 	var lp = to_local(world_pos)
@@ -1968,6 +2663,34 @@ func _input(event):
 			_request_restart()
 		elif event.keycode == KEY_J: # J = JONSWAP Debug
 			_print_jonswap_debug()
+		elif event.keycode == KEY_G: # G = Test Breaking Wave (噴霧測試)
+			_spawn_test_breaking_wave()
+
+
+func _spawn_test_breaking_wave():
+	var cam = get_viewport().get_camera_3d()
+	var spawn_pos := Vector2(global_position.x, global_position.z)
+	var dir := Vector2(1, 0)
+	if cam:
+		var cam_fwd = -cam.global_transform.basis.z
+		dir = Vector2(cam_fwd.x, cam_fwd.z).normalized()
+		spawn_pos = Vector2(cam.global_position.x, cam.global_position.z) + dir * 20.0
+
+	var wave_data = {
+		"position": spawn_pos,
+		"height": 6.0,
+		"width": 15.0,
+		"curl": 1.5,
+		"break_point": 0.6,
+		"state": 2,  # BREAKING → 立即觸發噴霧
+		"direction": dir,
+		"base_t": 0.7,
+		"energy": 10.0,
+	}
+	set_breaking_wave_data(wave_data)
+	print("[TestWave] ★ 碎浪已生成 @ (%.1f, %.1f) dir=(%.2f, %.2f) | breaking_waves=%d" % [
+		spawn_pos.x, spawn_pos.y, dir.x, dir.y, breaking_waves.size()
+	])
 
 
 func _print_jonswap_debug():
@@ -1990,15 +2713,28 @@ func _run_compute(dt):
 	# 1. SWE Solver (Standard Interactions & Rain)
 	var interact_count = min(interaction_points.size(), MAX_INTERACTIONS)
 	if interact_count > 0:
-		var floats = PackedFloat32Array()
-		floats.resize(MAX_INTERACTIONS * 4)
+		# ★ Interleaved 格式：每個互動點 = 2 個 vec4
+		# vec4[i*2+0] = {uv.x, uv.y, strength, radius}
+		# vec4[i*2+1] = {vel_uv.x, vel_uv.y, speed, 0}
+		# ★ Reuse pre-allocated buffer (avoids per-frame allocation)
+		if _interact_float_buf.size() != MAX_INTERACTIONS * 8:
+			_interact_float_buf.resize(MAX_INTERACTIONS * 8)
+		var floats = _interact_float_buf
+		floats.fill(0.0)
 		for i in range(interact_count):
 			var p = interaction_points[i]
-			var idx = i * 4
+			var idx = i * 8
 			floats[idx + 0] = p.uv.x
 			floats[idx + 1] = p.uv.y
 			floats[idx + 2] = p.strength
 			floats[idx + 3] = p.radius
+			# Velocity data
+			var vel_uv: Vector2 = p.get("vel_uv", Vector2.ZERO)
+			var spd: float = p.get("speed", 0.0)
+			floats[idx + 4] = vel_uv.x
+			floats[idx + 5] = vel_uv.y
+			floats[idx + 6] = spd
+			floats[idx + 7] = p.get("injection_flag", 0.0) # w 變數用來傳遞模式標籤
 		var data_bytes = floats.to_byte_array()
 		rd.buffer_update(interaction_buffer, 0, data_bytes.size(), data_bytes)
 	
@@ -2014,8 +2750,8 @@ func _run_compute(dt):
 	pc.put_float(sea_size.y)
 	pc.put_float(simulation_gravity)
 	pc.put_float(simulation_base_depth)
-	pc.put_float(0.0) # Padding
-	pc.put_float(0.0) # Padding
+	pc.put_float(0.0) # scroll_offset_x (reserved for future per-texel offset)
+	pc.put_float(0.0) # scroll_offset_y (reserved for future per-texel offset)
 	
 	if not pipeline_rid.is_valid(): return
 	var active_set = uniform_set_A if current_sim_idx == 0 else uniform_set_B
@@ -2098,7 +2834,7 @@ func _run_fft_pipeline(_dt):
 	
 	var pc = StreamPeerBuffer.new()
 	pc.put_32(grid_res); pc.put_float(max(sea_size.x, sea_size.y)); pc.put_float(physics_time)
-	pc.put_float(0.0) # Padding to 16 bytes
+	# Update shader: Params { int resolution; float sea_size; float time; } = 12 bytes
 	
 	if not fft_update_pipeline.is_valid(): return
 	var cl = rd.compute_list_begin()
@@ -2130,9 +2866,9 @@ func _run_fft_pipeline(_dt):
 	var u_set_disp = fft_displace_sets[0] if current_in == fft_ping_texture else fft_displace_sets[1]
 	if not u_set_disp.is_valid(): return
 	
+	# Displace shader: Params { int resolution; float sea_size; } = 8 bytes
 	pc = StreamPeerBuffer.new()
 	pc.put_32(grid_res); pc.put_float(max(sea_size.x, sea_size.y))
-	pc.put_float(0.0); pc.put_float(0.0) # Padding to 16 bytes
 	
 	if not fft_displace_pipeline.is_valid(): return
 	cl = rd.compute_list_begin()
@@ -2147,7 +2883,7 @@ func _dispatch_butterfly(_tex_in: RID, _tex_out: RID, stage: int, direction: int
 	
 	var pc = StreamPeerBuffer.new()
 	pc.put_32(stage); pc.put_32(direction)
-	pc.put_float(0.0); pc.put_float(0.0) # Padding to 16 bytes
+	# Butterfly shader: Params { int stage; int direction; } = 8 bytes
 	
 	if not fft_butterfly_pipeline.is_valid(): return
 	var cl = rd.compute_list_begin()
@@ -2231,11 +2967,30 @@ func _cleanup():
 		if fft_ping_texture.is_valid(): rd.free_rid(fft_ping_texture)
 		if fft_pong_texture.is_valid(): rd.free_rid(fft_pong_texture)
 		if fft_displace_texture.is_valid(): rd.free_rid(fft_displace_texture)
+		if foam_influence_texture.is_valid(): rd.free_rid(foam_influence_texture)
+		if spray_particle_influence_texture.is_valid(): rd.free_rid(spray_particle_influence_texture)
+		if spray_influence_texture.is_valid(): rd.free_rid(spray_influence_texture)
 
 		
 		if vortex_params_buffer.is_valid(): rd.free_rid(vortex_params_buffer)
 		if waterspout_params_buffer.is_valid(): rd.free_rid(waterspout_params_buffer)
 		if interaction_buffer.is_valid(): rd.free_rid(interaction_buffer)
+		if foam_influence_params_buffer.is_valid(): rd.free_rid(foam_influence_params_buffer)
+		if spray_particle_buffer.is_valid(): rd.free_rid(spray_particle_buffer)
+		if spray_particle_emitters_buffer.is_valid(): rd.free_rid(spray_particle_emitters_buffer)
+		if spray_influence_params_buffer.is_valid(): rd.free_rid(spray_influence_params_buffer)
+		if foam_influence_uniform_set.is_valid() and rd.uniform_set_is_valid(foam_influence_uniform_set): rd.free_rid(foam_influence_uniform_set)
+		if spray_particle_update_set.is_valid() and rd.uniform_set_is_valid(spray_particle_update_set): rd.free_rid(spray_particle_update_set)
+		if spray_particle_influence_set.is_valid() and rd.uniform_set_is_valid(spray_particle_influence_set): rd.free_rid(spray_particle_influence_set)
+		if spray_influence_uniform_set.is_valid() and rd.uniform_set_is_valid(spray_influence_uniform_set): rd.free_rid(spray_influence_uniform_set)
+		if foam_influence_pipeline.is_valid(): rd.free_rid(foam_influence_pipeline)
+		if spray_particle_update_pipeline.is_valid(): rd.free_rid(spray_particle_update_pipeline)
+		if spray_particle_influence_pipeline.is_valid(): rd.free_rid(spray_particle_influence_pipeline)
+		if spray_influence_pipeline.is_valid(): rd.free_rid(spray_influence_pipeline)
+		if foam_influence_shader.is_valid(): rd.free_rid(foam_influence_shader)
+		if spray_particle_update_shader.is_valid(): rd.free_rid(spray_particle_update_shader)
+		if spray_particle_influence_shader.is_valid(): rd.free_rid(spray_particle_influence_shader)
+		if spray_influence_shader.is_valid(): rd.free_rid(spray_influence_shader)
 		
 		# Do NOT free rd itself as it's the main device now
 		rd = null
