@@ -46,3 +46,4 @@ class_name MovementData
 @export var max_step_height: float = 0.5 ## 最大可踏上高度（50cm）
 @export var step_check_distance: float = 0.5 ## 向前偵測距離
 @export var step_smooth_speed: float = 12.0 ## Y 軸平滑速度
+@export var stair_max_speed: float = 2.0 ## ★ 樓梯上最大水平速度（讓動畫步幅能匹配物理移動）

@@ -935,6 +935,8 @@ var _blend_position: Vector2 = Vector2.ZERO # BlendSpace 位置 (平滑過渡)
 # ★ 以下變數從 _physics_process 本地提升為成員，供子函數共用
 var _input_dir: Vector2 = Vector2.ZERO # 本幀原始輸入
 var _is_moving_frame: bool = false # 本幀是否有移動輸入
+var _move_commit_timer: float = 0.0  # ★ 移動承諾計時器：短按放開後保持動畫播放一步
+const MOVE_COMMIT_DURATION: float = 0.35  # 保持動畫的最短時長（秒）約一個步伐
 var _is_sprinting_frame: bool = false # 本幀是否衝刺
 var _want_jump_frame: bool = false # 本幀是否按了跳
 var _move_dir: Vector3 = Vector3.ZERO # 相機空間移動方向
@@ -1086,12 +1088,19 @@ func _gather_input() -> void:
 		_set_gait(MovementEnums.Gait.WALK)
 	_is_sprinting_frame = state_anim.gait == MovementEnums.Gait.SPRINT
 	_want_jump_frame = Input.is_action_just_pressed("ui_accept")
-	_is_moving_frame = _input_dir.length() > 0.1
-	if _is_moving_frame and not _is_moving_input:
+	var _raw_moving = _input_dir.length() > 0.1
+	# ★ 移動承諾計時器：按下時重置計時器，確保至少播放一個步伐
+	if _raw_moving:
+		_move_commit_timer = MOVE_COMMIT_DURATION  # 重新填滿計時器
+	else:
+		_move_commit_timer = max(0.0, _move_commit_timer - get_physics_process_delta_time())
+	# 擴展 is_moving：原始輸入 OR 計時器還在跑
+	_is_moving_frame = _raw_moving or _move_commit_timer > 0.0
+	if _raw_moving and not _is_moving_input:
 		_move_start_time = Time.get_ticks_msec() / 1000.0
 		_is_moving_input = true
 		if verbose_debug: print(">>> Movement started at %.2f" % _move_start_time)
-	elif not _is_moving_frame:
+	elif not _raw_moving and _move_commit_timer <= 0.0:
 		_is_moving_input = false
 
 ## 測試按鍵（H/G）
@@ -1219,11 +1228,7 @@ func _process_horizontal_movement(delta: float) -> void:
 		var cr = cb.x; cr.y = 0; cr = cr.normalized()
 		_move_dir = (cf * _input_dir.y + cr * _input_dir.x).normalized()
 	if _is_moving_frame and _waiting_for_foot: _waiting_for_foot = false
-	if _is_moving_frame and not _is_moving_input:
-		_is_moving_input = true
-		_move_start_time = Time.get_ticks_msec() / 1000.0
-	elif not _is_moving_frame:
-		_is_moving_input = false
+	# _is_moving_input は _process_input の commit timer で管理される
 	if Engine.get_frames_drawn() % 30 == 0 and _is_moving_frame:
 		var hs = Vector2(velocity.x, velocity.z).length()
 		if verbose_debug: print(">>> [Move Guard] landing=%s stopping=%s cam=%s move_dir=%s speed=%.2f vel_h=%.2f" % [_is_landing, _is_stopping, _main_camera != null, _move_dir, _current_speed, hs])
@@ -1234,6 +1239,10 @@ func _process_horizontal_movement(delta: float) -> void:
 			if stair.ascending: rsc = STAIR_RM_WALK_H_SPEED * 1.5
 			else: rsc = STAIR_RM_DESCEND_H_SPEED * 1.5
 			ssl = minf(_current_speed, rsc)
+		elif stair.on_stairs and velocity.y >= -0.1:
+			# ★ 上樓梯限速：velocity.y ≈ 0（snap 系統），用寬鬆閾值判斷非明顯下降
+			ssl = minf(_current_speed, movement_data.stair_max_speed)
+
 		target_velocity = _move_dir * ssl
 		if _move_dir.length() > 0.1:
 			var ta = atan2(-_move_dir.x, -_move_dir.z)

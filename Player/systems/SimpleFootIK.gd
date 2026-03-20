@@ -256,6 +256,9 @@ var _right_was_swing: bool = false
 
 # SphereCast 碰撞形狀（快取）
 var _predict_sphere_shape: SphereShape3D = null
+# ★ 逐幀高度差：用於判斷上/下樓（stair snap 不反映在 velocity.y）
+var _prev_body_y: float = 0.0
+var _body_y_delta: float = 0.0  # 正=上升, 負=下降
 
 const PREDICT_PATH_SAMPLE_COUNT: int = 3
 const MIN_SWING_DURATION: float = 0.16
@@ -336,6 +339,9 @@ func _ready() -> void:
 	if _skeleton_parent:
 		_original_skeleton_y = skeleton.position.y
 		print("[SimpleFootIK] Pelvis offset enabled, original skeleton Y: ", _original_skeleton_y)
+	# ★ 初始化高度差追蹤器：防止第一幀 _body_y_delta 異常大
+	if _char_body:
+		_prev_body_y = _char_body.global_position.y
 	
 	# ★ 快取 DebugDraw3D singleton（避免每幀字串查詢）
 	if Engine.has_singleton("DebugDraw3D"):
@@ -406,7 +412,13 @@ func _physics_process(delta: float) -> void:
 		velocity = _char_body.velocity
 	var speed = Vector2(velocity.x, velocity.z).length()
 	var is_moving = speed > standing_threshold
-	# ★ 樓梯特化邏輯：偵測是否在樓梯上行走
+	# ★ 逐幀 Y 高度差（樓梯 snap 不會改變 velocity.y，靠位置差判斷方向）
+	if _char_body:
+		var current_body_y = _char_body.global_position.y
+		_body_y_delta = clampf(current_body_y - _prev_body_y, -1.0, 1.0)  # 限制突變（傳送/重生）
+		_prev_body_y = current_body_y
+	# ★ 樓梯特化邏輯：只在上行時啟動 stair IK
+	# 下行由 _is_on_stairs_descending() 處理（關閉 IK influence）
 	stair_ik_active = _is_stair_ascending_active()
 	if Engine.get_physics_frames() % 60 == 0:
 		var _sys = _char_body.get("_stair_system") if _char_body else null
@@ -567,10 +579,15 @@ func _physics_process(delta: float) -> void:
 		final_left_influence = clampf(_left_influence_override, 0.0, 1.0)
 	if _right_influence_override >= 0.0:
 		final_right_influence = clampf(_right_influence_override, 0.0, 1.0)
-	# ★ 方案 B: 樓梯上強制 IK 全權重（走路動畫 + IK 控制腳步）
+	# ★ 方案 B: 樓梯上行強制 IK 全權重（走路動畫 + IK 控制腳步）
 	if stair_ik_active:
 		final_left_influence = 1.0
 		final_right_influence = 1.0
+	# ★ 下樓梯：關閉 IK，讓動畫自然播放
+	# _detect_ground 在方塊台階上容易打到步間裂隙，拉壞腳步
+	elif _is_on_stairs_descending():
+		final_left_influence = 0.0
+		final_right_influence = 0.0
 	
 	if left_ik: left_ik.influence = final_left_influence
 	if right_ik: right_ik.influence = final_right_influence
@@ -805,18 +822,30 @@ func _reset_stair_support_lock() -> void:
 	_stair_right_release_candidate_frames = 0
 
 
-func _is_stair_ascending_active() -> bool:
+func _is_stair_on() -> bool:
 	if not _char_body:
 		return false
-	# 優先檢查 PlayerStairsController 的 data（新系統）
 	var stair_sys = _char_body.get("_stair_system")
 	if stair_sys and stair_sys.data:
-		return bool(stair_sys.data.on_stairs and stair_sys.data.ascending)
-	# 退回檢查 SimpleCapsuleMove.stair（舊系統）
+		return bool(stair_sys.data.on_stairs)
 	var stair_data = _char_body.get("stair")
 	if stair_data == null:
 		return false
-	return bool(stair_data.on_stairs and stair_data.ascending)
+	return bool(stair_data.on_stairs)
+
+
+func _is_stair_ascending_active() -> bool:
+	if not _is_stair_on():
+		return false
+	# ★ 用逐幀位置差判斷上行（velocity.y 在 snap 系統中不可靠）
+	return _body_y_delta > 0.001
+
+
+func _is_on_stairs_descending() -> bool:
+	if not _is_stair_on():
+		return false
+	# ★ 用逐幀位置差判斷下行
+	return _body_y_delta < -0.001
 
 
 func _update_stair_support_lock(_delta: float) -> void:
@@ -1147,6 +1176,11 @@ func _update_predict_ik(delta: float, space: PhysicsDirectSpaceState3D, exclude:
 			print("[PredIK] OFF enable=%s char=%s stop=%s" % [enable_predictive_ik, _char_body != null, stop_anim_active])
 		_deactivate_predictions()
 		return
+	# ★ 下樓梯：預測射線會打到好幾階以下的地面，產生超大向下偏移拖走腳部
+	# 下樓只需要一般地面跟隨 IK，完全不需要預測
+	if _is_on_stairs_descending():
+		_deactivate_predictions()
+		return
 	if not skeleton or _left_foot_idx < 0 or _right_foot_idx < 0:
 		if debug_draw and Engine.get_physics_frames() % 30 == 0:
 			print("[PredIK] WAIT skeleton=%s left=%d right=%d" % [skeleton != null, _left_foot_idx, _right_foot_idx])
@@ -1281,86 +1315,58 @@ func _update_ik_target(target: Marker3D, foot_idx: int, hip_idx: int, ground_res
 		target.global_position = hard_lock_pos
 		return
 	
-	# ★★★ 樓梯 IK：真正完美的 PredictIK (Relative Terrain Offset) ★★★
-	# 透過保留了「原生動畫抬腿」並加上「台階預測基準面」，完美消除滑步、抽抖與膝蓋反折
-	if stair_ik_active and pred_active and enable_predictive_ik:
-		var foot_ground_y = _left_ground_y if is_left_side else _right_ground_y
-		var foot_phase = _left_foot_phase if is_left_side else _right_foot_phase
-		var pred_end_y = _left_pred_end_y if is_left_side else _right_pred_end_y
-		
-		# 1. 決定該腳的虛擬地形基準面 (Virtual Ground)
-		# 這是一個非常重要的「預測與現實交接」橋樑 (Prediction Bridge)：
-		# (0.0~0.2) 抬腳初：腳還在舊台階，依賴現實地形 (foot_ground_y)
-		# (0.2~0.4) 往前跨：現實地形可能打到空拍或垂直面，開始過渡到預測目標 (pred_end_y)
-		# (0.4~0.7) 空中至落地：完全信任預測目標，讓腳踝精準到達新台階
-		# (0.7~0.9) 踩穩後：落點已成為現實，防止預測殘留 (如剎車停格)，平滑回歸絕對現實地形
-		var pred_weight = 0.0
-		if foot_phase < 0.2:
-			pred_weight = 0.0
-		elif foot_phase < 0.4:
-			pred_weight = (foot_phase - 0.2) / 0.2
-		elif foot_phase < 0.7:
-			pred_weight = 1.0
-		elif foot_phase < 0.9:
-			pred_weight = 1.0 - (foot_phase - 0.7) / 0.2
-		else:
-			pred_weight = 0.0
-			
-		var virtual_ground_y = lerpf(foot_ground_y, pred_end_y, pred_weight)
-		
-		# 2. 膠囊體的目前骨盆基準高度，用來求出動畫真正的原生抬腿高度
-		# (★ 必須包含 pelvis 下沉！因為 foot_pos.y 這個骨骼座標本身就已經隨著 pelvis 下沉了！)
-		# 如果不加 _current_pelvis_offset，當骨盆為了踩台階而降低 0.2m 時，anim_lift 會無辜減少 0.2m，導致腳穿模沉入台階 0.2m！
-		var true_skeleton_base_y = _char_body.global_position.y + _original_skeleton_y + _current_pelvis_offset
-		# 原生抬腿 = 當下骨骼高度 - 骨盆基準（此值為純動畫的相對高度，不受 IK 骨盆升降干擾）
-		var anim_lift = foot_pos.y - true_skeleton_base_y
-		
-		# 3. 完美地形捕捉公式：目標高度 = 虛擬地形 + 原生抬腿
-		var goal_y = virtual_ground_y + anim_lift
-		
-		var _warped_xz = Vector2(foot_pos.x, foot_pos.z)
-		
-		# ★ 樓梯專屬 XZ 捕捉 (Overcoming Stride Shortfall)
-		# 若只依賴 foot_pos.xz (純動畫)，則步伐太小時腳永遠摸不到預測點 (pred_end_pos) 的綠色球！
-		# 利用 pred_weight 把 XZ 的目標點一路拉過去，確保落地前精準蓋在目標網格上！
-		var _stair_pred_pos = _left_pred_end_pos if is_left_side else _right_pred_end_pos
-		var pred_xz = Vector2(_stair_pred_pos.x, _stair_pred_pos.z)
-		_warped_xz = _warped_xz.lerp(pred_xz, pred_weight * 0.95) # 留 5% 彈性給動畫
-		
-		var pred_goal = Vector3(_warped_xz.x, goal_y, _warped_xz.y)
-		
-		# 安全距離檢查
-		if hip_idx >= 0:
-			var hip_global = skeleton.global_transform * skeleton.get_bone_global_pose(hip_idx)
-			var d = pred_goal.distance_to(hip_global.origin)
-			if d > max_reach_distance:
-				pred_goal = pred_goal.lerp(foot_pos, (d - max_reach_distance) / 0.3)
-				
-		# 4. 更新 Target
-		# XZ 完全死追計算出來的目標點（階梯上會被強制拉到預測點）；Y 保留微小 lerp 以過濾射線切邊突跳
-		target.global_position.x = pred_goal.x
-		target.global_position.z = pred_goal.z
-		target.global_position.y = lerpf(target.global_position.y, pred_goal.y, clampf(delta * smooth_speed * 4.0, 0.0, 1.0))
-		
-		if Engine.get_physics_frames() % 30 == 0:
-			var side = "L" if is_left_side else "R"
-			print("[StairIK-%s] gndY=%.3f vGnd=%.3f lift=%.3f goalY=%.3f boneY=%.3f" % [
-				side, foot_ground_y, virtual_ground_y, anim_lift, pred_goal.y, foot_pos.y])
-		return
-	
-	# ★★★ PredictIK 模式（一般地形）：完全使用 PredictIK.cs 架構 ★★★
-	# 繞過 Phase-Driven blend，直接用 bone.y + (virtualFoot - virtualHeight)
+	# ★★★ 統一 PredictIK 模式（樓梯 + 一般地形共用）★★★
+	# 架構來自 PredictIK.cs：bone.y + (virtualFoot - virtualCenter)
+	# 此公式完全不依賴 foot_ground_y（避免 cube 樓梯 raycast 打到垂直面的問題）
+	# 而是用預測曲線 (virtual_y) 的相對差值來偏移動畫骨骼位置
 	if pred_active and enable_predictive_ik and not temporary_disable_predict_ik and not stop_anim_active:
 		var virtual_height = minf(_left_pred_virtual_y, _right_pred_virtual_y)
 		var foot_offset = pred_virtual_y - virtual_height
 		# IK 目標 = 動畫腳位置 + 高度偏移
 		var pred_goal_pos = Vector3(foot_pos.x, foot_pos.y + foot_offset, foot_pos.z)
 		
+		# ★ 樓梯專屬 XZ 捕捉 (Overcoming Stride Shortfall)
+		# 物理膠囊可能以 3.5 m/s 衝上樓梯，但跑步動畫的步幅只有 ~0.5m。
+		# 如果 XZ 只追動畫骨骼，腳永遠摸不到預測點。
+		# 利用 foot_phase 驅動的權重，把 XZ 逐步拉向預測落點。
+		if stair_ik_active:
+			var foot_phase = _left_foot_phase if is_left_side else _right_foot_phase
+			var stair_pred_pos = _left_pred_end_pos if is_left_side else _right_pred_end_pos
+			# swing 中期才拉 XZ，stance 時回到動畫位置
+			var xz_weight = 0.0
+			if foot_phase < 0.3:
+				xz_weight = 0.0  # 剛起步，不拉
+			elif foot_phase < 0.6:
+				xz_weight = (foot_phase - 0.3) / 0.3  # 漸進
+			elif foot_phase < 0.85:
+				xz_weight = 1.0  # 全力吸附
+			else:
+				xz_weight = 1.0 - (foot_phase - 0.85) / 0.15  # 著地後釋放
+			xz_weight = clampf(xz_weight, 0.0, 1.0)
+			var anim_xz = Vector2(pred_goal_pos.x, pred_goal_pos.z)
+			var pred_xz = Vector2(stair_pred_pos.x, stair_pred_pos.z)
+			var warped_xz = anim_xz.lerp(pred_xz, xz_weight * 0.85)
+			pred_goal_pos.x = warped_xz.x
+			pred_goal_pos.z = warped_xz.y
+		
+		# 安全距離檢查
+		if hip_idx >= 0:
+			var hip_global = skeleton.global_transform * skeleton.get_bone_global_pose(hip_idx)
+			var d = pred_goal_pos.distance_to(hip_global.origin)
+			if d > max_reach_distance:
+				pred_goal_pos = pred_goal_pos.lerp(foot_pos, (d - max_reach_distance) / 0.3)
+		# ★ 地面穿模防護（Ground Clamp）— 只在平地有效
+		# 方塊台階的 raycast 容易打到垂直面返回錯誤高度，在樓梯時跳過
+		if not stair_ik_active and ground_res.valid:
+			var ground_floor_y = ground_res.y + foot_height_offset
+			if pred_goal_pos.y < ground_floor_y:
+				pred_goal_pos.y = ground_floor_y
+		
 		# DEBUG
 		if Engine.get_physics_frames() % 15 == 0:
 			var side = "L" if is_left_side else "R"
-			print("[PredIK-%s] vY=%.3f vH=%.3f offset=%.3f boneY=%.3f goalY=%.3f" % [
-				side, pred_virtual_y, virtual_height, foot_offset, foot_pos.y, pred_goal_pos.y
+			print("[PredIK-%s] vY=%.3f vH=%.3f offset=%.3f boneY=%.3f goalY=%.3f stair=%s" % [
+				side, pred_virtual_y, virtual_height, foot_offset, foot_pos.y, pred_goal_pos.y, stair_ik_active
 			])
 		
 		# 平滑 IK 目標

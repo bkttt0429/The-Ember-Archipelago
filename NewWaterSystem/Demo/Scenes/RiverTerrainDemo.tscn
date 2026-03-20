@@ -1,0 +1,166 @@
+[gd_scene format=3 uid="uid://riverdemouid"]
+
+[ext_resource type="Script" uid="uid://cd6doksvbjqcw" path="res://NewWaterSystem/Core/Scripts/WaterManager.gd" id="1_wm"]
+[ext_resource type="Script" uid="uid://ct307ktt0acr1" path="res://NewWaterSystem/Demo/Scripts/RiverTerrainDemo.gd" id="2_ctrl"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_5oyd4"]
+sky_top_color = Color(0.3, 0.5, 0.9, 1)
+sky_horizon_color = Color(0.6, 0.75, 0.95, 1)
+ground_bottom_color = Color(0.15, 0.2, 0.25, 1)
+ground_horizon_color = Color(0.4, 0.5, 0.6, 1)
+
+[sub_resource type="Sky" id="Sky_aeyrj"]
+sky_material = SubResource("ProceduralSkyMaterial_5oyd4")
+
+[sub_resource type="Environment" id="Environment_4tusx"]
+background_mode = 2
+sky = SubResource("Sky_aeyrj")
+ambient_light_source = 2
+ambient_light_color = Color(1, 1, 1, 1)
+ambient_light_sky_contribution = 0.6
+tonemap_mode = 2
+tonemap_white = 1.5
+ssr_enabled = true
+ssao_enabled = true
+ssao_radius = 2.0
+ssao_intensity = 1.5
+glow_enabled = true
+glow_intensity = 0.5
+glow_bloom = 0.1
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_1"]
+noise_type = 2
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_foam"]
+noise = SubResource("FastNoiseLite_1")
+seamless = true
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_caustics"]
+noise_type = 2
+seed = 250469429
+frequency = 0.05
+fractal_type = 0
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_caustics"]
+noise = SubResource("FastNoiseLite_caustics")
+seamless = true
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_normal"]
+noise_type = 3
+frequency = 0.02
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_normal1"]
+noise = SubResource("FastNoiseLite_normal")
+seamless = true
+as_normal_map = true
+bump_strength = 4.0
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_normal2"]
+seed = 67890
+frequency = 0.08
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_normal2"]
+noise = SubResource("FastNoiseLite_normal2")
+seamless = true
+as_normal_map = true
+
+[sub_resource type="BoxShape3D" id="BoxShape_riverbed"]
+size = Vector3(14, 1, 30)
+
+[sub_resource type="BoxMesh" id="BoxMesh_riverbed"]
+size = Vector3(14, 1, 30)
+
+[sub_resource type="StandardMaterial3D" id="Mat_Riverbed"]
+albedo_color = Color(0.55, 0.45, 0.3, 1)
+roughness = 0.95
+
+[sub_resource type="BoxShape3D" id="BoxShape_bank"]
+size = Vector3(8, 4, 30)
+
+[sub_resource type="BoxMesh" id="BoxMesh_bank"]
+size = Vector3(8, 4, 30)
+
+[sub_resource type="StandardMaterial3D" id="Mat_Ground"]
+albedo_color = Color(0.3, 0.4, 0.2, 1)
+roughness = 0.9
+
+[node name="RiverTerrainDemo" type="Node3D" unique_id=1206171771]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=366904092]
+environment = SubResource("Environment_4tusx")
+
+[node name="Sun" type="DirectionalLight3D" parent="." unique_id=145372399]
+transform = Transform3D(1, 0, 0, 0, 0.173648, 0.984808, 0, -0.984808, 0.173648, 0, 50, 0)
+light_color = Color(1, 0.98, 0.95, 1)
+light_energy = 1.5
+shadow_enabled = true
+
+[node name="Camera3D" type="Camera3D" parent="." unique_id=1573800865]
+transform = Transform3D(0.12885162, -0.0025627695, 0.9916606, 0.019884747, 0.99980235, 0, -0.9914646, 0.019718828, 0.12887709, 20, 8, 0)
+current = true
+fov = 65.0
+
+[node name="OceanWaterManager" type="Node3D" parent="." unique_id=1998521871 groups=["WaterSystem_Managers"]]
+script = ExtResource("1_wm")
+lock_swe_origin = true
+sea_size = Vector2(40, 40)
+damping = 0.995
+swe_strength = 3.0
+swe_fill_mode = 1.0
+swe_fill_threshold = 0.01
+wind_strength = 0.0
+wave_steepness = 0.0
+wave_length = 25.0
+color_deep = Color(0.02, 0.12, 0.3, 1)
+color_shallow = Color(0, 0.6, 0.7, 1)
+absorption_coeff = 0.35
+foam_noise_tex = SubResource("NoiseTexture2D_foam")
+fresnel_strength = 0.3
+reflection_strength = 0.25
+sss_strength = 0.2
+sss_color = Color(0, 0.5, 0.4, 1)
+foam_crest_strength = 1.2
+foam_jacobian_bias = 0.22
+caustics_texture = SubResource("NoiseTexture2D_caustics")
+normal_map1 = SubResource("NoiseTexture2D_normal1")
+normal_map2 = SubResource("NoiseTexture2D_normal2")
+normal_scale = 1.5
+normal_tile = 12.0
+fft_scale = 0.0
+debug_disable_waves = true
+
+[node name="Terrain" type="Node3D" parent="." unique_id=1267534394]
+
+[node name="Riverbed" type="StaticBody3D" parent="Terrain" unique_id=87065592]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -2.5, 0)
+
+[node name="Collision" type="CollisionShape3D" parent="Terrain/Riverbed" unique_id=2089391637]
+shape = SubResource("BoxShape_riverbed")
+
+[node name="Mesh" type="MeshInstance3D" parent="Terrain/Riverbed" unique_id=875269161]
+mesh = SubResource("BoxMesh_riverbed")
+surface_material_override/0 = SubResource("Mat_Riverbed")
+
+[node name="BankLeft" type="StaticBody3D" parent="Terrain" unique_id=1138157808]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -11, 0, 0)
+
+[node name="Collision" type="CollisionShape3D" parent="Terrain/BankLeft" unique_id=885141671]
+shape = SubResource("BoxShape_bank")
+
+[node name="Mesh" type="MeshInstance3D" parent="Terrain/BankLeft" unique_id=2069180589]
+mesh = SubResource("BoxMesh_bank")
+surface_material_override/0 = SubResource("Mat_Ground")
+
+[node name="BankRight" type="StaticBody3D" parent="Terrain" unique_id=1036737345]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 11, 0, 0)
+
+[node name="Collision" type="CollisionShape3D" parent="Terrain/BankRight" unique_id=176362289]
+shape = SubResource("BoxShape_bank")
+
+[node name="Mesh" type="MeshInstance3D" parent="Terrain/BankRight" unique_id=390105341]
+mesh = SubResource("BoxMesh_bank")
+surface_material_override/0 = SubResource("Mat_Ground")
+
+[node name="Controller" type="Node3D" parent="." unique_id=1771871210]
+script = ExtResource("2_ctrl")

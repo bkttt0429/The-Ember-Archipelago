@@ -705,13 +705,17 @@ float water_caustic(vec2 uv, float t) {
 }
 
 void fragment() {
+	// ★ Read SWE texture globally once
+	vec4 swe_frag = texture(swe_texture, v_swe_uv);
+	vec2 swe_velocity = swe_frag.gb; // X and Z water velocity from SWE physics
+	float swe_h_frag = swe_frag.r;
+	
 	// ★ SWE Fill Mode: discard obstacles and dry cells (per-fragment for clean edges)
 	if (swe_fill_mode > 0.5) {
 		if (v_swe_uv.x < 0.0 || v_swe_uv.x > 1.0 || v_swe_uv.y < 0.0 || v_swe_uv.y > 1.0) {
 			discard;
 		}
-		vec4 swe_frag = texture(swe_texture, v_swe_uv);
-		if (swe_frag.r < swe_fill_threshold || swe_frag.a > 0.3) {
+		if (swe_h_frag < swe_fill_threshold || swe_frag.a > 0.3) {
 			discard;
 		}
 	}
@@ -930,13 +934,19 @@ void fragment() {
 	// To minimize code replacement risk, I will re-implement the detail normal logic as it was, to ensure it works.
 	
 	vec3 detail_normal;
-    // Flow Map Logic
+    // Flow Map & SWE Velocity Advection Logic
     	vec2 flow_uv = v_world_pos.xz / sea_size + 0.5;
+    	// Combine manual flow map with SWE physical velocity
     	vec2 flow_vector = (texture(flow_map, flow_uv).rg * 2.0 - 1.0) * flow_strength;
     	
-    	if (length(flow_vector) > 0.01) {
-    		float flow_phase0 = fract(TIME * flow_speed);
-    		float flow_phase1 = fract(TIME * flow_speed + 0.5);
+    	// Add SWE velocity scaled by swe_strength, with some scaling suitable for normal panning
+    	flow_vector += swe_velocity * 0.1 * swe_strength;
+    	
+    	if (length(flow_vector) > 0.005) {
+    		// Faster flow speed based on vector magnitude
+    		float dynamic_flow_speed = flow_speed + length(flow_vector) * 0.5;
+    		float flow_phase0 = fract(TIME * dynamic_flow_speed);
+    		float flow_phase1 = fract(TIME * dynamic_flow_speed + 0.5);
     		float flow_lerp = abs(0.5 - flow_phase0) / 0.5;
     		
     		vec2 flow_uv1 = v_world_pos.xz * normal_tile * 0.1 - flow_vector * flow_phase0;
@@ -1018,7 +1028,7 @@ void fragment() {
     float foam_jacob_signal = smoothstep(foam_jacobian_bias, foam_jacobian_bias + 0.2, v_jacobian);
     float steepness_signal = max(v_jacobian - foam_jacobian_bias, 0.0);
     float wave_energy = steepness_signal * wind_strength; 
-    float swe_h_frag = texture(swe_texture, v_swe_uv).r;
+    
     // ★ wake_signal is intentionally EXCLUDED from crest_foam:
     // Using abs(swe_h) here creates circular halos around any SWE disturbanc.
     // SWE-based foam is handled by physical gradient below in the wake_foam block.
@@ -1038,36 +1048,59 @@ void fragment() {
 		float gradient_foam = smoothstep(4.0, 8.0, ripple_gradient) * 0.2;
 		wake_foam = gradient_foam * ripple_fade_val;
 		
-		// ★ SWE 泡沫：只在有風時啟用
-		// SWE 模擬在低解析度下會產生菱形網格偽影，
-		// 有風時波浪運動會遮掩偽影，無風時偽影非常明顯
-		if (wind_strength > 0.3) {
+		// ★ SWE 泡沫：分兩軌
+		{
 			vec2 ts = 1.0 / vec2(textureSize(swe_texture, 0));
-			float swe_h_r = texture(swe_texture, v_swe_uv + vec2(ts.x, 0.0)).r;
-			float swe_h_u = texture(swe_texture, v_swe_uv - vec2(0.0, ts.y)).r;
 			
+			// 取四鄰高度與速度
+			float swe_h_r = texture(swe_texture, v_swe_uv + vec2(ts.x, 0.0)).r;
+			float swe_h_l = texture(swe_texture, v_swe_uv - vec2(ts.x, 0.0)).r;
+			float swe_h_u = texture(swe_texture, v_swe_uv + vec2(0.0, ts.y)).r;
+			float swe_h_d = texture(swe_texture, v_swe_uv - vec2(0.0, ts.y)).r;
+			vec2 vel_r = texture(swe_texture, v_swe_uv + vec2(ts.x, 0.0)).gb;
+			vec2 vel_l = texture(swe_texture, v_swe_uv - vec2(ts.x, 0.0)).gb;
+			vec2 vel_u = texture(swe_texture, v_swe_uv + vec2(0.0, ts.y)).gb;
+			vec2 vel_d = texture(swe_texture, v_swe_uv - vec2(0.0, ts.y)).gb;
 			float phys_dx = ts.x * sea_size.x;
 			float phys_dy = ts.y * sea_size.y;
 			
-			float swe_dx = (swe_h_r - swe_h_frag) / phys_dx;
-			float swe_dy = (swe_h_u - swe_h_frag) / phys_dy;
-			float swe_slope = length(vec2(swe_dx, swe_dy));
+			// === 軌道 A：碰撞點泡沫（完全不需風力）===
+			// 速度散度：負值 = 流入 = 兩股水流正面碰撞
+			float div_x = (vel_r.x - vel_l.x) / (2.0 * phys_dx);
+			float div_y = (vel_u.y - vel_d.y) / (2.0 * phys_dy);
+			float divergence = div_x + div_y;
+			float convergence_foam = smoothstep(-0.5, -3.0, divergence) * 0.8;
 			
-			float swe_foam_edge = smoothstep(0.6, 2.0, swe_slope) * 0.5;
-			float swe_depression_foam = smoothstep(-1.5, -3.0, swe_h_frag) * 0.2;
+			// Laplacian 凹陷（碰撞壓力的水面凹痕）
+			float laplacian = (swe_h_r + swe_h_l + swe_h_u + swe_h_d - 4.0 * swe_h_frag);
+			float curvature_foam = smoothstep(-0.1, -0.5, laplacian) * 0.4;
 			
-			float swe_hu = texture(swe_texture, v_swe_uv).g;
-			float swe_hv = texture(swe_texture, v_swe_uv).b;
-			float swe_momentum = length(vec2(swe_hu, swe_hv));
-			float momentum_foam = smoothstep(0.8, 2.0, swe_momentum) * 0.4;
+			// 碰撞泡沫直接寫入
+			float collision_foam = max(convergence_foam, curvature_foam);
+			wake_foam = max(wake_foam, collision_foam * foam_wake_strength);
 			
-			float swe_crest_foam = smoothstep(0.4, 1.0, swe_h_frag) * 0.3;
-			swe_crest_foam *= smoothstep(0.2, 0.5, swe_slope);
-			
-			float swe_foam_total = max(max(swe_foam_edge, swe_depression_foam), max(momentum_foam, swe_crest_foam));
-			// 隨風力漸進啟用
-			float wind_gate = smoothstep(0.3, 1.0, wind_strength);
-			wake_foam = max(wake_foam, swe_foam_total * foam_wake_strength * wind_gate);
+			// === 軌道 B：一般流動泡沫（需要風力，無風靜水不要）===
+			if (wind_strength > 0.3) {
+				float swe_dx = (swe_h_r - swe_h_l) / (2.0 * phys_dx);
+				float swe_dy = (swe_h_u - swe_h_d) / (2.0 * phys_dy);
+				float swe_slope = length(vec2(swe_dx, swe_dy));
+				float swe_foam_edge = smoothstep(0.6, 2.0, swe_slope) * 0.5;
+				
+				float swe_momentum = length(swe_velocity);
+				float momentum_foam = smoothstep(0.8, 2.0, swe_momentum) * 0.4;
+				float dot_flow_time = TIME * 2.0;
+				vec2 advected_uv = v_world_pos.xz * 1.5 - swe_velocity * dot_flow_time;
+				float debris_noise = pow(texture(foam_noise, advected_uv).r, 6.0);
+				float debris_mask = smoothstep(0.3, 1.0, swe_momentum) * debris_noise * clamp(swe_h_frag * 0.5 + 0.5, 0.0, 1.0);
+				momentum_foam = max(momentum_foam, debris_mask * 1.5);
+				
+				float swe_crest_foam = smoothstep(0.4, 1.0, swe_h_frag) * 0.3;
+				swe_crest_foam *= smoothstep(0.2, 0.5, swe_slope);
+				
+				float wind_gate = smoothstep(0.3, 1.0, wind_strength);
+				float wind_foam = max(max(swe_foam_edge, momentum_foam), swe_crest_foam);
+				wake_foam = max(wake_foam, wind_foam * foam_wake_strength * wind_gate);
+			}
 		}
 	}
 	
@@ -1311,10 +1344,12 @@ void fragment() {
     vec3 water_reflect_albedo = color * fres;
     
     // 泡沫區域：回歸漫反射（白色不透明）
-    ALBEDO = mix(water_reflect_albedo, foam_color_tint, foam_final_mask);
-    ROUGHNESS = mix(0.02, 1.0, foam_final_mask);        // 水面近乎鏡面，泡沫粗糙
-    METALLIC = mix(1.0, 0.0, foam_final_mask);           // 水面全金屬（反射），泡沫漫反射
-    SPECULAR = 0.0;                                       // 參考 shader: SPECULAR=0
+    // ★ 降低泡沫亮度：泡沫是霧化的氣泡，不應過亮
+    vec3 foam_albedo_dimmed = foam_color_tint * 0.65;   // 35% 減亮，避免 PBR 過曝
+    ALBEDO = mix(water_reflect_albedo, foam_albedo_dimmed, foam_final_mask);
+    ROUGHNESS = mix(0.02, 1.0, foam_final_mask);        // 水面近乎鏡面，泡沫完全粗糙
+    METALLIC = mix(1.0, 0.0, foam_final_mask);           // 泡沫漫反射（無金屬性）
+    SPECULAR = 0.0;                                       // 不加額外高光
     
     // 折射景象放進 EMISSION（透過 Fresnel 反向控制：正面看多，掠角看少）
     vec3 refracted_emission = water_base_color * (1.0 - fres);

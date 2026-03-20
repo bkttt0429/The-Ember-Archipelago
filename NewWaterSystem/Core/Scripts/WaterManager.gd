@@ -374,6 +374,7 @@ var has_submitted: bool = false
 var sim_image: Image
 
 # ★ Toroidal Scrolling Grid State
+@export var lock_swe_origin: bool = false  ## 鎖定 SWE 網格在世界原點，不跟相機走（適合河道 Demo）
 var swe_scroll_origin: Vector2 = Vector2.ZERO  # World XZ center of SWE grid
 var swe_scroll_offset: Vector2i = Vector2i.ZERO  # Accumulated texel offset (not used in current impl, but kept for future)
 
@@ -2596,6 +2597,8 @@ func _world_to_swe_uv(world_pos: Vector3) -> Vector2:
 
 ## ★ Toroidal Scroll: 讓 SWE 網格跟著攝影機/玩家移動
 func _update_swe_scroll():
+	if lock_swe_origin:
+		return  # 🔒 鎖定在世界原點，不跟相機
 	var cam = get_viewport().get_camera_3d() if get_viewport() else null
 	if not cam: return
 	if typeof(swe_scroll_origin) != TYPE_VECTOR2:
@@ -2834,7 +2837,8 @@ func _run_fft_pipeline(_dt):
 	
 	var pc = StreamPeerBuffer.new()
 	pc.put_32(grid_res); pc.put_float(max(sea_size.x, sea_size.y)); pc.put_float(physics_time)
-	# Update shader: Params { int resolution; float sea_size; float time; } = 12 bytes
+	pc.put_32(0) # _pad0: GLSL std430 alignment requires 16 bytes total
+	# Update shader: Params { int resolution; float sea_size; float time; int _pad0; } = 16 bytes
 	
 	if not fft_update_pipeline.is_valid(): return
 	var cl = rd.compute_list_begin()
@@ -2866,9 +2870,11 @@ func _run_fft_pipeline(_dt):
 	var u_set_disp = fft_displace_sets[0] if current_in == fft_ping_texture else fft_displace_sets[1]
 	if not u_set_disp.is_valid(): return
 	
-	# Displace shader: Params { int resolution; float sea_size; } = 8 bytes
+	# Displace shader: Params { int resolution; float sea_size; int _pad0; int _pad1; } = 16 bytes
 	pc = StreamPeerBuffer.new()
 	pc.put_32(grid_res); pc.put_float(max(sea_size.x, sea_size.y))
+	pc.put_32(0) # _pad0
+	pc.put_32(0) # _pad1
 	
 	if not fft_displace_pipeline.is_valid(): return
 	cl = rd.compute_list_begin()
@@ -2883,7 +2889,9 @@ func _dispatch_butterfly(_tex_in: RID, _tex_out: RID, stage: int, direction: int
 	
 	var pc = StreamPeerBuffer.new()
 	pc.put_32(stage); pc.put_32(direction)
-	# Butterfly shader: Params { int stage; int direction; } = 8 bytes
+	pc.put_32(0) # _pad0
+	pc.put_32(0) # _pad1
+	# Butterfly shader: Params { int stage; int direction; int _pad0; int _pad1; } = 16 bytes
 	
 	if not fft_butterfly_pipeline.is_valid(): return
 	var cl = rd.compute_list_begin()

@@ -164,15 +164,20 @@ void main() {
         vec2 my_pos = vec2(global_id) / vec2(size);
         for (int i = 0; i < params.interact_count; i++) {
             vec4 it = interaction_data.interactions[i * 2]; // Skip velocity slot (interleaved 2x vec4)
+            vec4 it2 = interaction_data.interactions[i * 2 + 1]; // velocity + injection_flag
             vec2 pos = it.xy;
             float strength = it.z;
             float radius = it.w;
+            float injection_flag = it2.w; // 2.0 = direct height injection
             
             float dist = distance(my_pos, pos);
             if (dist < radius && radius > 0.001) {
                 float gauss = exp(- (dist * dist) / (radius * radius * 0.25));
 
-                if (strength > 1000.0) {
+                if (injection_flag > 1.5) {
+                    // ★ INJECTION MODE: Direct height addition (no clamp)
+                    next_h += strength * gauss * params.dt;
+                } else if (strength > 1000.0) {
                     // VORTEX MODE (Impact to momentum)
                     float s = strength - 2000.0;
                     next_hu += s * gauss * params.dt * 10.0; 
@@ -212,7 +217,7 @@ void main() {
 
     // Final Safety: Height clamp
     float min_h = -H0 + 0.05;
-    next_h = clamp(next_h, min_h, 4.0);
+    next_h = clamp(next_h, min_h, 10.0);
     
     // Dry state: dampen momentum on very shallow water
     if (next_h <= min_h + 0.05) {
